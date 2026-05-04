@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - bootstrap/operators
+  - infrastructure/quay-storage
+  - infrastructure/gpu-config
+  - monitoring/mattermost
+  - monitoring/acs-policies
+  - agents/helpful-hank
+  - agents/rosey-rogue
+  - pipelines
