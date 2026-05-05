@@ -1,0 +1,18 @@
+{{- if .Values.components.kagenti.enabled }}
+# AppSource for Kagenti Git-backed app imports.
+# If your installed CRD uses a different apiVersion, update this manifest accordingly.
+apiVersion: kagenti.io/v1alpha1
+kind: AppSource
+metadata:
+  name: {{ .Values.kagenti.appSource.name }}
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kagenti-source
+spec:
+  type: git
+  git:
+    url: {{ .Values.kagenti.appSource.repoUrl }}
+    revision: {{ .Values.kagenti.appSource.revision }}
+    path: {{ .Values.kagenti.appSource.path }}
+{{- end }}

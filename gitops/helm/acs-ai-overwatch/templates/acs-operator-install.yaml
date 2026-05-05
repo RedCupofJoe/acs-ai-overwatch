@@ -1,0 +1,31 @@
+{{- if .Values.components.acsPolicies.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.acs.operator.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.acs.operator.operatorGroupName }}
+  namespace: {{ .Values.acs.operator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.acs.operator.subscription.name }}
+  namespace: {{ .Values.acs.operator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.acs.operator.subscription.channel }}
+  installPlanApproval: {{ .Values.acs.operator.subscription.installPlanApproval }}
+  name: rhacs-operator
+  source: {{ .Values.acs.operator.subscription.source }}
+  sourceNamespace: {{ .Values.acs.operator.subscription.sourceNamespace }}
+{{- end }}

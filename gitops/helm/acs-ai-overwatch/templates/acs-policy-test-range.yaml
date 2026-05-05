@@ -1,0 +1,68 @@
+{{- if .Values.components.acsPolicies.enabled }}
+# ACS policy payload in RHACS declarative policy format.
+# Import with:
+#   roxctl declarative-config create --file policy.yaml
+#
+# This config references an existing RHACS notifier by name:
+#   {{ .Values.acs.policy.notifierName }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acs-policy-test-range-runtime-guardrails
+  namespace: {{ .Values.acs.testRange.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+data:
+  policy.yaml: |
+    name: {{ .Values.acs.policy.name }}
+    description: >
+      Runtime controls for namespace {{ .Values.acs.testRange.namespace }}:
+      allow only approved processes, explicitly detect nmap/masscan, and
+      restrict destination network ports to a standard set.
+    rationale: >
+      Constrains agent behavior in the test-range scope while preserving
+      expected service traffic for web/API and Kubernetes control-plane access.
+    remediation: >
+      Investigate the offending workload, compare against approved OpenShell
+      runtime profile, and update SCC/pod spec/policy only after review.
+    disabled: false
+    severity: {{ .Values.acs.policy.severity }}
+    lifecycleStages:
+      - RUNTIME
+    categories:
+      - Security Best Practices
+      - Anomalous Activity
+    eventSource: NOT_APPLICABLE
+    scope:
+      - namespace: {{ .Values.acs.testRange.namespace }}
+    policySections:
+      - sectionName: Process outside approved whitelist
+        policyGroups:
+          - fieldName: Process Name
+            booleanOperator: OR
+            negate: true
+            values:
+{{- range .Values.acs.policy.processWhitelist }}
+              - value: {{ . | quote }}
+{{- end }}
+      - sectionName: Explicitly disallowed process names
+        policyGroups:
+          - fieldName: Process Name
+            booleanOperator: OR
+            values:
+{{- range .Values.acs.policy.disallowedProcesses }}
+              - value: {{ . | quote }}
+{{- end }}
+      - sectionName: Destination ports outside standard profile
+        policyGroups:
+          - fieldName: Destination Port
+            booleanOperator: OR
+            negate: true
+            values:
+{{- range .Values.acs.policy.standardPorts }}
+              - value: {{ . | quote }}
+{{- end }}
+    notifiers:
+      - {{ .Values.acs.policy.notifierName }}
+{{- end }}

@@ -1,0 +1,128 @@
+{{- if .Values.components.kagenti.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helpful-hank
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kagenti-agent
+    app.kubernetes.io/name: helpful-hank
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: helpful-hank
+      kagenti.io/type: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: helpful-hank
+        app.kubernetes.io/component: kagenti-agent
+        kagenti.io/type: agent
+        protocol.kagenti.io/a2a: ""
+    spec:
+      serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
+      containers:
+        - name: helpful-hank
+          image: {{ .Values.kagenti.images.helpfulHank }}
+          imagePullPolicy: Always
+          env:
+            - name: OPENSHELL_SYSTEM_PROMPT_FILE
+              value: /etc/openshell/agent/system_prompt.txt
+            - name: PORT
+              value: "8000"
+          ports:
+            - name: http
+              containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helpful-hank
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kagenti-agent
+    app.kubernetes.io/name: helpful-hank
+    kagenti.io/type: agent
+spec:
+  selector:
+    app.kubernetes.io/name: helpful-hank
+    kagenti.io/type: agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rosey-regrets
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kagenti-agent
+    app.kubernetes.io/name: rosey-regrets
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rosey-regrets
+      kagenti.io/type: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rosey-regrets
+        app.kubernetes.io/component: kagenti-agent
+        kagenti.io/type: agent
+        protocol.kagenti.io/a2a: ""
+    spec:
+      serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
+      containers:
+        - name: rosey-regrets
+          image: {{ .Values.kagenti.images.roseyRegrets }}
+          imagePullPolicy: Always
+          env:
+            - name: OPENSHELL_SYSTEM_PROMPT_FILE
+              value: /etc/openshell/agent/system_prompt.txt
+            - name: PORT
+              value: "8000"
+            - name: AGENT_OUTPUT_DIR
+              value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
+            - name: NETWORK_AUDIT_COMMAND
+              value: {{ .Values.kagenti.rosey.networkAuditCommand | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+          volumeMounts:
+            - name: reference-information
+              mountPath: {{ .Values.kagenti.rosey.outputMountPath | quote }}
+      volumes:
+        - name: reference-information
+          persistentVolumeClaim:
+            claimName: agent-reference-information
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rosey-regrets
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kagenti-agent
+    app.kubernetes.io/name: rosey-regrets
+    kagenti.io/type: agent
+spec:
+  selector:
+    app.kubernetes.io/name: rosey-regrets
+    kagenti.io/type: agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+{{- end }}

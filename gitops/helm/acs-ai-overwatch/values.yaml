@@ -244,6 +244,8 @@ components:
     enabled: false
   acsPolicies:
     enabled: false
+  kagenti:
+    enabled: false
   agentsHelpfulHank:
     enabled: false
   agentsRoseyRogue:
@@ -255,7 +257,7 @@ components:
 
 # PVC for rosey-regrets agent output (enable with components.agentsRoseyRegrets).
 agentsRoseyRegrets:
-  namespace: acs-ai-overwatch-system
+  namespace: test-range
   pvc:
     storageClassName: ""
     size: 20Gi
@@ -267,3 +269,62 @@ pipelines:
     # Internal Quay registry service DNS (adjust to match your QuayRegistry route/service).
     host: quay-quay-registry.quay.svc.cluster.local:443
     organization: acs-agents
+
+# Kagenti workloads + source registration for Hank and Rosey.
+kagenti:
+  namespace: test-range
+  api:
+    # External base URL for Kagenti API used by scripts/trigger-network-audit.sh.
+    baseUrl: https://kagenti-api.apps.CHANGE_ME.example.com
+  appSource:
+    name: acs-ai-overwatch-gitops
+    repoUrl: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    revision: main
+    path: gitops/helm/acs-ai-overwatch
+  images:
+    helpfulHank: quay-quay-registry.quay.svc.cluster.local:443/acs-agents/helpful-hank:latest
+    roseyRegrets: quay-quay-registry.quay.svc.cluster.local:443/acs-agents/rosey-regrets:latest
+  serviceAccountName: openshell
+  rosey:
+    networkAuditCommand: "Network Audit"
+    outputMountPath: /mnt/data
+
+# ACS (RHACS) policy/operator settings for test-range.
+acs:
+  testRange:
+    namespace: test-range
+  operator:
+    namespace: rhacs-operator
+    operatorGroupName: rhacs-operator
+    subscription:
+      name: rhacs-operator
+      channel: stable
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+      installPlanApproval: Automatic
+  policy:
+    name: test-range-runtime-guardrails
+    notifierName: Mattermost Notifier
+    severity: HIGH_SEVERITY
+    standardPorts:
+      - "80"
+      - "443"
+      - "6443"
+      - "8080"
+    processWhitelist:
+      - bash
+      - sh
+      - python
+      - python3
+      - uv
+      - node
+      - openssl
+      - curl
+      - wget
+      - git
+      - ip
+      - ping
+      - traceroute
+    disallowedProcesses:
+      - nmap
+      - masscan
