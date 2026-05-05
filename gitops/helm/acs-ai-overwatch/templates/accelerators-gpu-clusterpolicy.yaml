@@ -1,0 +1,26 @@
+{{- if and .Values.accelerators.enabled .Values.accelerators.gpuOperator.enabled }}
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ .Values.accelerators.clusterPolicy.name }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  operator:
+    defaultRuntime: crio
+  driver:
+    enabled: true
+  toolkit:
+    enabled: true
+  devicePlugin:
+    enabled: true
+    config:
+      name: {{ .Values.accelerators.timeSlicing.configMapName }}
+      default: {{ .Values.accelerators.timeSlicing.configKey }}
+  dcgm:
+    enabled: true
+  gfd:
+    enabled: true
+  migManager:
+    enabled: false
+{{- end }}

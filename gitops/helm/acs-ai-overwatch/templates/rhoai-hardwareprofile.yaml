@@ -1,0 +1,33 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.hardwareProfile.enabled }}
+apiVersion: {{ .Values.rhoai.hardwareProfile.apiVersion }}
+kind: HardwareProfile
+metadata:
+  name: {{ .Values.rhoai.hardwareProfile.name }}
+  namespace: {{ .Values.rhoai.hardwareProfile.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  identifiers:
+    - displayName: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.displayName | quote }}
+      identifier: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.identifier | quote }}
+      resourceType: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.resourceType }}
+      minCount: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.minCount }}
+      maxCount: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.maxCount | quote }}
+      defaultCount: {{ .Values.rhoai.hardwareProfile.identifiers.cpu.defaultCount | quote }}
+    - displayName: {{ .Values.rhoai.hardwareProfile.identifiers.memory.displayName | quote }}
+      identifier: {{ .Values.rhoai.hardwareProfile.identifiers.memory.identifier | quote }}
+      resourceType: {{ .Values.rhoai.hardwareProfile.identifiers.memory.resourceType }}
+      minCount: {{ .Values.rhoai.hardwareProfile.identifiers.memory.minCount | quote }}
+      maxCount: {{ .Values.rhoai.hardwareProfile.identifiers.memory.maxCount | quote }}
+      defaultCount: {{ .Values.rhoai.hardwareProfile.identifiers.memory.defaultCount | quote }}
+    - displayName: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.displayName | quote }}
+      identifier: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.identifier | quote }}
+      resourceType: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.resourceType }}
+      minCount: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.minCount | quote }}
+      maxCount: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.maxCount | quote }}
+      defaultCount: {{ .Values.rhoai.hardwareProfile.identifiers.gpu.defaultCount | quote }}
+  scheduling:
+    type: Queue
+    kueue:
+      localQueueName: {{ .Values.rhoai.hardwareProfile.kueueLocalQueueName | quote }}
+{{- end }}

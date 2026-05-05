@@ -1,0 +1,11 @@
+{{- if .Values.rhoai.enabled }}
+apiVersion: datasciencecluster.opendatahub.io/v2
+kind: DataScienceCluster
+metadata:
+  name: {{ .Values.rhoai.datascienceCluster.name }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  components:
+{{- toYaml .Values.rhoai.datascienceCluster.components | nindent 4 }}
+{{- end }}

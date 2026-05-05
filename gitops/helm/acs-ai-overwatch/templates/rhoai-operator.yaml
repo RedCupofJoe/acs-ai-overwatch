@@ -1,0 +1,30 @@
+{{- if .Values.rhoai.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.rhoai.operator.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: {{ .Values.rhoai.operator.clusterMonitoringLabel | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.rhoai.operator.operatorGroup.name }}
+  namespace: {{ .Values.rhoai.operator.namespace }}
+spec:
+  upgradeStrategy: Default
+  targetNamespaces:
+    - {{ .Values.rhoai.operator.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.rhoai.operator.subscription.name }}
+  namespace: {{ .Values.rhoai.operator.namespace }}
+spec:
+  channel: {{ .Values.rhoai.operator.subscription.channel }}
+  installPlanApproval: {{ .Values.rhoai.operator.subscription.installPlanApproval }}
+  name: {{ .Values.rhoai.operator.subscription.name }}
+  source: {{ .Values.rhoai.operator.subscription.source }}
+  sourceNamespace: {{ .Values.rhoai.operator.subscription.sourceNamespace }}
+{{- end }}

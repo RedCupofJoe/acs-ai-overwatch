@@ -1,0 +1,21 @@
+{{- if and .Values.accelerators.enabled .Values.accelerators.gpuOperator.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.accelerators.timeSlicing.configMapName }}
+  namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+data:
+  {{ .Values.accelerators.timeSlicing.configKey }}: |-
+    version: v1
+    flags:
+      migStrategy: {{ .Values.accelerators.timeSlicing.migStrategy }}
+    sharing:
+      timeSlicing:
+        renameByDefault: false
+        failRequestsGreaterThanOne: false
+        resources:
+          - name: nvidia.com/gpu
+            replicas: {{ .Values.accelerators.timeSlicing.replicasPerGpu }}
+{{- end }}

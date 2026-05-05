@@ -1,0 +1,29 @@
+{{- if and .Values.accelerators.enabled .Values.accelerators.nfd.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.accelerators.nfd.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: {{ .Values.accelerators.nfd.clusterMonitoringLabel | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.accelerators.nfd.operatorGroup.name }}
+  namespace: {{ .Values.accelerators.nfd.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.accelerators.nfd.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.accelerators.nfd.subscription.name }}
+  namespace: {{ .Values.accelerators.nfd.namespace }}
+spec:
+  channel: {{ .Values.accelerators.nfd.subscription.channel }}
+  installPlanApproval: {{ .Values.accelerators.nfd.subscription.installPlanApproval }}
+  name: {{ .Values.accelerators.nfd.subscription.name }}
+  source: {{ .Values.accelerators.nfd.subscription.source }}
+  sourceNamespace: {{ .Values.accelerators.nfd.subscription.sourceNamespace }}
+{{- end }}

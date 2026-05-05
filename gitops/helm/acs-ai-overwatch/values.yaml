@@ -118,6 +118,124 @@ quayStorage:
     useExistingDockerconfig: false
     existingDockerconfig: ""
 
+# Node Feature Discovery + NVIDIA GPU Operator (time-slicing). Requires Certified Operators + Red Hat Operators catalogs.
+accelerators:
+  enabled: true
+  nfd:
+    enabled: true
+    namespace: openshift-nfd
+    clusterMonitoringLabel: "true"
+    operatorGroup:
+      name: openshift-nfd
+    subscription:
+      name: nfd
+      channel: stable
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+  gpuOperator:
+    enabled: true
+    namespace: nvidia-gpu-operator
+    clusterMonitoringLabel: "true"
+    operatorGroup:
+      name: nvidia-gpu-operator
+    subscription:
+      name: gpu-operator-certified
+      channel: stable
+      installPlanApproval: Automatic
+      source: certified-operators
+      sourceNamespace: openshift-marketplace
+  timeSlicing:
+    # ConfigMap consumed by ClusterPolicy devicePlugin.config
+    configMapName: time-slicing-config
+    configKey: any
+    # Each physical L4 advertises N logical `nvidia.com/gpu` devices (scheduling units).
+    # 3 GPUs × replicasPerGpu = total slices (set to 6 for six half-GPU slices).
+    replicasPerGpu: 2
+    migStrategy: none
+  clusterPolicy:
+    name: gpu-cluster-policy
+
+# Red Hat OpenShift AI operator + DataScienceCluster + HardwareProfile (3.2 / stable channel — verify on cluster).
+rhoai:
+  enabled: true
+  operator:
+    namespace: redhat-ods-operator
+    clusterMonitoringLabel: "true"
+    operatorGroup:
+      name: redhat-ods-operator
+    subscription:
+      name: rhods-operator
+      channel: stable
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+  datascienceCluster:
+    name: default-dsc
+    # Dashboard, CodeFlare, KServe Managed; others Removed for a minimal footprint (edit as needed).
+    components:
+      dashboard:
+        managementState: Managed
+      codeflare:
+        managementState: Managed
+      kserve:
+        managementState: Managed
+      kueue:
+        managementState: Managed
+        defaultClusterQueueName: default
+        defaultLocalQueueName: default
+      workbenches:
+        managementState: Removed
+        workbenchNamespace: rhods-notebooks
+      ray:
+        managementState: Removed
+      feastoperator:
+        managementState: Removed
+      modelregistry:
+        managementState: Removed
+        registriesNamespace: rhoai-model-registries
+      trainingoperator:
+        managementState: Removed
+      trustyai:
+        managementState: Removed
+      llamastackoperator:
+        managementState: Removed
+      aipipelines:
+        managementState: Removed
+        argoWorkflowsControllers:
+          managementState: Removed
+  hardwareProfile:
+    enabled: true
+    apiVersion: infrastructure.opendatahub.io/v1alpha1
+    namespace: redhat-ods-applications
+    name: l4-timeslice-half-gpu
+    displayName: "L4 time-slice (0.5 GPU increment)"
+    # Must match a Kueue LocalQueue that exists for scheduled workloads (see rhoai.datascienceCluster kueue).
+    kueueLocalQueueName: default
+    identifiers:
+      cpu:
+        displayName: CPU
+        identifier: cpu
+        resourceType: CPU
+        minCount: 1
+        maxCount: "32"
+        defaultCount: "4"
+      memory:
+        displayName: Memory
+        identifier: memory
+        resourceType: Memory
+        minCount: 4Gi
+        maxCount: 64Gi
+        defaultCount: 8Gi
+      gpu:
+        displayName: "NVIDIA GPU (time-sliced)"
+        identifier: nvidia.com/gpu
+        resourceType: Accelerator
+        # One scheduling unit = half of an L4 when replicasPerGpu is 2 (see accelerators.timeSlicing).
+        minCount: "0.5"
+        maxCount: "6"
+        defaultCount: "0.5"
+
 # Future Git-backed manifests (enable when content exists).
 components:
   bootstrapOperators:

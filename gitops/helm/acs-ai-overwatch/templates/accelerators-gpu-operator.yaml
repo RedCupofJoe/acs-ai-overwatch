@@ -1,0 +1,29 @@
+{{- if and .Values.accelerators.enabled .Values.accelerators.gpuOperator.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.accelerators.gpuOperator.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: {{ .Values.accelerators.gpuOperator.clusterMonitoringLabel | quote }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.accelerators.gpuOperator.operatorGroup.name }}
+  namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.accelerators.gpuOperator.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.accelerators.gpuOperator.subscription.name }}
+  namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+spec:
+  channel: {{ .Values.accelerators.gpuOperator.subscription.channel }}
+  installPlanApproval: {{ .Values.accelerators.gpuOperator.subscription.installPlanApproval }}
+  name: {{ .Values.accelerators.gpuOperator.subscription.name }}
+  source: {{ .Values.accelerators.gpuOperator.subscription.source }}
+  sourceNamespace: {{ .Values.accelerators.gpuOperator.subscription.sourceNamespace }}
+{{- end }}
