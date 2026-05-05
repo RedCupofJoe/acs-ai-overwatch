@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: agent-reference-information
+  name: {{ .Values.agentsRoseyRegrets.pvc.name }}
   namespace: {{ .Values.agentsRoseyRegrets.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

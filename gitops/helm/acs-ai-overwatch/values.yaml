@@ -185,7 +185,7 @@ rhoai:
         defaultClusterQueueName: default
         defaultLocalQueueName: default
       workbenches:
-        managementState: Removed
+        managementState: Managed
         workbenchNamespace: rhods-notebooks
       ray:
         managementState: Removed
@@ -259,6 +259,7 @@ components:
 agentsRoseyRegrets:
   namespace: test-range
   pvc:
+    name: agent-reference-information
     storageClassName: ""
     size: 20Gi
 
@@ -287,7 +288,7 @@ kagenti:
   serviceAccountName: openshell
   rosey:
     networkAuditCommand: "Network Audit"
-    outputMountPath: /mnt/data
+    outputMountPath: /agent-reference-information
 
 # ACS (RHACS) policy/operator settings for test-range.
 acs:

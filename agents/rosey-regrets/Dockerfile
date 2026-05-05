@@ -10,15 +10,15 @@ ENV AGENT_HF_MODEL_ID=${AGENT_HF_MODEL_ID}
 ENV MODEL_LOCAL_DIR=/models/hf-model
 ENV HF_HOME=/models/hf-hub
 ENV OPENSHELL_SYSTEM_PROMPT_FILE=/etc/openshell/agent/system_prompt.txt
-ENV AGENT_OUTPUT_DIR=/output
+ENV AGENT_OUTPUT_DIR=/agent-reference-information
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
     iproute2 \
   && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /models/hf-model /models/hf-hub /etc/openshell/agent /output \
-  && chown -R sandbox:sandbox /models /etc/openshell/agent /output
+RUN mkdir -p /models/hf-model /models/hf-hub /etc/openshell/agent /agent-reference-information \
+  && chown -R sandbox:sandbox /models /etc/openshell/agent /agent-reference-information
 
 COPY agents/rosey-regrets/system_prompt.txt /etc/openshell/agent/system_prompt.txt
 COPY agents/scripts/pull-model.sh /usr/local/bin/pull-model

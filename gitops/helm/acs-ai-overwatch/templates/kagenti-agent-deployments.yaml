@@ -105,7 +105,7 @@ spec:
       volumes:
         - name: reference-information
           persistentVolumeClaim:
-            claimName: agent-reference-information
+            claimName: {{ .Values.agentsRoseyRegrets.pvc.name }}
 ---
 apiVersion: v1
 kind: Service
