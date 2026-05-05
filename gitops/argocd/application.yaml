@@ -1,0 +1,30 @@
+# Apply into the OpenShift GitOps control plane namespace (default: openshift-gitops).
+# Requires OpenShift GitOps Operator (Argo CD). Sync deploys the umbrella Helm chart at gitops/helm/acs-ai-overwatch.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acs-ai-overwatch
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    targetRevision: main
+    path: gitops/helm/acs-ai-overwatch
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=false

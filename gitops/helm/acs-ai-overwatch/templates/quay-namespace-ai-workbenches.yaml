@@ -1,0 +1,8 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.registryCredentials.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.quayStorage.registryCredentials.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+{{- end }}

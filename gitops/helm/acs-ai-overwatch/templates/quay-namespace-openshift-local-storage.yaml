@@ -1,0 +1,11 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.localStorageOperator.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.quayStorage.localStorageOperator.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: {{ .Values.quayStorage.localStorageOperator.clusterMonitoringLabel | quote }}
+    pod-security.kubernetes.io/enforce: {{ .Values.quayStorage.localStorageOperator.podSecurityEnforce | quote }}
+    pod-security.kubernetes.io/audit: {{ .Values.quayStorage.localStorageOperator.podSecurityEnforce | quote }}
+    pod-security.kubernetes.io/warn: {{ .Values.quayStorage.localStorageOperator.podSecurityEnforce | quote }}
+{{- end }}

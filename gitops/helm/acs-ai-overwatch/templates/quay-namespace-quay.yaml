@@ -1,0 +1,8 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.quayStorage.quayRegistry.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: {{ .Values.quayStorage.quayRegistry.clusterMonitoringLabel | quote }}
+{{- end }}

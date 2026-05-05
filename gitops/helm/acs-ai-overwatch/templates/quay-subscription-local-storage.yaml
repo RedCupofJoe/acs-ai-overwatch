@@ -1,0 +1,13 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.localStorageOperator.enabled }}
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.quayStorage.localStorageOperator.subscription.name }}
+  namespace: {{ .Values.quayStorage.localStorageOperator.namespace }}
+spec:
+  channel: {{ .Values.quayStorage.localStorageOperator.subscription.channel }}
+  installPlanApproval: {{ .Values.quayStorage.localStorageOperator.subscription.installPlanApproval }}
+  name: {{ .Values.quayStorage.localStorageOperator.subscription.name }}
+  source: {{ .Values.quayStorage.localStorageOperator.subscription.source }}
+  sourceNamespace: {{ .Values.quayStorage.localStorageOperator.subscription.sourceNamespace }}
+{{- end }}

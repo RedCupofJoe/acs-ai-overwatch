@@ -1,0 +1,22 @@
+{{- if .Values.clusterMetadata.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.clusterMetadata.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-metadata
+  namespace: {{ .Values.clusterMetadata.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+data:
+  CLUSTER_NAME: {{ .Values.cluster.name | quote }}
+  CLUSTER_TOPOLOGY: {{ .Values.cluster.topology | quote }}
+  GPU_COUNT: {{ .Values.cluster.gpu.count | toString | quote }}
+  GPU_MODEL: {{ .Values.cluster.gpu.model | quote }}
+  GPU_VENDOR: {{ .Values.cluster.gpu.vendor | quote }}
+{{- end }}

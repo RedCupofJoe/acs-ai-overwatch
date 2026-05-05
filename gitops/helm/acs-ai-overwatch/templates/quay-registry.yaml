@@ -1,0 +1,42 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled }}
+apiVersion: quay.redhat.com/v1
+kind: QuayRegistry
+metadata:
+  name: {{ .Values.quayStorage.quayRegistry.name }}
+  namespace: {{ .Values.quayStorage.quayRegistry.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  components:
+    - kind: postgres
+      managed: true
+      overrides:
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.postgres.storageClassName }}
+        volumeSize: {{ .Values.quayStorage.quayRegistry.components.postgres.volumeSize }}
+    - kind: clairpostgres
+      managed: true
+      overrides:
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.storageClassName }}
+        volumeSize: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.volumeSize }}
+    - kind: objectstorage
+      managed: true
+      overrides:
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.objectstorage.storageClassName }}
+        volumeSize: {{ .Values.quayStorage.quayRegistry.components.objectstorage.volumeSize }}
+    - kind: quay
+      managed: true
+    - kind: clair
+      managed: true
+    - kind: redis
+      managed: true
+    - kind: horizontalpodautoscaler
+      managed: {{ .Values.quayStorage.quayRegistry.components.horizontalpodautoscaler.managed }}
+    - kind: mirror
+      managed: {{ .Values.quayStorage.quayRegistry.components.mirror.managed }}
+    - kind: monitoring
+      managed: true
+    - kind: tls
+      managed: true
+    - kind: route
+      managed: true
+{{- end }}

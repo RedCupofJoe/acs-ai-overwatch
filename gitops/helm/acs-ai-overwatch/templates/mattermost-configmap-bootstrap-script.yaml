@@ -1,0 +1,13 @@
+{{- if and .Values.mattermost.enabled .Values.mattermost.bootstrap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mattermost-bootstrap-script
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: bootstrap
+data:
+  bootstrap.sh: |
+{{ include "mattermost.bootstrapScript" . | nindent 4 }}
+{{- end }}

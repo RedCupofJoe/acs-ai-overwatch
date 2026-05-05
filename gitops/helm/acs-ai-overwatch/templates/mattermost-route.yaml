@@ -1,0 +1,23 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mattermost
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+spec:
+  {{- if .Values.mattermost.route.host }}
+  host: {{ .Values.mattermost.route.host }}
+  {{- end }}
+  to:
+    kind: Service
+    name: mattermost
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}

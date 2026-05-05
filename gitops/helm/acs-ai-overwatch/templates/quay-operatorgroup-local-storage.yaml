@@ -1,0 +1,10 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.localStorageOperator.enabled }}
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.quayStorage.localStorageOperator.operatorGroup.name }}
+  namespace: {{ .Values.quayStorage.localStorageOperator.namespace }}
+spec:
+  targetNamespaces:
+    - {{ .Values.quayStorage.localStorageOperator.namespace }}
+{{- end }}

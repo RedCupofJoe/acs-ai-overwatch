@@ -1,0 +1,8 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.mattermost.namespace }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+{{- end }}

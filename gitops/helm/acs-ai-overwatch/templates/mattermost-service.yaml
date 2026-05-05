@@ -1,0 +1,19 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mattermost
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8065
+      targetPort: http
+{{- end }}

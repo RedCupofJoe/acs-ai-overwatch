@@ -1,0 +1,19 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mattermost-data
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mattermost.pvc.storageClassName }}
+  storageClassName: {{ .Values.mattermost.pvc.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mattermost.pvc.size }}
+{{- end }}

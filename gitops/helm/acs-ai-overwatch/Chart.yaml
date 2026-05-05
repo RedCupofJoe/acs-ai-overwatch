@@ -1,0 +1,6 @@
+apiVersion: v2
+name: acs-ai-overwatch
+description: Umbrella chart for ACS AI Overwatch (cluster metadata, Mattermost, Quay + local storage, placeholders for future components).
+type: application
+version: 0.2.0
+appVersion: "1.0"

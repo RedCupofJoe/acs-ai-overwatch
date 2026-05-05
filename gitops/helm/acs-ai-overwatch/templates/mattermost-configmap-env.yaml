@@ -1,0 +1,12 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mattermost-env
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+data:
+  MATTERMOST_SITE_URL: {{ .Values.mattermost.siteUrl | quote }}
+  MATTERMOST_INTERNAL_URL: {{ .Values.mattermost.internalUrl | quote }}
+{{- end }}

@@ -1,0 +1,71 @@
+{{- if and .Values.mattermost.enabled .Values.mattermost.bootstrap.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mattermost-bootstrap
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: bootstrap
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mattermost
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: mattermost-bootstrap
+      containers:
+        - name: bootstrap
+          image: {{ .Values.mattermost.bootstrap.jobImage }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "/scripts/bootstrap.sh"]
+          env:
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-bootstrap
+                  key: admin-email
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-bootstrap
+                  key: admin-username
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-bootstrap
+                  key: admin-password
+            - name: HITL_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-bootstrap
+                  key: hitl-email
+            - name: HITL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-bootstrap
+                  key: hitl-password
+            - name: MATTERMOST_SITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mattermost-env
+                  key: MATTERMOST_SITE_URL
+            - name: MATTERMOST_INTERNAL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mattermost-env
+                  key: MATTERMOST_INTERNAL_URL
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: mattermost-bootstrap-script
+            defaultMode: 0755
+{{- end }}

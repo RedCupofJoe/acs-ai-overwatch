@@ -1,0 +1,77 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mattermost
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mattermost
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mattermost
+        app.kubernetes.io/component: server
+    spec:
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: mattermost
+          image: {{ printf "%s:%s" .Values.mattermost.image.repository .Values.mattermost.image.tag }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8065
+          env:
+            - name: MM_SQLSETTINGS_DRIVERNAME
+              value: sqlite3
+            - name: MM_SQLSETTINGS_DATASOURCE
+              value: "file:/mattermost/data/mattermost.db?_busy_timeout=5000"
+            - name: MM_FILESETTINGS_DIRECTORY
+              value: /mattermost/data/files
+            - name: MM_SERVICESETTINGS_LISTENADDRESS
+              value: ":8065"
+            - name: MM_SERVICESETTINGS_SITEURL
+              valueFrom:
+                configMapKeyRef:
+                  name: mattermost-env
+                  key: MATTERMOST_SITE_URL
+            - name: MM_TEAMSETTINGS_ENABLEUSERCREATION
+              value: "true"
+            - name: MM_TEAMSETTINGS_ENABLEOPENSERVER
+              value: "true"
+          volumeMounts:
+            - name: data
+              mountPath: /mattermost/data
+          readinessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mattermost-data
+{{- end }}

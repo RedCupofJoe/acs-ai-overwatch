@@ -1,0 +1,134 @@
+# Cluster-specific configuration — override via Argo CD, CI, or:
+#   helm upgrade -i acs-ai-overwatch . -f values-prod.yaml -n openshift-gitops
+
+global:
+  partOf: acs-ai-overwatch
+
+cluster:
+  name: acs-ai-overwatch
+  # Describe layout (e.g. 3×3 failure domains / nodes); used for documentation ConfigMap only.
+  topology: "3x3"
+  gpu:
+    count: 3
+    model: L4
+    vendor: nvidia
+
+# Optional ConfigMap with cluster facts (for operators / workbenches that read it).
+clusterMetadata:
+  enabled: true
+  namespace: acs-ai-overwatch-system
+
+mattermost:
+  enabled: true
+  namespace: monitoring
+  image:
+    repository: mattermost/mattermost-team-edition
+    tag: "10.11.15"
+  pvc:
+    storageClassName: ""
+    size: 10Gi
+  siteUrl: https://mattermost-monitoring.apps.CHANGE_ME.example.com
+  internalUrl: http://mattermost.monitoring.svc.cluster.local:8065
+  route:
+    host: ""
+    tls: true
+  bootstrap:
+    enabled: true
+    jobImage: docker.io/nicolaka/netshoot:v0.13
+    adminEmail: mattermost-admin@cluster.local
+    adminUsername: mattermost-admin
+    adminPassword: CHANGE_ME_ADMIN
+    hitlEmail: human-in-the-loop@cluster.local
+    hitlPassword: CHANGE_ME_HITL
+
+quayStorage:
+  enabled: true
+  localStorageOperator:
+    enabled: true
+    namespace: openshift-local-storage
+    clusterMonitoringLabel: "true"
+    podSecurityEnforce: privileged
+    operatorGroup:
+      name: openshift-local-storage
+    subscription:
+      name: local-storage-operator
+      channel: stable
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+  localVolume:
+    enabled: true
+    name: quay-local-storage
+    namespace: openshift-local-storage
+    logLevel: Normal
+    managementState: Managed
+    nodeSelector:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/worker
+              operator: Exists
+    storageClassDevices:
+      - storageClassName: quay-local-xfs
+        volumeMode: Filesystem
+        fsType: xfs
+        devicePaths:
+          - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
+      - storageClassName: quay-local-block
+        volumeMode: Block
+        devicePaths:
+          - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
+  quayOperator:
+    enabled: true
+    subscription:
+      namespace: openshift-operators
+      name: quay-operator
+      channel: stable-3.15
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+  quayRegistry:
+    enabled: true
+    name: quay
+    namespace: quay
+    clusterMonitoringLabel: "true"
+    components:
+      postgres:
+        storageClassName: quay-local-xfs
+        volumeSize: 50Gi
+      clairpostgres:
+        storageClassName: quay-local-xfs
+        volumeSize: 50Gi
+      objectstorage:
+        storageClassName: quay-local-block
+        volumeSize: 500Gi
+      horizontalpodautoscaler:
+        managed: false
+      mirror:
+        managed: false
+  registryCredentials:
+    enabled: true
+    namespace: ai-workbenches
+    pullSecret:
+      name: quay-registry-credentials
+    envSecret:
+      name: quay-registry-env
+    server: quay-quay.apps.CHANGE_ME.example.com
+    username: ai-workbench-pull
+    password: CHANGE_ME_PASSWORD
+    useExistingDockerconfig: false
+    existingDockerconfig: ""
+
+# Future Git-backed manifests (enable when content exists).
+components:
+  bootstrapOperators:
+    enabled: false
+  gpuConfig:
+    enabled: false
+  acsPolicies:
+    enabled: false
+  agentsHelpfulHank:
+    enabled: false
+  agentsRoseyRogue:
+    enabled: false
+  pipelines:
+    enabled: false

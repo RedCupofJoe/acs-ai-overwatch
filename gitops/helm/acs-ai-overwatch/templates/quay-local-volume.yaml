@@ -1,0 +1,16 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.localVolume.enabled }}
+apiVersion: local.storage.openshift.io/v1
+kind: LocalVolume
+metadata:
+  name: {{ .Values.quayStorage.localVolume.name }}
+  namespace: {{ .Values.quayStorage.localVolume.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  logLevel: {{ .Values.quayStorage.localVolume.logLevel }}
+  managementState: {{ .Values.quayStorage.localVolume.managementState }}
+  storageClassDevices:
+    {{- toYaml .Values.quayStorage.localVolume.storageClassDevices | nindent 4 }}
+  nodeSelector:
+    {{- toYaml .Values.quayStorage.localVolume.nodeSelector | nindent 4 }}
+{{- end }}

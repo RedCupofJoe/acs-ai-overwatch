@@ -1,0 +1,7 @@
+ACS AI Overwatch ({{ .Chart.Version }})
+
+Cluster metadata ConfigMap (when enabled): {{ .Values.clusterMetadata.namespace }}/cluster-metadata
+
+Edit gitops/helm/acs-ai-overwatch/values.yaml for cluster hosts, disks, and secrets before syncing.
+
+OpenShift GitOps: register Application from gitops/argocd/application.yaml into namespace openshift-gitops.
