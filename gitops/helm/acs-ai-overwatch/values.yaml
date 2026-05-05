@@ -248,5 +248,22 @@ components:
     enabled: false
   agentsRoseyRogue:
     enabled: false
+  agentsRoseyRegrets:
+    enabled: false
   pipelines:
     enabled: false
+
+# PVC for rosey-regrets agent output (enable with components.agentsRoseyRegrets).
+agentsRoseyRegrets:
+  namespace: acs-ai-overwatch-system
+  pvc:
+    storageClassName: ""
+    size: 20Gi
+
+# Tekton/OpenShift Pipelines defaults (see pipelines/tekton/agents-build-pipeline.yaml).
+pipelines:
+  namespace: acs-ai-overwatch-system
+  imageRegistry:
+    # Internal Quay registry service DNS (adjust to match your QuayRegistry route/service).
+    host: quay-quay-registry.quay.svc.cluster.local:443
+    organization: acs-agents

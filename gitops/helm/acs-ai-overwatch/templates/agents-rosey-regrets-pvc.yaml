@@ -1,0 +1,19 @@
+{{- if .Values.components.agentsRoseyRegrets.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-reference-information
+  namespace: {{ .Values.agentsRoseyRegrets.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.agentsRoseyRegrets.pvc.storageClassName }}
+  storageClassName: {{ .Values.agentsRoseyRegrets.pvc.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.agentsRoseyRegrets.pvc.size }}
+{{- end }}

@@ -1,0 +1,149 @@
+# OpenShift Pipelines (Tekton): clone this repo, build both agent images with buildah, push to local Quay.
+# Apply into a namespace where OpenShift Pipelines is available, e.g.:
+#   oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
+# Create a dockerconfig secret for Quay (robot account) and bind it in PipelineRun workspaces.registry-credentials.
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: agents-git-clone
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+spec:
+  description: Shallow clone of a Git repository into the output workspace.
+  params:
+    - name: url
+      type: string
+    - name: revision
+      type: string
+      default: main
+  workspaces:
+    - name: output
+  steps:
+    - name: clone
+      image: registry.access.redhat.com/ubi9/git
+      script: |
+        set -euo pipefail
+        dest="$(workspaces.output.path)"
+        cd "${dest}"
+        find "${dest}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+        git clone --depth 1 -b "$(params.revision)" "$(params.url)" .
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: agents-buildah-image
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+spec:
+  description: Build a Dockerfile from the source workspace and push with buildah (privileged; vfs storage driver).
+  params:
+    - name: image
+      type: string
+      description: Full destination image reference (registry/org/repo:tag)
+    - name: dockerfile
+      type: string
+      description: Path to Dockerfile relative to repository root
+    - name: tls-verify
+      type: string
+      description: Whether to verify TLS when pushing (often false for internal Quay)
+      default: "false"
+  workspaces:
+    - name: source
+    - name: registry-secret
+      optional: true
+  steps:
+    - name: build-and-push
+      image: registry.redhat.io/rhel9/buildah:latest
+      securityContext:
+        privileged: true
+      script: |
+        set -euo pipefail
+        mkdir -p "${HOME}/.docker"
+        if [ -d "$(workspaces.registry-secret.path)" ] && [ -f "$(workspaces.registry-secret.path)/.dockerconfigjson" ]; then
+          cp "$(workspaces.registry-secret.path)/.dockerconfigjson" "${HOME}/.docker/config.json"
+        fi
+        cd "$(workspaces.source.path)"
+        buildah bud --layers --storage-driver=vfs -f "$(params.dockerfile)" -t "$(params.image)" .
+        buildah push --storage-driver=vfs --tls-verify="$(params.tls-verify)" "$(params.image)"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-helpful-hank-and-rosey-regrets
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+spec:
+  description: >-
+    Builds helpful-hank and rosey-regrets images (OpenShell-based agents with HF model wiring)
+    and pushes them to the cluster Quay instance.
+  params:
+    - name: git-url
+      type: string
+      description: HTTPS clone URL for this repository
+    - name: git-revision
+      type: string
+      default: main
+    - name: image-registry
+      type: string
+      description: "Quay registry host:port (no scheme), e.g. quay-quay-registry.quay.svc.cluster.local:443"
+      default: quay-quay-registry.quay.svc.cluster.local:443
+    - name: image-org
+      type: string
+      default: acs-agents
+    - name: image-tag
+      type: string
+      default: latest
+    - name: push-tls-verify
+      type: string
+      default: "false"
+  workspaces:
+    - name: shared-source
+    - name: registry-credentials
+      optional: true
+  tasks:
+    - name: fetch-repository
+      taskRef:
+        name: agents-git-clone
+      workspaces:
+        - name: output
+          workspace: shared-source
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+    - name: build-helpful-hank
+      runAfter:
+        - fetch-repository
+      taskRef:
+        name: agents-buildah-image
+      workspaces:
+        - name: source
+          workspace: shared-source
+        - name: registry-secret
+          workspace: registry-credentials
+      params:
+        - name: dockerfile
+          value: agents/helpful-hank/Dockerfile
+        - name: image
+          value: $(params.image-registry)/$(params.image-org)/helpful-hank:$(params.image-tag)
+        - name: tls-verify
+          value: $(params.push-tls-verify)
+    - name: build-rosey-regrets
+      runAfter:
+        - build-helpful-hank
+      taskRef:
+        name: agents-buildah-image
+      workspaces:
+        - name: source
+          workspace: shared-source
+        - name: registry-secret
+          workspace: registry-credentials
+      params:
+        - name: dockerfile
+          value: agents/rosey-regrets/Dockerfile
+        - name: image
+          value: $(params.image-registry)/$(params.image-org)/rosey-regrets:$(params.image-tag)
+        - name: tls-verify
+          value: $(params.push-tls-verify)

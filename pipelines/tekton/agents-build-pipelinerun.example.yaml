@@ -1,0 +1,37 @@
+# Example only: oc create -f pipelines/tekton/agents-build-pipelinerun.example.yaml
+# Requires Secret quay-build-robot (kubernetes.io/dockerconfigjson) for Quay push.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: agents-build-
+spec:
+  pipelineRef:
+    name: build-helpful-hank-and-rosey-regrets
+  params:
+    - name: git-url
+      value: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    - name: git-revision
+      value: main
+    - name: image-registry
+      value: quay-quay-registry.quay.svc.cluster.local:443
+    - name: image-org
+      value: acs-agents
+    - name: image-tag
+      value: latest
+    - name: push-tls-verify
+      value: "false"
+  workspaces:
+    - name: shared-source
+      volumeClaimTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: acs-ai-overwatch
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+    - name: registry-credentials
+      secret:
+        secretName: quay-build-robot
