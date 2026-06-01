@@ -1495,6 +1495,30 @@ Ensure **`acs-ai-overwatch-gitops-bootstrap`** is Synced first, then refresh the
 
 If `ClusterPolicy` fails validation (`daemonsets` / `dcgmExporter` / `nodeStatusExporter` required), pull the latest chart — the GPU `ClusterPolicy` template includes those fields for current GPU Operator CRDs.
 
+### RHOAI: `rhods-operator` CSV `Failed`
+
+The DataScienceCluster CRD can exist even when the operator CSV is **Failed**. Diagnose:
+
+```bash
+oc describe csv rhods-operator.2.25.6 -n redhat-ods-operator
+oc get installplan -n redhat-ods-operator
+oc get pods -n redhat-ods-operator
+```
+
+**Common cause in this repo:** RHOAI `OperatorGroup` must use `spec: {}` (all namespaces), not `targetNamespaces: [redhat-ods-operator]`. A restricted OperatorGroup blocks deployment to `redhat-ods-applications` and can leave the CSV in `Failed`.
+
+```bash
+oc patch operatorgroup redhat-ods-operator -n redhat-ods-operator --type merge -p '{"spec":{}}'
+```
+
+If the CSV stays Failed, delete it so OLM retries (or re-sync the Argo app to recreate the Subscription):
+
+```bash
+oc delete csv rhods-operator.2.25.6 -n redhat-ods-operator
+```
+
+When `oc get csv -n redhat-ods-operator` shows `rhods-operator.*` **Succeeded**, **Refresh → Sync** `acs-ai-overwatch` so `default-dsc` applies.
+
 ### GPU Slices Not Advertised
 
 ```bash
