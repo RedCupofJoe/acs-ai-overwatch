@@ -14,12 +14,12 @@ quayStorage:
         fsType: xfs
         devicePaths:
           # Metadata + filesystem PVCs (Mattermost, Rosey, Quay Postgres/Clair)
-          - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
+          - /dev/disk/by-id/nvme-Amazon_EC2_NVMe_Instance_Storage_AWS123D80A316DA8FE46
       - storageClassName: quay-local-block
         volumeMode: Block
         devicePaths:
           # Quay registry object storage only
-          - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
+          - /dev/disk/by-id/nvme-Amazon_EC2_NVMe_Instance_Storage_AWS123D80A316DA8FE46_1
 
 # Optional: tighten nodeSelector if only specific workers have those NVMe devices.
 # quayStorage:

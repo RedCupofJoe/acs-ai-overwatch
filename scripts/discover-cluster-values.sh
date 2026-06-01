@@ -102,17 +102,14 @@ if [[ -z "${GIT_URL}" ]]; then
 fi
 
 # Suggest NVMe device paths from the first schedulable worker (operator must still verify).
+# Avoid mapfile/readarray (Bash 4+) for macOS default /bin/bash 3.2.
 NVME_SUGGEST_METADATA=""
 NVME_SUGGEST_OBJECT=""
 WORKER="$(oc get nodes -l 'node-role.kubernetes.io/worker=' -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 if [[ -n "${WORKER}" ]]; then
-  mapfile -t NVME_PATHS < <(oc debug "node/${WORKER}" --quiet -- chroot /host bash -c 'ls -1 /dev/disk/by-id/nvme-* 2>/dev/null | grep -v part | head -4' 2>/dev/null || true)
-  if [[ ${#NVME_PATHS[@]} -ge 1 ]]; then
-    NVME_SUGGEST_METADATA="${NVME_PATHS[0]}"
-  fi
-  if [[ ${#NVME_PATHS[@]} -ge 2 ]]; then
-    NVME_SUGGEST_OBJECT="${NVME_PATHS[1]}"
-  fi
+  NVME_LIST="$(oc debug "node/${WORKER}" --quiet -- chroot /host bash -c 'ls -1 /dev/disk/by-id/nvme-* 2>/dev/null | grep -v part | head -4' 2>/dev/null || true)"
+  NVME_SUGGEST_METADATA="$(printf '%s\n' "${NVME_LIST}" | sed -n '1p')"
+  NVME_SUGGEST_OBJECT="$(printf '%s\n' "${NVME_LIST}" | sed -n '2p')"
 fi
 
 PASSWORD_LINE=""

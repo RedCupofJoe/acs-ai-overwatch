@@ -31,7 +31,7 @@ cluster:
   topology: "3x3"
   gpu:
     count: 3
-    model: L4
+    model: T4
     vendor: nvidia
 
 # Optional ConfigMap with cluster facts (for operators / workbenches that read it).
