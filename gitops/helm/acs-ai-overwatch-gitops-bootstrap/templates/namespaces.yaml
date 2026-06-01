@@ -1,0 +1,13 @@
+{{- $managedBy := .Values.gitops.argocdInstanceNamespace -}}
+{{- range .Values.namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ . }}
+  {{- include "gitops-bootstrap.argocdSyncWaveAnnotations" (dict "root" $ "wave" "namespaces") | nindent 2 }}
+  labels:
+    {{- include "gitops-bootstrap.labels" $ | nindent 4 }}
+    argocd.argoproj.io/managed-by: {{ $managedBy | quote }}
+    app.kubernetes.io/part-of: {{ $.Values.global.partOf }}
+{{- end }}

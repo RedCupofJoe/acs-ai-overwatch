@@ -4,10 +4,10 @@ global:
 argocd:
   syncWaves:
     enabled: true
-    namespace: "-10"
-    rbac: "-9"
-    configMap: "-8"
-    job: "-7"
+    # Namespace acs-ai-overwatch-system is created by acs-ai-overwatch-gitops-bootstrap.
+    rbac: "0"
+    configMap: "1"
+    job: "2"
 
 namespace: acs-ai-overwatch-system
 configMapName: acs-ai-overwatch-cluster-config

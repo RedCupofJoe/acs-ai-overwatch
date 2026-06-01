@@ -1,0 +1,27 @@
+# FALLBACK — apply only if acs-ai-overwatch-gitops-bootstrap (managed-by namespaces) is not enough.
+# Apply ONCE with cluster-admin (not managed by Argo CD).
+#
+# OpenShift GitOps runs the application controller as:
+#   system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller
+# By default it cannot create ServiceAccounts, Secrets, Subscriptions, SCCs, etc. in
+# application namespaces. This PoC umbrella chart targets many namespaces and installs
+# cluster-scoped operators — the controller needs broader permissions.
+#
+# Usage:
+#   oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
+#
+# For production, replace cluster-admin with a custom ClusterRole scoped to required verbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: acs-ai-overwatch-openshift-gitops-argocd-controller
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops

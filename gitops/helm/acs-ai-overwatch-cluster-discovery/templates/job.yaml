@@ -3,12 +3,12 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: cluster-discovery
-  {{- include "cluster-discovery.argocdSyncWaveAnnotations" (dict "root" . "wave" "job") | nindent 2 }}
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "cluster-discovery.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/hook: Sync
+    # Run after ServiceAccount and script ConfigMap are applied (main sync phase).
+    argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: {{ .Values.job.backoffLimit }}

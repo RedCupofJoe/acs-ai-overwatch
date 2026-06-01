@@ -4,6 +4,10 @@
 # Usage:
 #   ./scripts/discover-cluster-values.sh
 #   ./scripts/discover-cluster-values.sh --output gitops/helm/acs-ai-overwatch/values-cluster.yaml
+#   ./scripts/discover-cluster-values.sh --apply-configmap
+#
+# For full pre-GitOps setup (RBAC, namespaces, ConfigMap, discovery SA), use:
+#   ./scripts/cluster-admin/install-pre-gitops.sh
 #
 # Optional environment variables:
 #   QUAY_REGISTRY_PASSWORD   If set, written to values-cluster.yaml (not committed by default if you gitignore the file).
@@ -17,11 +21,17 @@ source "${REPO_ROOT}/scripts/lib/openshift-cluster-discovery.sh"
 
 OUTPUT="${REPO_ROOT}/gitops/helm/acs-ai-overwatch/values-cluster.yaml"
 
+APPLY_CONFIGMAP=false
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output|-o)
       OUTPUT="$2"
       shift 2
+      ;;
+    --apply-configmap)
+      APPLY_CONFIGMAP=true
+      shift
       ;;
     -h|--help)
       sed -n '2,12p' "$0"
@@ -107,5 +117,10 @@ if [[ -n "${NVME_SUGGEST_METADATA}" ]]; then
   echo "  suggested object disk:   ${NVME_SUGGEST_OBJECT}"
   echo "  (updated values-poc.yaml devicePaths when placeholders were present)"
 fi
+if [[ "${APPLY_CONFIGMAP}" == true ]]; then
+  chmod +x "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"
+  exec "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"
+fi
+
 echo ""
-echo "GitOps: sync Application acs-ai-overwatch-cluster-discovery (writes ConfigMap), then refresh acs-ai-overwatch."
+echo "GitOps: run ./scripts/cluster-admin/install-pre-gitops.sh or sync Application acs-ai-overwatch-cluster-discovery."

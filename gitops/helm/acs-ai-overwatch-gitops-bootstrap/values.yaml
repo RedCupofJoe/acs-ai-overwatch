@@ -1,0 +1,28 @@
+global:
+  partOf: acs-ai-overwatch
+
+# Argo CD instance namespace (value for argocd.argoproj.io/managed-by).
+# The GitOps Operator grants the application controller admin-equivalent access
+# in namespaces carrying this label.
+gitops:
+  argocdInstanceNamespace: openshift-gitops
+
+argocd:
+  syncWaves:
+    enabled: true
+    namespaces: "0"
+
+# All PoC namespaces the umbrella chart deploys into (deduplicated in template).
+namespaces:
+  - acs-ai-overwatch-system
+  - monitoring
+  - openshift-local-storage
+  - openshift-operators
+  - quay
+  - ai-workbenches
+  - openshift-nfd
+  - nvidia-gpu-operator
+  - redhat-ods-operator
+  - redhat-ods-applications
+  - test-range
+  - rhacs-operator

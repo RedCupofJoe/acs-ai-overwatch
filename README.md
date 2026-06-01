@@ -12,33 +12,39 @@
 
 The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using:
 
-1. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap (no `values-cluster.yaml` in Git required)
-2. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
+1. **`acs-ai-overwatch-gitops-bootstrap`** — namespaces with `argocd.argoproj.io/managed-by` so Argo CD can create ServiceAccounts
+2. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap (no `values-cluster.yaml` in Git required)
+3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
 
 ### Quick Start
 
 ```bash
-oc login
+oc login   # cluster-admin
 
-# 1. Review / edit NVMe device paths for your workers
+# 1. Cluster-admin bootstrap (RBAC, namespaces, cluster ConfigMap, discovery SA) — see below
+make cluster-admin-pre-gitops
+# or: ./scripts/cluster-admin/install-pre-gitops.sh
+
+# 2. Review / edit NVMe device paths for your workers
 #    gitops/helm/acs-ai-overwatch/values-poc.yaml
 
-# 2. Register both Argo CD Applications (set repoURL in YAML to your fork if needed)
+# 3. Register Argo CD Applications (set repoURL in YAML to your fork if needed)
 oc apply -k gitops/argocd/
 
-# 3. Wait for cluster discovery, then refresh the main app
-oc get job -n acs-ai-overwatch-system cluster-discovery
-oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
-# In Argo CD UI: Refresh application acs-ai-overwatch
+# 4. Sync Applications (waves 0→1→2) or wait for automated sync
+#    acs-ai-overwatch-gitops-bootstrap → cluster-discovery → acs-ai-overwatch
 
-# 4. Enable PoC components in values.yaml, commit/push, sync
+# 5. Confirm cluster ConfigMap (from step 1 or discovery Job)
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+
+# 6. Enable PoC components in values.yaml, commit/push, sync
 #    components.acsPolicies, agentsRoseyRegrets, kagenti → enabled: true
 
-# 5. Build agent images (after Quay is up)
+# 7. Build agent images (after Quay is up)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# 6. Trigger Rosey "Network Audit" (after Kagenti is installed)
+# 8. Trigger Rosey "Network Audit" (after Kagenti is installed)
 export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
 export KAGENTI_API_TOKEN="<token>"
 ./scripts/trigger-network-audit.sh
@@ -54,24 +60,25 @@ export KAGENTI_API_TOKEN="<token>"
 2. [Architecture](#architecture)
 3. [Repository Layout](#repository-layout)
 4. [Prerequisites](#prerequisites)
-5. [Helm Values File Layering](#helm-values-file-layering)
-6. [Cluster-Aware Configuration](#cluster-aware-configuration)
-7. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
-8. [Configuration Checklist](#configuration-checklist)
-9. [Deployment Methods](#deployment-methods)
-10. [Helm Chart Reference](#helm-chart-reference)
-11. [Platform Components](#platform-components)
-12. [AI Agents](#ai-agents)
-13. [Kagenti Integration](#kagenti-integration)
-14. [ACS / RHACS Security](#acs--rhacs-security)
-15. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-16. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
-17. [Operational Scripts](#operational-scripts)
-18. [Namespaces and Resource Map](#namespaces-and-resource-map)
-19. [Helm Template Inventory](#helm-template-inventory)
-20. [Troubleshooting](#troubleshooting)
-21. [Security and Legal Notes](#security-and-legal-notes)
-22. [Development and Validation](#development-and-validation)
+5. [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup)
+6. [Helm Values File Layering](#helm-values-file-layering)
+7. [Cluster-Aware Configuration](#cluster-aware-configuration)
+8. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
+9. [Configuration Checklist](#configuration-checklist)
+10. [Deployment Methods](#deployment-methods)
+11. [Helm Chart Reference](#helm-chart-reference)
+12. [Platform Components](#platform-components)
+13. [AI Agents](#ai-agents)
+14. [Kagenti Integration](#kagenti-integration)
+15. [ACS / RHACS Security](#acs--rhacs-security)
+16. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
+17. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
+18. [Operational Scripts](#operational-scripts)
+19. [Namespaces and Resource Map](#namespaces-and-resource-map)
+20. [Helm Template Inventory](#helm-template-inventory)
+21. [Troubleshooting](#troubleshooting)
+22. [Security and Legal Notes](#security-and-legal-notes)
+23. [Development and Validation](#development-and-validation)
 
 ---
 
@@ -220,6 +227,12 @@ acs-ai-overwatch/
 │           └── templates/           # 35+ OpenShift / K8s manifests
 ├── pipelines/tekton/                  # Build helpful-hank + rosey-regrets → Quay
 ├── scripts/
+│   ├── cluster-admin/                 # Run as cluster-admin BEFORE Argo CD (see README there)
+│   │   ├── install-pre-gitops.sh      # All steps
+│   │   ├── 01-grant-openshift-gitops-rbac.sh
+│   │   ├── 02-bootstrap-namespaces.sh
+│   │   ├── 03-apply-cluster-configmap.sh
+│   │   └── 04-apply-discovery-prerequisites.sh
 │   ├── lib/openshift-cluster-discovery.sh   # Shared discovery logic
 │   ├── discover-cluster-values.sh     # oc login → optional values-cluster.yaml
 │   └── trigger-network-audit.sh       # Kagenti Network Audit → ACS loop
@@ -261,6 +274,79 @@ acs-ai-overwatch/
 
 ---
 
+## Cluster admin: pre-GitOps setup
+
+Run these steps **locally as cluster-admin** after `oc login` and **before** `oc apply -k gitops/argocd/`. They create the objects Argo CD needs so the first sync does not fail on RBAC or missing cluster settings.
+
+Scripts live under [`scripts/cluster-admin/`](scripts/cluster-admin/README.md).
+
+### One command
+
+```bash
+oc login
+chmod +x scripts/cluster-admin/*.sh
+make cluster-admin-pre-gitops
+# equivalent: ./scripts/cluster-admin/install-pre-gitops.sh
+```
+
+### What gets created
+
+| Step | Script | Kubernetes objects |
+|------|--------|----------------------|
+| 1 | `01-grant-openshift-gitops-rbac.sh` | `ClusterRoleBinding` → `openshift-gitops-argocd-application-controller` (`cluster-admin` for PoC) |
+| 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
+| 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`, …) |
+| 4 | `04-apply-discovery-prerequisites.sh` | ServiceAccount **`cluster-discovery`**, discovery RBAC, ConfigMap **`cluster-discovery-script`** |
+
+### Verify before Argo CD
+
+```bash
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+oc get sa -n acs-ai-overwatch-system cluster-discovery
+oc get cm -n acs-ai-overwatch-system cluster-discovery-script
+oc auth can-i create serviceaccounts -n acs-ai-overwatch-system \
+  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller
+```
+
+### Options
+
+```bash
+# Skip cluster-admin binding if managed-by namespaces are enough on your cluster:
+./scripts/cluster-admin/install-pre-gitops.sh --skip-rbac
+
+# Let Argo CD create discovery SA/script ConfigMap (only run steps 1–3):
+./scripts/cluster-admin/install-pre-gitops.sh --skip-discovery-prereqs
+
+# Also write values-cluster.yaml for local helm template:
+./scripts/cluster-admin/install-pre-gitops.sh --with-values-file
+```
+
+### Individual scripts
+
+```bash
+./scripts/cluster-admin/01-grant-openshift-gitops-rbac.sh
+./scripts/cluster-admin/02-bootstrap-namespaces.sh
+./scripts/cluster-admin/03-apply-cluster-configmap.sh
+./scripts/cluster-admin/04-apply-discovery-prerequisites.sh
+```
+
+Only the cluster ConfigMap (step 3):
+
+```bash
+./scripts/discover-cluster-values.sh --apply-configmap
+```
+
+### Then deploy with Argo CD
+
+```bash
+# Edit values-poc.yaml, set repoURL in gitops/argocd/application*.yaml, then:
+oc apply -k gitops/argocd/
+```
+
+Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch`. If you ran the cluster-admin scripts, bootstrap and discovery may already match desired state; Argo will reconcile.
+
+---
+
 ## Helm Values File Layering
 
 Configuration is merged in this order (Argo CD main Application and `make helm-template`):
@@ -269,10 +355,10 @@ Configuration is merged in this order (Argo CD main Application and `make helm-t
 |--------|---------|---------|
 | `values.yaml` | Base defaults, `clusterDiscovery.*`, operator subscriptions, component toggles | Hand (repo) |
 | `values-poc.yaml` | PoC NVMe `devicePaths` for Local Storage Operator | Hand (per cluster hardware) |
-| **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl` | **In-cluster discovery Job** (GitOps default) |
+| **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl` | **`scripts/cluster-admin/03-apply-cluster-configmap.sh`** or discovery Job |
 | `values-cluster.yaml` (optional) | Same fields as ConfigMap | `make cluster-values` (local/CI override) |
 
-Argo CD registers two Applications via `oc apply -k gitops/argocd/` (see [In-cluster discovery](#in-cluster-discovery-for-gitops-no-values-clusteryaml-in-git) under Cluster-Aware Configuration).
+Argo CD registers three Applications via `oc apply -k gitops/argocd/` (see [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [Cluster-Aware Configuration](#cluster-aware-configuration)).
 
 Main Application Helm stanza:
 
@@ -307,16 +393,18 @@ Most hostnames that used to be `CHANGE_ME` are derived from **`cluster.appsDomai
 
 ### In-cluster discovery for GitOps (no `values-cluster.yaml` in Git)
 
-Two Argo CD Applications (see `gitops/argocd/kustomization.yaml`):
+Three Argo CD Applications (see `gitops/argocd/kustomization.yaml`), ordered by sync-wave on the Application CR:
 
-| Application | Purpose |
-|-------------|---------|
-| `acs-ai-overwatch-cluster-discovery` | Job reads `ingresses.config/cluster` and writes ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** |
-| `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` when `cluster.appsDomain` is empty |
+| Wave | Application | Purpose |
+|------|-------------|---------|
+| 0 | `acs-ai-overwatch-gitops-bootstrap` | Creates namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` so Argo can create ServiceAccounts |
+| 1 | `acs-ai-overwatch-cluster-discovery` | ServiceAccount + script ConfigMap, then PostSync Job writes **`acs-ai-overwatch-cluster-config`** |
+| 2 | `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` when `cluster.appsDomain` is empty |
 
 **Workflow:**
 
 ```bash
+make cluster-admin-pre-gitops   # or install-pre-gitops.sh
 oc apply -k gitops/argocd/
 # 1) Wait for cluster-discovery Job to succeed
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
@@ -372,6 +460,7 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 
 | Target | Command |
 |--------|---------|
+| `cluster-admin-pre-gitops` | Runs `scripts/cluster-admin/install-pre-gitops.sh` (before Argo CD) |
 | `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
 | `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
 | `helm-template-discovery` | Renders `acs-ai-overwatch-cluster-discovery` chart |
@@ -417,11 +506,13 @@ Run `make cluster-values` to auto-fill NVMe paths in `values-poc.yaml` when plac
 
 ## Configuration Checklist
 
-Before syncing, ensure cluster settings exist (ConfigMap from discovery Application **or** `make cluster-values`).
+Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops-setup) or ensure cluster settings exist from discovery.
 
 | Setting | Location | Description |
 |---------|----------|-------------|
-| Cluster apps domain | ConfigMap `acs-ai-overwatch-cluster-config` **or** `values-cluster.yaml` | Discovery Job / `discover-cluster-values.sh` |
+| OpenShift GitOps RBAC | `ClusterRoleBinding` from `01-grant-openshift-gitops-rbac.sh` | Required unless `managed-by` alone is sufficient |
+| Cluster apps domain | ConfigMap `acs-ai-overwatch-cluster-config` **or** `values-cluster.yaml` | `03-apply-cluster-configmap.sh` / discovery Job |
+| Discovery SA + script CM | `acs-ai-overwatch-system` | `04-apply-discovery-prerequisites.sh` (optional if Argo creates them) |
 | Git repository URL | ConfigMap `gitRepoUrl` **or** `kagenti.appSource.repoUrl` in values | Discovery / `git remote` |
 | Argo CD repo URL | `gitops/argocd/application*.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
@@ -432,8 +523,9 @@ Before syncing, ensure cluster settings exist (ConfigMap from discovery Applicat
 
 ```bash
 oc login ...
+make cluster-admin-pre-gitops
 oc apply -k gitops/argocd/
-oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config   # wait for discovery Job
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 make helm-template   # optional local render; add -f values-cluster.yaml if generated
 ```
 
@@ -456,14 +548,20 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 2. Set `spec.source.repoURL` in `gitops/argocd/application.yaml` and `application-cluster-discovery.yaml` to your Git remote (if different from the default fork).
 
-3. Register **both** Applications:
+3. Run cluster-admin bootstrap (recommended):
+
+   ```bash
+   make cluster-admin-pre-gitops
+   ```
+
+4. Register Applications:
 
    ```bash
    oc login
    oc apply -k gitops/argocd/
    ```
 
-4. Wait for cluster discovery, then refresh the main app:
+5. Wait for cluster discovery, then refresh the main app:
 
    ```bash
    oc get application -n openshift-gitops
@@ -473,7 +571,7 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
    In the Argo CD UI, **Refresh** `acs-ai-overwatch` after the ConfigMap exists.
 
-5. Optional local override file (not required in Git):
+6. Optional local override file (not required in Git):
 
    ```bash
    make cluster-values   # writes values-cluster.yaml for helm-template / Argo override
@@ -1130,6 +1228,18 @@ Check Mattermost Town Square (or configured channel) for notifier messages.
 
 ## Operational Scripts
 
+### `scripts/cluster-admin/` (run before Argo CD)
+
+See [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [`scripts/cluster-admin/README.md`](scripts/cluster-admin/README.md).
+
+| Script | Purpose |
+|--------|---------|
+| `install-pre-gitops.sh` | Runs steps 01–04 (with optional flags) |
+| `01-grant-openshift-gitops-rbac.sh` | Argo CD controller `cluster-admin` binding |
+| `02-bootstrap-namespaces.sh` | Labeled PoC namespaces |
+| `03-apply-cluster-configmap.sh` | `acs-ai-overwatch-cluster-config` ConfigMap |
+| `04-apply-discovery-prerequisites.sh` | Discovery ServiceAccount + script ConfigMap |
+
 ### `scripts/discover-cluster-values.sh`
 
 Uses `scripts/lib/openshift-cluster-discovery.sh` to generate optional `values-cluster.yaml` from your `oc login` (same logic as the in-cluster discovery Job).
@@ -1232,6 +1342,42 @@ oc describe application acs-ai-overwatch -n openshift-gitops
 ```
 
 Common causes: invalid Helm values, missing CRDs, operator subscriptions pending install plans, or NVMe paths in `values-poc.yaml` pointing at wrong devices.
+
+### Argo CD sync forbidden: cannot create ServiceAccounts (OpenShift GitOps RBAC)
+
+```text
+openshift-gitops-argocd-application-controller cannot create resource "serviceaccounts"
+in namespace "acs-ai-overwatch-system"
+```
+
+OpenShift GitOps does **not** grant the application controller cluster-wide deploy rights by default. Apply the bootstrap binding **once** (cluster-admin required):
+
+```bash
+oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
+```
+
+Then **Sync** the discovery and main Applications again. See `gitops/argocd/bootstrap/README.md`.
+
+The main chart also deploys to `monitoring`, `quay`, `test-range`, operator namespaces, etc.; without this binding you will see similar errors on those namespaces next.
+
+### Discovery app: ServiceAccount / ConfigMap `Missing` or OutOfSync
+
+**Health `Missing` + “Resource not found in cluster”** usually means Argo CD has **not applied** those objects yet (desired state from Git, live cluster empty). Click **Sync** on `acs-ai-overwatch-cluster-discovery`.
+
+If Sync fails or resources stay missing:
+
+1. Confirm the discovery chart is on the branch Argo syncs (includes `gitops/helm/acs-ai-overwatch-cluster-discovery/files/`).
+2. Check the Application sync error: `oc describe application acs-ai-overwatch-cluster-discovery -n openshift-gitops`
+3. Verify namespace exists: `oc get ns acs-ai-overwatch-system`
+4. After a successful sync:
+
+   ```bash
+   oc get sa,cm -n acs-ai-overwatch-system | grep cluster-discovery
+   oc get job -n acs-ai-overwatch-system cluster-discovery
+   oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+   ```
+
+5. Refresh Application `acs-ai-overwatch` once `acs-ai-overwatch-cluster-config` exists.
 
 ### GPU Slices Not Advertised
 
@@ -1364,8 +1510,9 @@ Files under `scratch/` are **not** deployed by the Helm chart. They contain refe
 
 ```bash
 oc login ...
+make cluster-admin-pre-gitops
 
-# Register GitOps (discovery + main)
+# Register GitOps Applications
 oc apply -k gitops/argocd/
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 

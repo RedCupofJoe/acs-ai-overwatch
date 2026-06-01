@@ -1,4 +1,9 @@
-.PHONY: cluster-values helm-template
+.PHONY: cluster-values cluster-admin-pre-gitops helm-template helm-template-discovery
+
+# Cluster-admin bootstrap before Argo CD (namespaces, ConfigMap, GitOps RBAC, discovery SA).
+cluster-admin-pre-gitops:
+	@chmod +x scripts/cluster-admin/*.sh
+	@./scripts/cluster-admin/install-pre-gitops.sh
 
 # Discover cluster.appsDomain, routes, and git remote from current oc login.
 cluster-values:

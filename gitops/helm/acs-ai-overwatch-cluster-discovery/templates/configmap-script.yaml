@@ -8,6 +8,10 @@ metadata:
     {{- include "cluster-discovery.labels" . | nindent 4 }}
 data:
   discover-in-cluster.sh: |
-{{ .Files.Get "discover-in-cluster.sh" | indent 4 }}
+{{- $discover := .Files.Get "files/discover-in-cluster.sh" }}
+{{- if not $discover }}{{- fail "chart files/discover-in-cluster.sh is missing or empty" }}{{- end }}
+{{ $discover | nindent 4 }}
   openshift-cluster-discovery.sh: |
-{{ .Files.Get "openshift-cluster-discovery.sh" | indent 4 }}
+{{- $lib := .Files.Get "files/openshift-cluster-discovery.sh" }}
+{{- if not $lib }}{{- fail "chart files/openshift-cluster-discovery.sh is missing or empty" }}{{- end }}
+{{ $lib | nindent 4 }}

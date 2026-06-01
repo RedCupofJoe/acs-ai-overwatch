@@ -1,14 +1,15 @@
-# Sync this Application before (or with) acs-ai-overwatch. The discovery Job writes
-# ConfigMap acs-ai-overwatch-system/acs-ai-overwatch-cluster-config for the main chart.
+# Sync FIRST. Creates namespaces with argocd.argoproj.io/managed-by=openshift-gitops so the
+# GitOps Operator grants the application controller permission to create ServiceAccounts,
+# Secrets, and other resources in those namespaces before discovery/main charts sync.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: acs-ai-overwatch-cluster-discovery
+  name: acs-ai-overwatch-gitops-bootstrap
   namespace: openshift-gitops
   labels:
     app.kubernetes.io/part-of: acs-ai-overwatch
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -16,14 +17,13 @@ spec:
   source:
     repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
     targetRevision: main
-    path: gitops/helm/acs-ai-overwatch-cluster-discovery
+    path: gitops/helm/acs-ai-overwatch-gitops-bootstrap
     helm:
       valueFiles:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    # Target namespace for chart resources (also created by the chart).
-    namespace: acs-ai-overwatch-system
+    namespace: default
   syncPolicy:
     automated:
       prune: true

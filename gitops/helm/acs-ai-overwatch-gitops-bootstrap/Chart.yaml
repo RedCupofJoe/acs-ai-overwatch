@@ -1,0 +1,6 @@
+apiVersion: v2
+name: acs-ai-overwatch-gitops-bootstrap
+description: Namespaces labeled for OpenShift GitOps so Argo CD can create ServiceAccounts and other resources before the main charts sync.
+type: application
+version: 0.1.0
+appVersion: "1.0"
