@@ -3,25 +3,32 @@ apiVersion: nvidia.com/v1
 kind: ClusterPolicy
 metadata:
   name: {{ .Values.accelerators.clusterPolicy.name }}
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 spec:
   operator:
-    defaultRuntime: crio
+    defaultRuntime: {{ .Values.accelerators.clusterPolicy.operator.defaultRuntime }}
+    use_ocp_driver_toolkit: {{ .Values.accelerators.clusterPolicy.operator.use_ocp_driver_toolkit }}
+  daemonsets:
+    {{- toYaml .Values.accelerators.clusterPolicy.daemonsets | nindent 4 }}
   driver:
-    enabled: true
+    {{- toYaml .Values.accelerators.clusterPolicy.driver | nindent 4 }}
   toolkit:
-    enabled: true
+    {{- toYaml .Values.accelerators.clusterPolicy.toolkit | nindent 4 }}
   devicePlugin:
-    enabled: true
+    enabled: {{ .Values.accelerators.clusterPolicy.devicePlugin.enabled }}
     config:
       name: {{ .Values.accelerators.timeSlicing.configMapName }}
       default: {{ .Values.accelerators.timeSlicing.configKey }}
   dcgm:
-    enabled: true
+    {{- toYaml .Values.accelerators.clusterPolicy.dcgm | nindent 4 }}
+  dcgmExporter:
+    {{- toYaml .Values.accelerators.clusterPolicy.dcgmExporter | nindent 4 }}
   gfd:
-    enabled: true
+    {{- toYaml .Values.accelerators.clusterPolicy.gfd | nindent 4 }}
+  nodeStatusExporter:
+    {{- toYaml .Values.accelerators.clusterPolicy.nodeStatusExporter | nindent 4 }}
   migManager:
-    enabled: false
+    {{- toYaml .Values.accelerators.clusterPolicy.migManager | nindent 4 }}
 {{- end }}

@@ -3,6 +3,7 @@ kind: Kustomization
 # Optional fallback if managed-by namespaces are insufficient:
 #   oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
 resources:
+  - appproject-acs-ai-overwatch.yaml
   - application-gitops-bootstrap.yaml
   - application-cluster-discovery.yaml
   - application.yaml

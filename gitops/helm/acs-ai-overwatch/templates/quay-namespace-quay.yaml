@@ -1,4 +1,4 @@
-{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled }}
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled (include "acs-ai-overwatch.createNamespaces" .) }}
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -34,6 +34,7 @@ Usage: install-pre-gitops.sh [options]
 
 Runs cluster-admin bootstrap before oc apply -k gitops/argocd/:
 
+  0. Create AppProject acs-ai-overwatch (cluster-scoped CR permissions)
   1. Grant OpenShift GitOps application-controller RBAC (unless --skip-rbac)
   2. Create labeled PoC namespaces
   3. Create cluster ConfigMap acs-ai-overwatch-cluster-config
@@ -60,6 +61,8 @@ run() {
   echo "==> $*"
   "$@"
 }
+
+run "${SCRIPT_DIR}/00-apply-appproject.sh"
 
 if [[ "${SKIP_RBAC}" != true ]]; then
   run "${SCRIPT_DIR}/01-grant-openshift-gitops-rbac.sh"

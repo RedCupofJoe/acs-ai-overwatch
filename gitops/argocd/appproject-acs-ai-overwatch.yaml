@@ -1,0 +1,33 @@
+# PoC AppProject for the umbrella chart. The openshift-gitops "default" project often
+# whitelists only Namespace at cluster scope; this chart also needs DataScienceCluster,
+# ClusterPolicy, and (when enabled) SecurityContextConstraints.
+#
+# Apply before Applications (included first in gitops/argocd/kustomization.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: acs-ai-overwatch
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+spec:
+  description: ACS AI Overwatch PoC — platform operators, GPU policy, RHOAI DSC, Quay, Mattermost
+  sourceRepos:
+    - https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    - https://github.com/*/*
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: nvidia.com
+      kind: ClusterPolicy
+    - group: datasciencecluster.opendatahub.io
+      kind: DataScienceCluster
+    - group: security.openshift.io
+      kind: SecurityContextConstraints

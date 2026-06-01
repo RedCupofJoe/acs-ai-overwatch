@@ -293,6 +293,7 @@ make cluster-admin-pre-gitops
 
 | Step | Script | Kubernetes objects |
 |------|--------|----------------------|
+| 0 | `00-apply-appproject.sh` | AppProject **`acs-ai-overwatch`** (allows DSC, GPU `ClusterPolicy`, `Namespace`, SCC) |
 | 1 | `01-grant-openshift-gitops-rbac.sh` | `ClusterRoleBinding` → `openshift-gitops-argocd-application-controller` (`cluster-admin` for PoC) |
 | 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`, …) |
@@ -1334,6 +1335,74 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 
 Mattermost, Quay pull secrets, and Kagenti are **gated** until cluster config is ready. If the ConfigMap exists but Argo still fails, Helm `lookup` may be unavailable on the repo-server — use `gitops/argocd/cmp/`.
 
+### Argo CD: `one or more synchronization tasks are not valid`
+
+This message is generic; the **per-resource** reason is in the Application status or controller logs. A common cause for this repo:
+
+**The main chart uses cluster-scoped resources** (`Namespace`, `DataScienceCluster`, `nvidia.com/ClusterPolicy`, optional `SecurityContextConstraints`) that the openshift-gitops **`default` AppProject does not allow.** Discovery and bootstrap can still sync because they only create namespaced objects.
+
+**Fix:**
+
+```bash
+# 1) AppProject (also in gitops/argocd/kustomization.yaml)
+oc apply -f gitops/argocd/appproject-acs-ai-overwatch.yaml
+
+# 2) Point Applications at that project (after you pull the repo change)
+oc patch application acs-ai-overwatch -n openshift-gitops --type merge \
+  -p '{"spec":{"project":"acs-ai-overwatch"}}'
+oc patch application acs-ai-overwatch-cluster-discovery -n openshift-gitops --type merge \
+  -p '{"spec":{"project":"acs-ai-overwatch"}}'
+oc patch application acs-ai-overwatch-gitops-bootstrap -n openshift-gitops --type merge \
+  -p '{"spec":{"project":"acs-ai-overwatch"}}'
+
+# 3) See the real error (replace with a failed resource from the list)
+oc get application acs-ai-overwatch -n openshift-gitops \
+  -o jsonpath='{range .status.operationState.syncResult.resources[?(@.status=="SyncFailed")]}{.kind}/{.name} in {.namespace}: {.message}{"\n"}{end}'
+```
+
+Or re-apply everything: `oc apply -k gitops/argocd/` (includes the AppProject and updated `spec.project`).
+
+Also ensure cluster-admin RBAC for the controller if the next error is `forbidden` on Subscriptions or SCCs:
+
+```bash
+oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
+```
+
+### Argo CD: `Make sure the "…" CRD is installed` (first sync)
+
+After the AppProject fix, sync may still report failures such as:
+
+```text
+DataScienceCluster/default-dsc: … CRD is installed on the destination cluster
+LocalVolume/quay-local-storage: …
+ClusterPolicy/gpu-cluster-policy: …
+```
+
+That is **expected on the first sync**: wave `10` Subscriptions are created, but OLM needs several minutes to install operators and register CRDs before wave `20`/`30` custom resources can apply.
+
+The main Application enables **`SkipDryRunOnMissingResource=true`** so the sync can complete while CRDs are missing; Argo retries on the next sync (automated self-heal or manual **Refresh → Sync**).
+
+**On the cluster now** (without waiting for a git push):
+
+```bash
+oc patch application acs-ai-overwatch -n openshift-gitops --type=json -p='[
+  {"op": "add", "path": "/spec/syncPolicy/syncOptions/-", "value": "SkipDryRunOnMissingResource=true"}
+]'
+```
+
+Then wait for operator install plans to finish and re-sync:
+
+```bash
+oc get subscription -A | grep -E 'nfd|gpu|local-storage|quay|rhods'
+oc get csv -A | grep -E 'Succeeded|Installing'
+# When CSVs are Succeeded and CRDs exist:
+oc get crd | grep -E 'datasciencecluster|localvolume|clusterpolicy|quayregistry|hardwareprofile'
+```
+
+**Refresh** and **Sync** `acs-ai-overwatch` again (often 2–3 syncs over 15–30 minutes on a fresh cluster).
+
+Sync wave order in the chart: namespaces → operator Subscriptions (`10`) → LocalVolume (`20`) → platform CRs (`30`) → secrets/workloads later.
+
 ### Argo CD Application OutOfSync
 
 ```bash
@@ -1378,6 +1447,53 @@ If Sync fails or resources stay missing:
    ```
 
 5. Refresh Application `acs-ai-overwatch` once `acs-ai-overwatch-cluster-config` exists.
+
+### Discovery app: ClusterRole / ClusterRoleBinding exist but Argo shows `Missing`
+
+The discovery Job needs **cluster-scoped** RBAC (`ClusterRole` / `ClusterRoleBinding` named `acs-ai-overwatch-cluster-discovery-cluster-discovery`). If you pre-created them with `scripts/cluster-admin/04-apply-discovery-prerequisites.sh`, they can exist on the cluster while Argo still shows **Missing** or refuses to sync because:
+
+1. **AppProject** `acs-ai-overwatch` did not whitelist `ClusterRole` / `ClusterRoleBinding` (fixed in `gitops/argocd/appproject-acs-ai-overwatch.yaml`).
+2. The GitOps application controller cannot **get** cluster-scoped RBAC (needs the PoC `ClusterRoleBinding` or equivalent).
+
+**Fix on the cluster:**
+
+```bash
+# Update AppProject (pull latest or apply from repo)
+oc apply -f gitops/argocd/appproject-acs-ai-overwatch.yaml
+
+# Controller must read/create cluster RBAC
+oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
+
+# Verify
+oc auth can-i get clusterroles \
+  --as=system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller
+oc get clusterrole,clusterrolebinding | grep cluster-discovery
+```
+
+Then **Refresh** and **Sync** `acs-ai-overwatch-cluster-discovery`. Argo should adopt the existing objects (same name/rules) and add its tracking metadata.
+
+Expected names (Helm release = Application name):
+
+| Kind | Name |
+|------|------|
+| `ClusterRole` | `acs-ai-overwatch-cluster-discovery-cluster-discovery` |
+| `ClusterRoleBinding` | `acs-ai-overwatch-cluster-discovery-cluster-discovery` |
+
+### Main app: `SharedResourceWarning` on Namespaces
+
+If you see warnings like `Namespace/monitoring is part of applications acs-ai-overwatch and acs-ai-overwatch-gitops-bootstrap`, both Applications define the same `Namespace` objects. **Bootstrap should own namespaces** (with `argocd.argoproj.io/managed-by`); the main chart sets `gitops.bootstrapNamespaces: true` (default) to skip duplicate Namespace manifests.
+
+Ensure **`acs-ai-overwatch-gitops-bootstrap`** is Synced first, then refresh the main app. After pulling the chart fix, SharedResourceWarning entries should clear.
+
+### Main app: `DataScienceCluster` CRD not found / operator CRs fail first sync
+
+**Expected** until OLM installs operators (GPU, RHOAI, Quay, Local Storage). Subscriptions sync in wave `10`; platform CRs are wave `20`/`30`.
+
+1. Enable `SkipDryRunOnMissingResource=true` on the main Application (see [CRD not installed](#argo-cd-make-sure-the--crd-is-installed-first-sync) above).
+2. Wait for CSVs: `oc get csv -A | grep Succeeded`
+3. **Refresh → Sync** again (often 2–3 times over 15–30 minutes).
+
+If `ClusterPolicy` fails validation (`daemonsets` / `dcgmExporter` / `nodeStatusExporter` required), pull the latest chart — the GPU `ClusterPolicy` template includes those fields for current GPU Operator CRDs.
 
 ### GPU Slices Not Advertised
 

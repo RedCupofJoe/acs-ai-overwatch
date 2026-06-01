@@ -1,4 +1,4 @@
-{{- if .Values.components.acsPolicies.enabled }}
+{{- if and .Values.components.acsPolicies.enabled (include "acs-ai-overwatch.createNamespaces" .) }}
 apiVersion: v1
 kind: Namespace
 metadata:

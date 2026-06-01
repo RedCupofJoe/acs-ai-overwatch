@@ -1,5 +1,15 @@
 # OpenShift GitOps bootstrap
 
+## AppProject `acs-ai-overwatch`
+
+The umbrella chart deploys cluster-scoped CRs (RHOAI `DataScienceCluster`, GPU `ClusterPolicy`, `Namespace`, optional SCC). Apply **`gitops/argocd/appproject-acs-ai-overwatch.yaml`** before syncing the main Application, or sync fails with:
+
+`one or more synchronization tasks are not valid`
+
+(Underlying message is often `resource … is not permitted in project default`.)
+
+All three Applications use `spec.project: acs-ai-overwatch` (see `gitops/argocd/kustomization.yaml`).
+
 ## Preferred: managed namespaces (GitOps Application)
 
 Application **`acs-ai-overwatch-gitops-bootstrap`** (sync-wave `0`) creates PoC namespaces with:

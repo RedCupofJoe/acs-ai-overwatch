@@ -3,7 +3,7 @@ apiVersion: datasciencecluster.opendatahub.io/v2
 kind: DataScienceCluster
 metadata:
   name: {{ .Values.rhoai.datascienceCluster.name }}
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 spec:

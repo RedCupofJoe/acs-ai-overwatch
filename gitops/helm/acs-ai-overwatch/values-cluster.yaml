@@ -13,11 +13,10 @@ mattermost:
 
 quayStorage:
   registryCredentials:
-    server: quay-quay.apps.apps.cluster-g4dkv.g4dkv.sandbox1240.opentlc.com
-
+    server: quay-quay.apps.cluster-g4dkv.g4dkv.sandbox1240.opentlc.com
 
 kagenti:
   api:
-    baseUrl: https://kagenti-api.apps.apps.cluster-g4dkv.g4dkv.sandbox1240.opentlc.com
+    baseUrl: https://kagenti-api.apps.cluster-g4dkv.g4dkv.sandbox1240.opentlc.com
   appSource:
     repoUrl: https://github.com/RedCupofJoe/acs-ai-overwatch.git

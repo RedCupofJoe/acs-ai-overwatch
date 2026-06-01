@@ -1,4 +1,4 @@
-{{- if .Values.rhoai.enabled }}
+{{- if and .Values.rhoai.enabled (include "acs-ai-overwatch.createNamespaces" .) }}
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -13,7 +13,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: acs-ai-overwatch
   source:
     repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
     targetRevision: main

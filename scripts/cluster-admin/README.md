@@ -13,6 +13,7 @@ chmod +x scripts/cluster-admin/*.sh
 
 | Script | What it creates |
 |--------|-----------------|
+| `00-apply-appproject.sh` | AppProject `acs-ai-overwatch` (cluster-scoped CRs for the main chart) |
 | `01-grant-openshift-gitops-rbac.sh` | `ClusterRoleBinding` so `openshift-gitops-argocd-application-controller` can deploy ServiceAccounts, operators, SCCs, etc. |
 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | `03-apply-cluster-configmap.sh` | ConfigMap `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` (`appsDomain`, Quay host, Kagenti URL, git URL) |

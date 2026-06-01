@@ -33,6 +33,23 @@ annotations:
 {{- end }}
 {{- end }}
 
+{{/*
+  Sync-wave plus SkipDryRunOnMissingResource for operator-owned CRDs (may not exist on first sync).
+*/}}
+{{- define "acs-ai-overwatch.argocdPlatformCrAnnotations" -}}
+{{- $root := .root -}}
+{{- $waveKey := .wave -}}
+annotations:
+{{- if $root.Values.argocd.syncWaves.enabled }}
+  argocd.argoproj.io/sync-wave: {{ index $root.Values.argocd.syncWaves $waveKey | quote }}
+{{- end }}
+  argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+{{- end }}
+
+{{- define "acs-ai-overwatch.createNamespaces" -}}
+{{- if not .Values.gitops.bootstrapNamespaces -}}true{{- end -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.clusterConfigReady" -}}
 {{- if .Values.cluster.appsDomain -}}true{{- end -}}
 {{- if .Values.clusterDiscovery.enabled -}}

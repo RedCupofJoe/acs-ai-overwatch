@@ -3,7 +3,7 @@ apiVersion: {{ .Values.rhoai.hardwareProfile.apiVersion }}
 kind: HardwareProfile
 metadata:
   name: {{ .Values.rhoai.hardwareProfile.name }}
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
   namespace: {{ .Values.rhoai.hardwareProfile.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
