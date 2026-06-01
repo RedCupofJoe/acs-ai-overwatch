@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.clusterMetadata.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 ---
@@ -10,6 +11,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cluster-metadata
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
   namespace: {{ .Values.clusterMetadata.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

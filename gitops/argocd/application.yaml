@@ -1,5 +1,6 @@
 # Apply into the OpenShift GitOps control plane namespace (default: openshift-gitops).
 # Requires OpenShift GitOps Operator (Argo CD). Sync deploys the umbrella Helm chart at gitops/helm/acs-ai-overwatch.
+# Resource apply order uses argocd.argoproj.io/sync-wave annotations from the chart (see values.yaml argocd.syncWaves).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -12,12 +13,16 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
     targetRevision: main
     path: gitops/helm/acs-ai-overwatch
     helm:
       valueFiles:
         - values.yaml
+        - values-poc.yaml
+        - values-cluster.yaml
+      # Generated locally by scripts/discover-cluster-values.sh; optional until present.
+      ignoreMissingValueFiles: true
   destination:
     server: https://kubernetes.default.svc
     namespace: default

@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.rhoai.operator.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
   labels:
     openshift.io/cluster-monitoring: {{ .Values.rhoai.operator.clusterMonitoringLabel | quote }}
 ---
@@ -10,6 +11,7 @@ apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: {{ .Values.rhoai.operator.operatorGroup.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.rhoai.operator.namespace }}
 spec:
   upgradeStrategy: Default
@@ -20,6 +22,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: {{ .Values.rhoai.operator.subscription.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.rhoai.operator.namespace }}
 spec:
   channel: {{ .Values.rhoai.operator.subscription.channel }}

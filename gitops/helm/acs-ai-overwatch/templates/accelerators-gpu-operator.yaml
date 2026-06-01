@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.accelerators.gpuOperator.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
   labels:
     openshift.io/cluster-monitoring: {{ .Values.accelerators.gpuOperator.clusterMonitoringLabel | quote }}
 ---
@@ -10,6 +11,7 @@ apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: {{ .Values.accelerators.gpuOperator.operatorGroup.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.accelerators.gpuOperator.namespace }}
 spec:
   targetNamespaces:
@@ -19,6 +21,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: {{ .Values.accelerators.gpuOperator.subscription.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.accelerators.gpuOperator.namespace }}
 spec:
   channel: {{ .Values.accelerators.gpuOperator.subscription.channel }}

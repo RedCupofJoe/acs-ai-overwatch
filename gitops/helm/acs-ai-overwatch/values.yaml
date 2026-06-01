@@ -1,11 +1,32 @@
 # Cluster-specific configuration — override via Argo CD, CI, or:
-#   helm upgrade -i acs-ai-overwatch . -f values-prod.yaml -n openshift-gitops
+#   helm upgrade -i acs-ai-overwatch . -f values-poc.yaml -n openshift-gitops
+#
+# PoC storage: on-cluster only via OpenShift Local Storage Operator (see quayStorage.localVolume).
+# Set NVMe devicePaths in values-poc.yaml (or here) before sync.
 
 global:
   partOf: acs-ai-overwatch
 
+# Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
+argocd:
+  syncWaves:
+    enabled: true
+    namespace: "0"
+    operators: "10"
+    storage: "20"
+    platformCRs: "30"
+    secrets: "40"
+    pvcs: "45"
+    configMaps: "50"
+    security: "55"
+    workloads: "60"
+    bootstrap: "70"
+    agents: "80"
+
 cluster:
+  # Populated by scripts/discover-cluster-values.sh from your oc login (see values-cluster.yaml).
   name: acs-ai-overwatch
+  appsDomain: ""
   # Describe layout (e.g. 3×3 failure domains / nodes); used for documentation ConfigMap only.
   topology: "3x3"
   gpu:
@@ -18,6 +39,12 @@ clusterMetadata:
   enabled: true
   namespace: acs-ai-overwatch-system
 
+# On-cluster local storage for the PoC (StorageClasses from LSO LocalVolume quay-local-storage).
+storage:
+  local:
+    filesystemStorageClass: quay-local-xfs
+    blockStorageClass: quay-local-block
+
 mattermost:
   enabled: true
   namespace: monitoring
@@ -25,9 +52,10 @@ mattermost:
     repository: mattermost/mattermost-team-edition
     tag: "10.11.15"
   pvc:
-    storageClassName: ""
+    storageClassName: quay-local-xfs
     size: 10Gi
-  siteUrl: https://mattermost-monitoring.apps.CHANGE_ME.example.com
+  # siteUrl and route.host are derived from cluster.appsDomain when left empty.
+  siteUrl: ""
   internalUrl: http://mattermost.monitoring.svc.cluster.local:8065
   route:
     host: ""
@@ -37,9 +65,9 @@ mattermost:
     jobImage: docker.io/nicolaka/netshoot:v0.13
     adminEmail: mattermost-admin@cluster.local
     adminUsername: mattermost-admin
-    adminPassword: CHANGE_ME_ADMIN
+    adminPassword: redhatpassword123
     hitlEmail: human-in-the-loop@cluster.local
-    hitlPassword: CHANGE_ME_HITL
+    hitlPassword: redhatpassword123
 
 quayStorage:
   enabled: true
@@ -67,6 +95,7 @@ quayStorage:
         - matchExpressions:
             - key: node-role.kubernetes.io/worker
               operator: Exists
+    # Replace devicePaths in values-poc.yaml with your worker NVMe by-id symlinks (see README).
     storageClassDevices:
       - storageClassName: quay-local-xfs
         volumeMode: Filesystem
@@ -112,7 +141,8 @@ quayStorage:
       name: quay-registry-credentials
     envSecret:
       name: quay-registry-env
-    server: quay-quay.apps.CHANGE_ME.example.com
+    # server is derived from cluster.appsDomain when empty (quay-quay.apps.<domain>).
+    server: ""
     username: ai-workbench-pull
     password: CHANGE_ME_PASSWORD
     useExistingDockerconfig: false
@@ -260,7 +290,7 @@ agentsRoseyRegrets:
   namespace: test-range
   pvc:
     name: agent-reference-information
-    storageClassName: ""
+    storageClassName: quay-local-xfs
     size: 20Gi
 
 # Tekton/OpenShift Pipelines defaults (see pipelines/tekton/agents-build-pipeline.yaml).
@@ -275,11 +305,12 @@ pipelines:
 kagenti:
   namespace: test-range
   api:
-    # External base URL for Kagenti API used by scripts/trigger-network-audit.sh.
-    baseUrl: https://kagenti-api.apps.CHANGE_ME.example.com
+    # External base URL for Kagenti API; derived from cluster.appsDomain when empty.
+    baseUrl: ""
   appSource:
     name: acs-ai-overwatch-gitops
-    repoUrl: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    # Set in values-cluster.yaml by discover-cluster-values.sh (git remote).
+    repoUrl: ""
     revision: main
     path: gitops/helm/acs-ai-overwatch
   images:

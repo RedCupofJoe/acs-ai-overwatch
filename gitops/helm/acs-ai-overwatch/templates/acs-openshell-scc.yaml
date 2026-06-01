@@ -3,6 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: openshell
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
   namespace: {{ .Values.acs.testRange.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -11,6 +12,7 @@ apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
   name: openshell-gpu-runtime
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 allowPrivilegedContainer: true

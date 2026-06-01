@@ -1,1 +1,4 @@
 scratch/
+
+# Optional: ignore if you inject secrets via discover-cluster-values.sh (QUAY_REGISTRY_PASSWORD).
+# gitops/helm/acs-ai-overwatch/values-cluster.yaml

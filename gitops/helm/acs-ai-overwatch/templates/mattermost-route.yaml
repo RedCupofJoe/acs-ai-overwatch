@@ -3,14 +3,13 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: mattermost
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
   namespace: {{ .Values.mattermost.namespace }}
   labels:
     app.kubernetes.io/name: mattermost
     app.kubernetes.io/component: server
 spec:
-  {{- if .Values.mattermost.route.host }}
-  host: {{ .Values.mattermost.route.host }}
-  {{- end }}
+  host: {{ include "acs-ai-overwatch.mattermostRouteHost" . }}
   to:
     kind: Service
     name: mattermost

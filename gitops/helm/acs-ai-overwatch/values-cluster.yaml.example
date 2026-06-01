@@ -1,0 +1,18 @@
+# Copy to values-cluster.yaml or run: ../../scripts/discover-cluster-values.sh
+#
+# This file is merged after values.yaml by Argo CD. It should contain cluster-specific
+# non-secret settings discovered from `oc login`.
+
+cluster:
+  name: my-openshift-cluster
+  appsDomain: apps.cluster.example.com
+
+quayStorage:
+  registryCredentials:
+    server: quay-quay.apps.cluster.example.com
+
+kagenti:
+  api:
+    baseUrl: https://kagenti-api.apps.cluster.example.com
+  appSource:
+    repoUrl: https://github.com/YOUR_ORG/acs-ai-overwatch.git

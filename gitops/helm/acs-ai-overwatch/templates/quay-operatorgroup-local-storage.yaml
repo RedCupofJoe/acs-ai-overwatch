@@ -3,6 +3,7 @@ apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: {{ .Values.quayStorage.localStorageOperator.operatorGroup.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.quayStorage.localStorageOperator.namespace }}
 spec:
   targetNamespaces:

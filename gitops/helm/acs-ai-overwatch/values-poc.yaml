@@ -1,0 +1,33 @@
+# PoC cluster overlay — merge after values.yaml (see gitops/argocd/application.yaml).
+#
+# REQUIRED: set NVMe device paths for your workers before first sync.
+# Discover on a worker:
+#   oc debug node/<worker> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
+#
+# Use two distinct disks: one for filesystem workloads (xfs), one for Quay object block store.
+
+quayStorage:
+  localVolume:
+    storageClassDevices:
+      - storageClassName: quay-local-xfs
+        volumeMode: Filesystem
+        fsType: xfs
+        devicePaths:
+          # Metadata + filesystem PVCs (Mattermost, Rosey, Quay Postgres/Clair)
+          - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
+      - storageClassName: quay-local-block
+        volumeMode: Block
+        devicePaths:
+          # Quay registry object storage only
+          - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
+
+# Optional: tighten nodeSelector if only specific workers have those NVMe devices.
+# quayStorage:
+#   localVolume:
+#     nodeSelector:
+#       nodeSelectorTerms:
+#         - matchExpressions:
+#             - key: kubernetes.io/hostname
+#               operator: In
+#               values:
+#                 - worker-0.example.com

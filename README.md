@@ -12,6 +12,32 @@
 
 The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using a single umbrella Helm chart at `gitops/helm/acs-ai-overwatch`.
 
+### Quick Start
+
+```bash
+# 1. Log in and generate cluster-specific Helm values (apps domain, routes, git URL, NVMe hints)
+oc login
+make cluster-values
+
+# 2. Review / edit gitops/helm/acs-ai-overwatch/values-poc.yaml (NVMe device paths)
+# 3. Review gitops/helm/acs-ai-overwatch/values-cluster.yaml (committed or local)
+
+# 4. Register Argo CD (set spec.source.repoURL to your fork if needed)
+oc apply -f gitops/argocd/application.yaml -n openshift-gitops
+
+# 5. Enable PoC components in values.yaml, then sync
+#    components.acsPolicies, agentsRoseyRegrets, kagenti → enabled: true
+
+# 6. Build agent images (after Quay is up)
+oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
+oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
+
+# 7. Trigger Rosey "Network Audit" (after Kagenti is installed)
+export KAGENTI_API_BASE="https://kagenti-api.apps.<your-apps-domain>"   # from values-cluster.yaml
+export KAGENTI_API_TOKEN="<token>"
+./scripts/trigger-network-audit.sh
+```
+
 ---
 
 ## Table of Contents
@@ -20,21 +46,24 @@ The repository is designed to be deployed through **OpenShift GitOps (Argo CD)**
 2. [Architecture](#architecture)
 3. [Repository Layout](#repository-layout)
 4. [Prerequisites](#prerequisites)
-5. [Configuration Checklist](#configuration-checklist)
-6. [Deployment Methods](#deployment-methods)
-7. [Helm Chart Reference](#helm-chart-reference)
-8. [Platform Components](#platform-components)
-9. [AI Agents](#ai-agents)
-10. [Kagenti Integration](#kagenti-integration)
-11. [ACS / RHACS Security](#acs--rhacs-security)
-12. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-13. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
-14. [Operational Scripts](#operational-scripts)
-15. [Namespaces and Resource Map](#namespaces-and-resource-map)
-16. [Helm Template Inventory](#helm-template-inventory)
-17. [Troubleshooting](#troubleshooting)
-18. [Security and Legal Notes](#security-and-legal-notes)
-19. [Development and Validation](#development-and-validation)
+5. [Helm Values File Layering](#helm-values-file-layering)
+6. [Cluster-Aware Configuration](#cluster-aware-configuration)
+7. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
+8. [Configuration Checklist](#configuration-checklist)
+9. [Deployment Methods](#deployment-methods)
+10. [Helm Chart Reference](#helm-chart-reference)
+11. [Platform Components](#platform-components)
+12. [AI Agents](#ai-agents)
+13. [Kagenti Integration](#kagenti-integration)
+14. [ACS / RHACS Security](#acs--rhacs-security)
+15. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
+16. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
+17. [Operational Scripts](#operational-scripts)
+18. [Namespaces and Resource Map](#namespaces-and-resource-map)
+19. [Helm Template Inventory](#helm-template-inventory)
+20. [Troubleshooting](#troubleshooting)
+21. [Security and Legal Notes](#security-and-legal-notes)
+22. [Development and Validation](#development-and-validation)
 
 ---
 
@@ -160,42 +189,30 @@ All four layers (values, PVC template, Kagenti deployment, container image) must
 
 ```
 acs-ai-overwatch/
-├── README.md                          # This file
+├── README.md
+├── Makefile                           # make cluster-values, make helm-template
 ├── agents/
-│   ├── helpful-hank/
-│   │   ├── Dockerfile                 # OpenShell + standard assistant prompt
-│   │   └── system_prompt.txt
-│   ├── rosey-regrets/
-│   │   ├── Dockerfile                 # OpenShell + nmap/iproute + rogue prompt
-│   │   └── system_prompt.txt
-│   ├── rosey-rogue/                   # Legacy placeholder directory
-│   └── scripts/
-│       └── pull-model.sh              # Runtime Hugging Face model download helper
-├── bootstrap/operators/               # Reserved for future operator bootstrap
+│   ├── helpful-hank/                  # OpenShell + standard assistant
+│   ├── rosey-regrets/                 # OpenShell + nmap + rogue prompt + /agent-reference-information
+│   ├── rosey-rogue/                   # Legacy placeholder
+│   └── scripts/pull-model.sh
 ├── gitops/
-│   ├── argocd/
-│   │   ├── application.yaml           # Argo CD Application registration
-│   │   └── kustomization.yaml
+│   ├── argocd/application.yaml        # Argo CD app (3 Helm value files)
 │   └── helm/acs-ai-overwatch/
-│       ├── Chart.yaml                 # Chart metadata (currently v0.4.0)
-│       ├── values.yaml                # Primary cluster configuration
-│       └── templates/                 # Rendered Kubernetes / OpenShift manifests
-├── infrastructure/gpu-config/         # Reserved for GPU tuning manifests
-├── monitoring/
-│   ├── acs-policies/                  # Reserved for standalone ACS policy assets
-│   └── mattermost/                    # Reserved for standalone Mattermost assets
-├── pipelines/
-│   └── tekton/
-│       ├── agents-build-pipeline.yaml           # Tasks + Pipeline
-│       └── agents-build-pipelinerun.example.yaml
+│       ├── Chart.yaml                 # v0.4.0
+│       ├── values.yaml                # Base defaults + feature toggles
+│       ├── values-poc.yaml            # PoC storage: NVMe paths, local SCs
+│       ├── values-cluster.yaml        # Generated: apps domain, routes, git URL
+│       ├── values-cluster.yaml.example
+│       └── templates/                 # 35+ OpenShift / K8s manifests
+├── pipelines/tekton/                  # Build helpful-hank + rosey-regrets → Quay
 ├── scripts/
-│   └── trigger-network-audit.sh       # Kagenti API trigger for Rosey
-└── scratch/                           # Local/dev scratch YAML (not deployed by chart)
-    ├── appOfApp.yaml
-    ├── dcgm-exporter-dashboard.json
-    ├── machineset.yaml
-    ├── openshiftAiPreInstall.yaml
-    └── openshiftAiSetup.yaml
+│   ├── discover-cluster-values.sh     # oc login → values-cluster.yaml
+│   └── trigger-network-audit.sh       # Kagenti Network Audit → ACS loop
+├── bootstrap/operators/               # Reserved
+├── infrastructure/gpu-config/       # Reserved
+├── monitoring/                        # Reserved (Mattermost is in Helm chart)
+└── scratch/                           # Not deployed by chart
 ```
 
 ---
@@ -230,29 +247,156 @@ acs-ai-overwatch/
 
 ---
 
+## Helm Values File Layering
+
+Configuration is split across three Helm value files (merged in order by Argo CD and `make helm-template`):
+
+| File | Purpose | Edit by |
+|------|---------|---------|
+| `values.yaml` | Base platform defaults, operator subscriptions, component toggles, storage class names | Hand (repo) |
+| `values-poc.yaml` | PoC-only: NVMe `devicePaths` for Local Storage Operator | Hand (per cluster hardware) |
+| `values-cluster.yaml` | Cluster apps domain, Quay route, Kagenti URL, git `repoUrl` | **`discover-cluster-values.sh`** (from `oc login`) |
+
+Argo CD Application (`gitops/argocd/application.yaml`):
+
+```yaml
+helm:
+  valueFiles:
+    - values.yaml
+    - values-poc.yaml
+    - values-cluster.yaml
+  ignoreMissingValueFiles: true   # until values-cluster.yaml is generated
+```
+
+### Computed URLs in templates
+
+When `cluster.appsDomain` is set, Helm templates in `_helpers.tpl` derive external hostnames (no hardcoded `CHANGE_ME` in rendered manifests):
+
+| Output | Logic |
+|--------|--------|
+| Mattermost `siteUrl` / Route `host` | `mattermost-<namespace>.apps.<appsDomain>` |
+| Quay `registryCredentials.server` | Override in values, else `quay-quay.apps.<appsDomain>` |
+| Kagenti `api.baseUrl` | Override in values, else `https://kagenti-api.apps.<appsDomain>` |
+
+Leave `mattermost.siteUrl`, `mattermost.route.host`, and `quayStorage.registryCredentials.server` **empty** in `values.yaml` to use computed values.
+
+---
+
+## Cluster-Aware Configuration
+
+Most hostnames that used to be `CHANGE_ME` are now derived from **`cluster.appsDomain`**, which is populated from the cluster you are logged into.
+
+### One-command discovery (recommended)
+
+After `oc login`:
+
+```bash
+make cluster-values
+# or: ./scripts/discover-cluster-values.sh
+```
+
+This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with:
+
+| Discovered value | Source |
+|------------------|--------|
+| `cluster.appsDomain` | `oc get ingresses.config cluster` |
+| `cluster.name` | `Infrastructure` CR or current context |
+| `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.apps.<domain>` |
+| `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else `https://kagenti-api.apps.<domain>` |
+| `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
+| NVMe `devicePaths` in `values-poc.yaml` | First worker `by-id` NVMe devices (verify before sync) |
+
+Helm then builds URLs automatically:
+
+- Mattermost: `https://mattermost-monitoring.apps.<appsDomain>`
+- Quay (when `server` is empty): `quay-quay.apps.<appsDomain>`
+
+Argo CD loads, in order: `values.yaml` → `values-poc.yaml` → `values-cluster.yaml` (`ignoreMissingValueFiles: true` until you generate the cluster file).
+
+Optional environment variables for the script:
+
+```bash
+export QUAY_REGISTRY_PASSWORD='<token>'   # written to values-cluster.yaml if set
+export KAGENTI_API_BASE_URL='https://...'  # override detection
+export GIT_REPO_URL='https://github.com/...'  # override git remote
+```
+
+**Important:** Argo CD running inside the cluster cannot run your laptop’s `oc login`. Run `discover-cluster-values.sh` locally and commit or CI-publish `values-cluster.yaml`, or run the script in a pipeline job that has cluster credentials.
+
+### What still requires manual configuration
+
+| Setting | Notes |
+|---------|--------|
+| `quayStorage.registryCredentials.password` | Set via `QUAY_REGISTRY_PASSWORD` when running the script, or edit values |
+| Mattermost bootstrap passwords | `mattermost.bootstrap.*` in `values.yaml` |
+| NVMe disks | Script suggests paths; confirm two distinct devices |
+| `pipelines.imageRegistry.host` | In-cluster DNS (usually no apps domain needed) |
+
+### Makefile targets
+
+| Target | Command |
+|--------|---------|
+| `cluster-values` | Runs `scripts/discover-cluster-values.sh` |
+| `helm-template` | Renders chart with all three value files |
+
+---
+
+## PoC Cluster-Local Storage
+
+This PoC uses **on-cluster storage only** (no cloud volumes). All filesystem PVCs share the StorageClass created by the Local Storage Operator.
+
+| StorageClass | Mode | Used by |
+|--------------|------|---------|
+| `quay-local-xfs` | Filesystem (xfs) | Quay Postgres/Clair, Mattermost PVC, Rosey `agent-reference-information`, Tekton workspace |
+| `quay-local-block` | Block | Quay object storage only |
+
+**Provisioning flow:**
+
+1. LSO installs and creates `LocalVolume` `quay-local-storage` (device paths in `values-poc.yaml`)
+2. StorageClasses `quay-local-xfs` and `quay-local-block` become available
+3. Quay registry consumes most capacity; other workloads use `quay-local-xfs`
+
+**Helm defaults (already set in `values.yaml`):**
+
+```yaml
+storage:
+  local:
+    filesystemStorageClass: quay-local-xfs
+    blockStorageClass: quay-local-block
+
+mattermost:
+  pvc:
+    storageClassName: quay-local-xfs
+
+agentsRoseyRegrets:
+  pvc:
+    name: agent-reference-information
+    storageClassName: quay-local-xfs
+```
+
+Run `make cluster-values` to auto-fill NVMe paths in `values-poc.yaml` when placeholders are still present; **always verify** two distinct disks before sync.
+
+---
+
 ## Configuration Checklist
 
-Before syncing to production or lab clusters, replace every `CHANGE_ME` placeholder in `values.yaml` and related manifests.
+Before syncing, run cluster discovery and review generated values.
 
 | Setting | Location | Description |
 |---------|----------|-------------|
-| Git repository URL | `gitops/argocd/application.yaml` → `spec.source.repoURL` | Your fork or org repo |
-| Git repository URL | `kagenti.appSource.repoUrl` | Same repo for Kagenti AppSource |
-| Mattermost route host | `mattermost.siteUrl`, `mattermost.route.host` | External Mattermost URL |
-| Quay route / server | `quayStorage.registryCredentials.server` | External Quay hostname |
-| Quay credentials | `quayStorage.registryCredentials.password` | Pull secret password |
+| Cluster apps domain | `values-cluster.yaml` → `cluster.appsDomain` | Auto from `discover-cluster-values.sh` |
+| Git repository URL | `kagenti.appSource.repoUrl` | Auto from `git remote` |
+| Argo CD repo URL | `gitops/argocd/application.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
+| Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
-| NVMe disk paths | `quayStorage.localVolume.storageClassDevices[].devicePaths` | Node-local disk by-id paths |
-| Kagenti API URL | `kagenti.api.baseUrl` | External Kagenti API endpoint |
-| Internal Quay registry host | `pipelines.imageRegistry.host`, `kagenti.images.*` | In-cluster Quay service DNS |
+| NVMe disk paths | `values-poc.yaml` | Auto-suggested; verify before sync |
 
 ### Recommended Pre-Sync Commands
 
-Render manifests locally before applying:
-
 ```bash
-helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
-  -f gitops/helm/acs-ai-overwatch/values.yaml
+oc login ...
+make cluster-values
+make helm-template
 ```
 
 Render with PoC feature flags enabled:
@@ -270,24 +414,24 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 ### Method 1: OpenShift GitOps (Recommended)
 
-1. Fork or clone this repository and update `CHANGE_ME` values.
-2. Edit `gitops/argocd/application.yaml`:
+1. Clone/fork the repository and log in to your cluster:
 
-   ```yaml
-   spec:
-     source:
-       repoURL: https://github.com/YOUR_ORG/acs-ai-overwatch.git
-       targetRevision: main
-       path: gitops/helm/acs-ai-overwatch
+   ```bash
+   oc login
+   make cluster-values
    ```
 
-3. Register the Application:
+2. Edit `values-poc.yaml` NVMe paths if the discovery script did not fill them correctly.
+
+3. Set `gitops/argocd/application.yaml` `spec.source.repoURL` to your Git remote (if different from the default fork).
+
+4. Register the Application:
 
    ```bash
    oc apply -f gitops/argocd/application.yaml -n openshift-gitops
    ```
 
-4. Monitor sync status:
+5. Monitor sync status:
 
    ```bash
    oc get application acs-ai-overwatch -n openshift-gitops
@@ -297,12 +441,40 @@ Argo CD is configured with:
 
 - **Automated sync** with prune and self-heal
 - **CreateNamespace=true** so chart-managed namespaces are created on sync
+- **Helm value files:** `values.yaml`, `values-poc.yaml`, `values-cluster.yaml`
+- **`ignoreMissingValueFiles: true`** until `values-cluster.yaml` exists
+- **Sync waves** on rendered manifests so resources apply in dependency order (see below)
+
+#### Argo CD sync waves
+
+The umbrella Helm chart (`gitops/helm/acs-ai-overwatch`) is deployed by a single Argo CD `Application` (`gitops/argocd/application.yaml`). When `argocd.syncWaves.enabled` is `true` (default), each manifest gets `argocd.argoproj.io/sync-wave` so Argo CD applies lower waves before higher ones within a sync:
+
+| Wave | Key | Examples |
+|------|-----|----------|
+| 0 | `namespace` | `mattermost`, `quay`, `openshift-local-storage`, `redhat-ods-applications`, `stackrox`, `test-range`, `cluster-metadata` |
+| 10 | `operators` | OLM `Subscription` / `OperatorGroup` (RHACS, RHOAI, GPU, NFD, Quay, LSO) |
+| 20 | `storage` | `LocalVolume`, GPU time-slicing `ConfigMap` |
+| 30 | `platformCRs` | `QuayRegistry`, `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy` |
+| 40 | `secrets` | Quay pull secrets, Mattermost bootstrap secrets |
+| 45 | `pvcs` | Mattermost DB, Rosey `agent-reference-information` |
+| 50 | `configMaps` | Mattermost env, ACS policy bundle, cluster metadata |
+| 55 | `security` | OpenShell `SecurityContextConstraints`, Mattermost bootstrap RBAC |
+| 60 | `workloads` | Mattermost `Deployment` / `Service` / `Route` |
+| 70 | `bootstrap` | Mattermost admin bootstrap `Job` |
+| 80 | `agents` | Kagenti `Deployment` / `Service` / `AppSource` |
+
+Tune wave numbers in `values.yaml` under `argocd.syncWaves`. Set `argocd.syncWaves.enabled: false` to omit annotations (e.g. for plain `helm install` debugging).
+
+**Important:** Sync waves order *apply* only. They do not wait for OLM operators or CRs to become healthy. After wave 10, allow operator installs to finish before expecting wave 30+ CRs to reconcile. Use Argo CD UI health, `oc get csv`, or staged `components.*` toggles for the PoC agents and ACS policies.
 
 ### Method 2: Direct Helm Install
 
 ```bash
+make cluster-values
 helm upgrade --install acs-ai-overwatch gitops/helm/acs-ai-overwatch \
   -f gitops/helm/acs-ai-overwatch/values.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-poc.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-cluster.yaml \
   -n openshift-gitops
 ```
 
@@ -330,25 +502,72 @@ components:
 **Version:** `0.4.0`  
 **Path:** `gitops/helm/acs-ai-overwatch`
 
+### Argo CD sync waves
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `argocd.syncWaves.enabled` | `true` | Emit `argocd.argoproj.io/sync-wave` on chart resources |
+| `argocd.syncWaves.namespace` | `"0"` | Wave for namespaces |
+| `argocd.syncWaves.operators` | `"10"` | Wave for OLM subscriptions / operator groups |
+| `argocd.syncWaves.storage` | `"20"` | Wave for LSO / storage config |
+| `argocd.syncWaves.platformCRs` | `"30"` | Wave for operator-owned CRs |
+| `argocd.syncWaves.secrets` | `"40"` | Wave for secrets |
+| `argocd.syncWaves.pvcs` | `"45"` | Wave for PVCs |
+| `argocd.syncWaves.configMaps` | `"50"` | Wave for config maps |
+| `argocd.syncWaves.security` | `"55"` | Wave for SCC / RBAC |
+| `argocd.syncWaves.workloads` | `"60"` | Wave for deployments, services, routes |
+| `argocd.syncWaves.bootstrap` | `"70"` | Wave for bootstrap jobs |
+| `argocd.syncWaves.agents` | `"80"` | Wave for Kagenti agents |
+
 ### Global Values
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `global.partOf` | `acs-ai-overwatch` | Applied as `app.kubernetes.io/part-of` label |
 
-### Cluster Metadata
+### Cluster
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `cluster.name` | `acs-ai-overwatch` | Logical cluster name |
+| `cluster.name` | `acs-ai-overwatch` | Logical name; overwritten by `values-cluster.yaml` |
+| `cluster.appsDomain` | `""` | **Required for URL templates** — set via `discover-cluster-values.sh` |
 | `cluster.topology` | `3x3` | Documented layout (informational) |
-| `cluster.gpu.count` | `3` | GPU count |
+
+### Storage (`storage.local`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `storage.local.filesystemStorageClass` | `quay-local-xfs` | Mattermost, Rosey PVC, Tekton workspace |
+| `storage.local.blockStorageClass` | `quay-local-block` | Quay object storage |
+
+### Rosey Regrets PVC (`agentsRoseyRegrets`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `agentsRoseyRegrets.namespace` | `test-range` | PVC namespace |
+| `agentsRoseyRegrets.pvc.name` | `agent-reference-information` | PVC name (referenced by Kagenti deployment) |
+| `agentsRoseyRegrets.pvc.storageClassName` | `quay-local-xfs` | On-cluster filesystem storage |
+| `agentsRoseyRegrets.pvc.size` | `20Gi` | Requested capacity |
+
+### Kagenti (`kagenti`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `kagenti.namespace` | `test-range` | Agent workloads |
+| `kagenti.rosey.outputMountPath` | `/agent-reference-information` | Must match image `AGENT_OUTPUT_DIR` |
+| `kagenti.rosey.networkAuditCommand` | `Network Audit` | Command for violation-loop demo |
+| `kagenti.api.baseUrl` | `""` | From `values-cluster.yaml` or derived from `appsDomain` |
+| `kagenti.appSource.repoUrl` | `""` | From `values-cluster.yaml` (git remote) |
+
+### Cluster GPU and metadata
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `cluster.gpu.count` | `3` | GPU count (documentation) |
 | `cluster.gpu.model` | `L4` | GPU model |
 | `cluster.gpu.vendor` | `nvidia` | GPU vendor |
-| `clusterMetadata.enabled` | `true` | Create metadata ConfigMap |
+| `clusterMetadata.enabled` | `true` | Creates ConfigMap `cluster-metadata` in `acs-ai-overwatch-system` |
 | `clusterMetadata.namespace` | `acs-ai-overwatch-system` | Metadata namespace |
-
-When enabled, creates ConfigMap `cluster-metadata` with cluster facts for operators and workbenches.
 
 ### Component Feature Flags
 
@@ -403,15 +622,22 @@ Deploys a full on-cluster Quay instance backed by **OpenShift Local Storage Oper
 4. `QuayRegistry` CR with managed Postgres, Clair, Redis, monitoring, TLS, Route
 5. Pull credentials Secret in `ai-workbenches` for workbench/agent image pulls
 
-**Critical:** Update NVMe device paths before sync:
+**NVMe device paths** live in `values-poc.yaml` (not `values.yaml`). Run `make cluster-values` to auto-suggest paths, then verify:
 
 ```yaml
-devicePaths:
-  - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
-  - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
+# values-poc.yaml
+quayStorage:
+  localVolume:
+    storageClassDevices:
+      - storageClassName: quay-local-xfs
+        devicePaths:
+          - /dev/disk/by-id/nvme-<your-metadata-disk>
+      - storageClassName: quay-local-block
+        devicePaths:
+          - /dev/disk/by-id/nvme-<your-object-disk>
 ```
 
-Discover actual paths on worker nodes:
+Manual discovery:
 
 ```bash
 oc debug node/<worker-node> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
@@ -455,8 +681,8 @@ Deploys Mattermost Team Edition as the **Slack-compatible notification sink** fo
 | Resource | Description |
 |----------|-------------|
 | Deployment | Mattermost server |
-| PVC | 10Gi persistent data |
-| Route | Edge TLS termination |
+| PVC | 10Gi on `quay-local-xfs` |
+| Route | Edge TLS; host derived from `cluster.appsDomain` |
 | Bootstrap Job | Creates admin, HITL user, incoming webhook |
 | ConfigMap | Stores `ACS_INCOMING_WEBHOOK_URL` after bootstrap |
 
@@ -569,10 +795,9 @@ components:
   kagenti:
     enabled: true
   agentsRoseyRegrets:
-    enabled: true   # Required for Rosey PVC
-components:
+    enabled: true   # PVC agent-reference-information
   acsPolicies:
-    enabled: true   # Required for openshell ServiceAccount + SCC
+    enabled: true   # test-range namespace, RHACS policy, openshell SCC/SA
 ```
 
 ### Deployed Resources
@@ -594,7 +819,7 @@ Registers this GitOps repository with Kagenti:
 kagenti:
   appSource:
     name: acs-ai-overwatch-gitops
-    repoUrl: https://github.com/CHANGE_ME/acs-ai-overwatch.git
+    repoUrl: ""          # set in values-cluster.yaml (git remote)
     revision: main
     path: gitops/helm/acs-ai-overwatch
 ```
@@ -612,7 +837,7 @@ volumeMounts:
 volumes:
   - name: reference-information
     persistentVolumeClaim:
-      claimName: agent-reference-information   # from agentsRoseyRegrets.pvc.name
+      claimName: agent-reference-information   # from agentsRoseyRegrets.pvc.name in values
 ```
 
 ### Image References
@@ -757,16 +982,29 @@ tkn pipelinerun logs -f -n acs-ai-overwatch-system -l app.kubernetes.io/part-of=
 - Uses `vfs` storage driver (common pattern on OpenShift)
 - Default `push-tls-verify: false` for internal Quay with self-signed certs
 
+The example PipelineRun (`agents-build-pipelinerun.example.yaml`) uses **`storageClassName: quay-local-xfs`** for the shared source workspace PVC.
+
 ---
 
 ## PoC Demo Flow: ACS Violation Loop
 
 This section walks through the intended demonstration end-to-end.
 
+### Phase 0 — Prepare configuration
+
+```bash
+oc login
+make cluster-values
+# Edit values-poc.yaml NVMe paths if needed
+git add gitops/helm/acs-ai-overwatch/values-cluster.yaml values-poc.yaml
+git commit -m "Cluster values for PoC" && git push   # if using remote Argo CD
+```
+
 ### Phase 1 — Platform Bootstrap
 
 1. Sync Argo CD Application `acs-ai-overwatch`
 2. Wait for operators: NFD, GPU Operator, Local Storage, Quay, RHOAI, RHACS
+3. Confirm StorageClasses: `oc get sc | grep quay-local`
 3. Confirm Quay route is reachable and org/repos exist
 4. Confirm Mattermost bootstrap Job completed:
 
@@ -803,10 +1041,11 @@ This section walks through the intended demonstration end-to-end.
 
 ### Phase 3 — Trigger Network Audit
 
-Use the Kagenti API script:
+Use the Kagenti API script (base URL from `values-cluster.yaml`):
 
 ```bash
-export KAGENTI_API_BASE="https://kagenti-api.apps.<cluster-domain>"
+export KAGENTI_API_BASE="$(grep 'baseUrl:' gitops/helm/acs-ai-overwatch/values-cluster.yaml | awk '{print $2}')"
+# or set explicitly from discover-cluster-values.sh output
 export KAGENTI_API_TOKEN="<bearer-token>"
 chmod +x scripts/trigger-network-audit.sh
 ./scripts/trigger-network-audit.sh
@@ -838,13 +1077,34 @@ Check Mattermost Town Square (or configured channel) for notifier messages.
 
 ## Operational Scripts
 
+### `scripts/discover-cluster-values.sh`
+
+Generates `gitops/helm/acs-ai-overwatch/values-cluster.yaml` from the active OpenShift login.
+
+| Discovers | OpenShift / Git source |
+|-----------|------------------------|
+| `cluster.appsDomain` | `ingresses.config/cluster` |
+| `cluster.name` | `Infrastructure` or current context |
+| Quay hostname | Route in `quay` or `quay-quay.apps.<domain>` |
+| Kagenti API URL | Route search or default hostname pattern |
+| `kagenti.appSource.repoUrl` | `git remote origin` |
+| NVMe paths | Optional patch to `values-poc.yaml` |
+
+```bash
+./scripts/discover-cluster-values.sh
+./scripts/discover-cluster-values.sh --output /path/to/values-cluster.yaml
+export QUAY_REGISTRY_PASSWORD='...'   # optional: written into values-cluster.yaml
+```
+
+See [Cluster-Aware Configuration](#cluster-aware-configuration) and [Makefile](#makefile-targets) (`make cluster-values`).
+
 ### `scripts/trigger-network-audit.sh`
 
 Triggers the Rosey Regrets **Network Audit** command via Kagenti REST API.
 
 | Environment Variable | Required | Default |
 |---------------------|----------|---------|
-| `KAGENTI_API_BASE` | Yes | — |
+| `KAGENTI_API_BASE` | Yes | Use value from `values-cluster.yaml` (`kagenti.api.baseUrl`) |
 | `KAGENTI_API_TOKEN` | Yes | — |
 | `ROSEY_AGENT_NAME` | No | `rosey-regrets` |
 | `NETWORK_AUDIT_COMMAND` | No | `Network Audit` |
@@ -898,6 +1158,17 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 
 ## Troubleshooting
 
+### Helm render fails: `cluster.appsDomain is unset`
+
+Run cluster discovery and merge values:
+
+```bash
+make cluster-values
+make helm-template
+```
+
+Ensure `values-cluster.yaml` contains a non-empty `cluster.appsDomain` before enabling Mattermost or Quay pull secrets.
+
 ### Argo CD Application OutOfSync
 
 ```bash
@@ -905,7 +1176,7 @@ oc get application acs-ai-overwatch -n openshift-gitops -o yaml
 oc describe application acs-ai-overwatch -n openshift-gitops
 ```
 
-Common causes: invalid Helm values, missing CRDs, operator subscriptions pending install plans.
+Common causes: invalid Helm values, missing CRDs, operator subscriptions pending install plans, or NVMe paths in `values-poc.yaml` pointing at wrong devices.
 
 ### GPU Slices Not Advertised
 
@@ -984,11 +1255,10 @@ Unauthorized scanning of production or third-party networks may violate policy a
 
 ### Secrets Management
 
-Default `values.yaml` contains placeholder passwords (`CHANGE_ME_*`). Before any real deployment:
-
-- Replace all placeholder credentials
-- Prefer External Secrets Operator, Sealed Secrets, or OpenShift GitOps vault integration
-- Never commit production credentials to Git
+- **Quay pull password:** set `QUAY_REGISTRY_PASSWORD` when running `discover-cluster-values.sh`, or edit `quayStorage.registryCredentials.password` in values (default placeholder in repo).
+- **Mattermost bootstrap passwords:** configured under `mattermost.bootstrap` in `values.yaml` — change before non-lab use.
+- Prefer External Secrets Operator, Sealed Secrets, or OpenShift GitOps vault integration for production.
+- Optionally gitignore `values-cluster.yaml` if it contains secrets (see `.gitignore` comment).
 
 ### Privileged Workloads
 
@@ -1001,13 +1271,17 @@ The OpenShell SCC and buildah Tekton tasks require elevated privileges. Restrict
 ### Local Helm Rendering
 
 ```bash
-helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch
+make cluster-values    # once per cluster
+make helm-template     # all value layers
 ```
 
-### Full PoC Render
+### Full PoC Render (with component toggles)
 
 ```bash
 helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
+  -f gitops/helm/acs-ai-overwatch/values.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-poc.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-cluster.yaml \
   --set components.acsPolicies.enabled=true \
   --set components.agentsRoseyRegrets.enabled=true \
   --set components.kagenti.enabled=true \
@@ -1019,6 +1293,8 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 ```bash
 helm upgrade acs-ai-overwatch gitops/helm/acs-ai-overwatch \
   -f gitops/helm/acs-ai-overwatch/values.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-poc.yaml \
+  -f gitops/helm/acs-ai-overwatch/values-cluster.yaml \
   --dry-run --debug
 ```
 
@@ -1031,11 +1307,15 @@ Files under `scratch/` are **not** deployed by the Helm chart. They contain refe
 ## Quick Reference Commands
 
 ```bash
+# Discover cluster domain and write values-cluster.yaml
+oc login ...
+make cluster-values
+
 # Register GitOps app
 oc apply -f gitops/argocd/application.yaml -n openshift-gitops
 
-# Render chart
-helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch
+# Render chart (all value layers)
+make helm-template
 
 # Apply Tekton pipeline
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
@@ -1043,8 +1323,8 @@ oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.ya
 # Build agent images (example PipelineRun)
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# Trigger Rosey network audit
-export KAGENTI_API_BASE="https://kagenti-api.apps.example.com"
+# Trigger Rosey network audit (use baseUrl from values-cluster.yaml)
+export KAGENTI_API_BASE="https://kagenti-api.apps.<apps-domain>"
 export KAGENTI_API_TOKEN="<token>"
 ./scripts/trigger-network-audit.sh
 
@@ -1060,7 +1340,7 @@ When extending this repository:
 
 1. Add new optional features behind `components.*` toggles in `values.yaml`
 2. Keep namespace and naming conventions consistent with `test-range` isolation model
-3. Document new `CHANGE_ME` placeholders in this README
+3. Document new cluster-specific settings in this README and `values-cluster.yaml.example`
 4. Validate with `helm template` before opening a PR
 5. Do not commit secrets, kubeconfigs, or environment-specific credentials
 

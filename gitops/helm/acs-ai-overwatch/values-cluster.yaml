@@ -1,0 +1,6 @@
+# Run from repo root: ./scripts/discover-cluster-values.sh  (or: make cluster-values)
+# This file is overwritten with cluster.appsDomain and routes from your oc login.
+
+cluster:
+  name: ""
+  appsDomain: ""

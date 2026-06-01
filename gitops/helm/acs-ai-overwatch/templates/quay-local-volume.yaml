@@ -3,6 +3,7 @@ apiVersion: local.storage.openshift.io/v1
 kind: LocalVolume
 metadata:
   name: {{ .Values.quayStorage.localVolume.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
   namespace: {{ .Values.quayStorage.localVolume.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

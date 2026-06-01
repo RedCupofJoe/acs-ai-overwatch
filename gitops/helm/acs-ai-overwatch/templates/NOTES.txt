@@ -5,3 +5,4 @@ Cluster metadata ConfigMap (when enabled): {{ .Values.clusterMetadata.namespace 
 Edit gitops/helm/acs-ai-overwatch/values.yaml for cluster hosts, disks, and secrets before syncing.
 
 OpenShift GitOps: register Application from gitops/argocd/application.yaml into namespace openshift-gitops.
+Sync waves (when argocd.syncWaves.enabled): namespaces 0 → operators 10 → storage 20 → CRs 30 → secrets 40 → PVCs 45 → config 50 → security 55 → workloads 60 → bootstrap 70 → agents 80.

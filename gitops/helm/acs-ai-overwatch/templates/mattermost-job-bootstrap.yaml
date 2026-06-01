@@ -3,6 +3,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: mattermost-bootstrap
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
   namespace: {{ .Values.mattermost.namespace }}
   labels:
     app.kubernetes.io/name: mattermost

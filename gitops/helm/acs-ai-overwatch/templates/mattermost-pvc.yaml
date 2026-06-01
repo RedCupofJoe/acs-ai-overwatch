@@ -3,6 +3,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mattermost-data
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "pvcs") | nindent 2 }}
   namespace: {{ .Values.mattermost.namespace }}
   labels:
     app.kubernetes.io/name: mattermost

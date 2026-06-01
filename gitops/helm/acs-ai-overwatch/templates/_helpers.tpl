@@ -16,6 +16,63 @@ app.kubernetes.io/part-of: {{ .Values.global.partOf }}
 {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end }}
 
+{{/*
+  Argo CD sync-wave annotation. Usage:
+    metadata:
+      name: example
+      {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+      labels: ...
+*/}}
+{{- define "acs-ai-overwatch.argocdSyncWaveAnnotations" -}}
+{{- $root := .root -}}
+{{- $waveKey := .wave -}}
+{{- if $root.Values.argocd.syncWaves.enabled }}
+{{- $wave := index $root.Values.argocd.syncWaves $waveKey -}}
+annotations:
+  argocd.argoproj.io/sync-wave: {{ $wave | quote }}
+{{- end }}
+{{- end }}
+
+{{- define "acs-ai-overwatch.appsDomain" -}}
+{{- if .Values.cluster.appsDomain -}}
+{{- .Values.cluster.appsDomain -}}
+{{- else -}}
+{{- fail "cluster.appsDomain is unset. Run: ./scripts/discover-cluster-values.sh (requires oc login)" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.mattermostRouteHost" -}}
+{{- if .Values.mattermost.route.host -}}
+{{- .Values.mattermost.route.host -}}
+{{- else -}}
+{{- printf "mattermost-%s.apps.%s" .Values.mattermost.namespace (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.mattermostSiteUrl" -}}
+{{- if .Values.mattermost.siteUrl -}}
+{{- .Values.mattermost.siteUrl -}}
+{{- else -}}
+{{- printf "https://%s" (include "acs-ai-overwatch.mattermostRouteHost" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.quayRegistryServer" -}}
+{{- if .Values.quayStorage.registryCredentials.server -}}
+{{- .Values.quayStorage.registryCredentials.server -}}
+{{- else -}}
+{{- printf "quay-quay.apps.%s" (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.kagentiApiBaseUrl" -}}
+{{- if .Values.kagenti.api.baseUrl -}}
+{{- .Values.kagenti.api.baseUrl -}}
+{{- else -}}
+{{- printf "https://kagenti-api.apps.%s" (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- end -}}
+{{- end }}
+
 {{- define "mattermost.bootstrapScript" -}}
 #!/usr/bin/env bash
 set -euo pipefail

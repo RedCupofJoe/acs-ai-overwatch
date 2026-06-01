@@ -3,6 +3,7 @@ apiVersion: nvidia.com/v1
 kind: ClusterPolicy
 metadata:
   name: {{ .Values.accelerators.clusterPolicy.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 spec:
