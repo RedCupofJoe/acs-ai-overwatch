@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/lib/common.sh"
 REPO_ROOT="$(cluster_admin_repo_root)"
 CHART="${REPO_ROOT}/gitops/helm/acs-ai-overwatch-gitops-bootstrap"
 
-cluster_admin_require_cluster_admin
+cluster_admin_require_namespace_create
 
 if ! command -v helm >/dev/null 2>&1; then
   echo "helm is required to render namespace manifests" >&2
