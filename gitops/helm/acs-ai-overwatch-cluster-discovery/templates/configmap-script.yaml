@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-discovery-script
+  {{- include "cluster-discovery.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMap") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cluster-discovery.labels" . | nindent 4 }}
+data:
+  discover-in-cluster.sh: |
+{{ .Files.Get "discover-in-cluster.sh" | indent 4 }}
+  openshift-cluster-discovery.sh: |
+{{ .Files.Get "openshift-cluster-discovery.sh" | indent 4 }}

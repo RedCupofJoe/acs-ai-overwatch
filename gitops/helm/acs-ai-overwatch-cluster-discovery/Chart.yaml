@@ -1,0 +1,6 @@
+apiVersion: v2
+name: acs-ai-overwatch-cluster-discovery
+description: In-cluster discovery Job that writes cluster settings to a ConfigMap for the main chart.
+type: application
+version: 0.1.0
+appVersion: "1.0"

@@ -1,0 +1,45 @@
+{{- if .Values.job.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cluster-discovery
+  {{- include "cluster-discovery.argocdSyncWaveAnnotations" (dict "root" . "wave" "job") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cluster-discovery.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "cluster-discovery.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cluster-discovery
+    spec:
+      serviceAccountName: cluster-discovery
+      restartPolicy: {{ .Values.job.restartPolicy }}
+      containers:
+        - name: discover
+          image: {{ .Values.job.image | quote }}
+          command:
+            - /bin/bash
+            - /scripts/discover-in-cluster.sh
+          env:
+            - name: DISCOVERY_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            - name: DISCOVERY_CONFIGMAP
+              value: {{ .Values.configMapName | quote }}
+            - name: GIT_REPO_URL_DEFAULT
+              value: {{ .Values.job.gitRepoUrlDefault | quote }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: cluster-discovery-script
+            defaultMode: 0555
+{{- end }}

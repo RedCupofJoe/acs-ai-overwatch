@@ -8,6 +8,8 @@ metadata:
   namespace: openshift-gitops
   labels:
     app.kubernetes.io/part-of: acs-ai-overwatch
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -20,8 +22,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-poc.yaml
+        # Optional local override (make cluster-values). GitOps uses in-cluster ConfigMap from
+        # Application acs-ai-overwatch-cluster-discovery when cluster.appsDomain is empty.
         - values-cluster.yaml
-      # Generated locally by scripts/discover-cluster-values.sh; optional until present.
       ignoreMissingValueFiles: true
   destination:
     server: https://kubernetes.default.svc

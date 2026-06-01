@@ -1,0 +1,21 @@
+global:
+  partOf: acs-ai-overwatch
+
+argocd:
+  syncWaves:
+    enabled: true
+    namespace: "-10"
+    rbac: "-9"
+    configMap: "-8"
+    job: "-7"
+
+namespace: acs-ai-overwatch-system
+configMapName: acs-ai-overwatch-cluster-config
+
+job:
+  enabled: true
+  # Re-run discovery when the script ConfigMap changes.
+  restartPolicy: OnFailure
+  backoffLimit: 6
+  image: registry.redhat.io/openshift4/ose-cli:latest
+  gitRepoUrlDefault: https://github.com/RedCupofJoe/acs-ai-overwatch.git

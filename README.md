@@ -306,14 +306,34 @@ This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with:
 | `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
 | NVMe `devicePaths` in `values-poc.yaml` | First worker `by-id` NVMe devices (verify before sync) |
 
-Helm then builds URLs automatically:
+Helm then builds URLs automatically (when `appsDomain` already includes the `apps.` prefix from OpenShift, hosts are `mattermost-<ns>.<appsDomain>` and `quay-quay.<appsDomain>`):
 
-- Mattermost: `https://mattermost-monitoring.apps.<appsDomain>`
-- Quay (when `server` is empty): `quay-quay.apps.<appsDomain>`
+- Mattermost: `https://mattermost-monitoring.<appsDomain>`
+- Quay (when `server` is empty): `quay-quay.<appsDomain>`
 
-Argo CD loads, in order: `values.yaml` → `values-poc.yaml` → `values-cluster.yaml` (`ignoreMissingValueFiles: true` until you generate the cluster file).
+### In-cluster discovery for GitOps (no `values-cluster.yaml` in Git)
 
-Optional environment variables for the script:
+Two Argo CD Applications (see `gitops/argocd/kustomization.yaml`):
+
+| Application | Purpose |
+|-------------|---------|
+| `acs-ai-overwatch-cluster-discovery` | Job reads `ingresses.config/cluster` and writes ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** |
+| `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` when `cluster.appsDomain` is empty |
+
+**Workflow:**
+
+```bash
+oc apply -k gitops/argocd/
+# 1) Wait for cluster-discovery Job to succeed
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+# 2) Refresh the main Application in Argo CD (or wait for automated sync)
+```
+
+On the first main-app sync, Mattermost routes, Quay pull secrets, and Kagenti agents are **skipped** until the ConfigMap exists; operators and storage still deploy. After discovery completes, refresh so gated resources render.
+
+Optional override: `values-cluster.yaml` from `make cluster-values` (still supported; not required in Git).
+
+Optional environment variables for the local script:
 
 ```bash
 export QUAY_REGISTRY_PASSWORD='<token>'   # written to values-cluster.yaml if set
@@ -321,7 +341,7 @@ export KAGENTI_API_BASE_URL='https://...'  # override detection
 export GIT_REPO_URL='https://github.com/...'  # override git remote
 ```
 
-**Important:** Argo CD running inside the cluster cannot run your laptop’s `oc login`. Run `discover-cluster-values.sh` locally and commit or CI-publish `values-cluster.yaml`, or run the script in a pipeline job that has cluster credentials.
+If Helm `lookup` does not see the ConfigMap from the repo-server, use the optional CMP in `gitops/argocd/cmp/` (see README there).
 
 ### What still requires manual configuration
 

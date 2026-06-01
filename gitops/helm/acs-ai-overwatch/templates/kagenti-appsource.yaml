@@ -1,4 +1,4 @@
-{{- if .Values.components.kagenti.enabled }}
+{{- if and .Values.components.kagenti.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 # AppSource for Kagenti Git-backed app imports.
 # If your installed CRD uses a different apiVersion, update this manifest accordingly.
 apiVersion: kagenti.io/v1alpha1
@@ -13,7 +13,7 @@ metadata:
 spec:
   type: git
   git:
-    url: {{ .Values.kagenti.appSource.repoUrl }}
+    url: {{ include "acs-ai-overwatch.gitRepoUrl" . }}
     revision: {{ .Values.kagenti.appSource.revision }}
     path: {{ .Values.kagenti.appSource.path }}
 {{- end }}

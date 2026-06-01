@@ -1,4 +1,4 @@
-{{- if .Values.mattermost.enabled }}
+{{- if and .Values.mattermost.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: v1
 kind: Service
 metadata:

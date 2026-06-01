@@ -1,4 +1,4 @@
-{{- if .Values.components.kagenti.enabled }}
+{{- if and .Values.components.kagenti.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

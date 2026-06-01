@@ -33,11 +33,39 @@ annotations:
 {{- end }}
 {{- end }}
 
+{{- define "acs-ai-overwatch.clusterConfigReady" -}}
+{{- if .Values.cluster.appsDomain -}}true{{- end -}}
+{{- if .Values.clusterDiscovery.enabled -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.appsDomain -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.appsDomain" -}}
 {{- if .Values.cluster.appsDomain -}}
 {{- .Values.cluster.appsDomain -}}
+{{- else if .Values.clusterDiscovery.enabled -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.appsDomain -}}
+{{- $cm.data.appsDomain -}}
 {{- else -}}
-{{- fail "cluster.appsDomain is unset. Run: ./scripts/discover-cluster-values.sh (requires oc login)" -}}
+{{- fail (printf "cluster.appsDomain is unset. Sync Argo CD Application %q first (writes ConfigMap %s/%s), then refresh this Application. Or run: ./scripts/discover-cluster-values.sh" .Values.clusterDiscovery.discoveryApplicationName .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName) -}}
+{{- end -}}
+{{- else -}}
+{{- fail "cluster.appsDomain is unset. Enable clusterDiscovery or run ./scripts/discover-cluster-values.sh" -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.clusterName" -}}
+{{- if ne .Values.cluster.name "acs-ai-overwatch" -}}
+{{- .Values.cluster.name -}}
+{{- else -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.clusterName -}}
+{{- $cm.data.clusterName -}}
+{{- else -}}
+{{- .Values.cluster.name -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 
@@ -45,7 +73,8 @@ annotations:
 {{- if .Values.mattermost.route.host -}}
 {{- .Values.mattermost.route.host -}}
 {{- else -}}
-{{- printf "mattermost-%s.apps.%s" .Values.mattermost.namespace (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- printf "mattermost-%s.%s" .Values.mattermost.namespace $domain -}}
 {{- end -}}
 {{- end }}
 
@@ -61,7 +90,17 @@ annotations:
 {{- if .Values.quayStorage.registryCredentials.server -}}
 {{- .Values.quayStorage.registryCredentials.server -}}
 {{- else -}}
-{{- printf "quay-quay.apps.%s" (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.quayRegistryServer -}}
+{{- $cm.data.quayRegistryServer -}}
+{{- else -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- if hasPrefix "apps." $domain -}}
+{{- printf "quay-quay.%s" $domain -}}
+{{- else -}}
+{{- printf "quay-quay.apps.%s" $domain -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 
@@ -69,7 +108,30 @@ annotations:
 {{- if .Values.kagenti.api.baseUrl -}}
 {{- .Values.kagenti.api.baseUrl -}}
 {{- else -}}
-{{- printf "https://kagenti-api.apps.%s" (include "acs-ai-overwatch.appsDomain" .) -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.kagentiApiBaseUrl -}}
+{{- $cm.data.kagentiApiBaseUrl -}}
+{{- else -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- if hasPrefix "apps." $domain -}}
+{{- printf "https://kagenti-api.%s" $domain -}}
+{{- else -}}
+{{- printf "https://kagenti-api.apps.%s" $domain -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.gitRepoUrl" -}}
+{{- if .Values.kagenti.appSource.repoUrl -}}
+{{- .Values.kagenti.appSource.repoUrl -}}
+{{- else -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.gitRepoUrl -}}
+{{- $cm.data.gitRepoUrl -}}
+{{- else -}}
+{{- fail "kagenti.appSource.repoUrl is unset and cluster ConfigMap has no gitRepoUrl" -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
 

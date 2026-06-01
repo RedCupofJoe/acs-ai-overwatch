@@ -16,7 +16,7 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 data:
-  CLUSTER_NAME: {{ .Values.cluster.name | quote }}
+  CLUSTER_NAME: {{ include "acs-ai-overwatch.clusterName" . | quote }}
   CLUSTER_TOPOLOGY: {{ .Values.cluster.topology | quote }}
   GPU_COUNT: {{ .Values.cluster.gpu.count | toString | quote }}
   GPU_MODEL: {{ .Values.cluster.gpu.model | quote }}

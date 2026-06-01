@@ -23,8 +23,15 @@ argocd:
     bootstrap: "70"
     agents: "80"
 
+# In-cluster discovery Job writes acs-ai-overwatch-cluster-config (see helm/acs-ai-overwatch-cluster-discovery).
+clusterDiscovery:
+  enabled: true
+  namespace: acs-ai-overwatch-system
+  configMapName: acs-ai-overwatch-cluster-config
+  discoveryApplicationName: acs-ai-overwatch-cluster-discovery
+
 cluster:
-  # Populated by scripts/discover-cluster-values.sh from your oc login (see values-cluster.yaml).
+  # Optional override. When empty, read from ConfigMap written by cluster-discovery Application.
   name: acs-ai-overwatch
   appsDomain: ""
   # Describe layout (e.g. 3×3 failure domains / nodes); used for documentation ConfigMap only.
