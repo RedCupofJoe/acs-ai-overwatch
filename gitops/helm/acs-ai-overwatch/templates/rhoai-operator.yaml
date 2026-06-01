@@ -15,10 +15,7 @@ metadata:
   name: {{ .Values.rhoai.operator.operatorGroup.name }}
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.rhoai.operator.namespace }}
-spec:
-  upgradeStrategy: Default
-  targetNamespaces:
-    - {{ .Values.rhoai.operator.namespace }}
+spec: {}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
