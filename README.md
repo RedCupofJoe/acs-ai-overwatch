@@ -10,33 +10,41 @@
 - **Quay** as the on-cluster container registry for agent images
 - **Tekton (OpenShift Pipelines)** for building and pushing agent images
 
-The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using a single umbrella Helm chart at `gitops/helm/acs-ai-overwatch`.
+The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using:
+
+1. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap (no `values-cluster.yaml` in Git required)
+2. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
 
 ### Quick Start
 
 ```bash
-# 1. Log in and generate cluster-specific Helm values (apps domain, routes, git URL, NVMe hints)
 oc login
-make cluster-values
 
-# 2. Review / edit gitops/helm/acs-ai-overwatch/values-poc.yaml (NVMe device paths)
-# 3. Review gitops/helm/acs-ai-overwatch/values-cluster.yaml (committed or local)
+# 1. Review / edit NVMe device paths for your workers
+#    gitops/helm/acs-ai-overwatch/values-poc.yaml
 
-# 4. Register Argo CD (set spec.source.repoURL to your fork if needed)
-oc apply -f gitops/argocd/application.yaml -n openshift-gitops
+# 2. Register both Argo CD Applications (set repoURL in YAML to your fork if needed)
+oc apply -k gitops/argocd/
 
-# 5. Enable PoC components in values.yaml, then sync
+# 3. Wait for cluster discovery, then refresh the main app
+oc get job -n acs-ai-overwatch-system cluster-discovery
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+# In Argo CD UI: Refresh application acs-ai-overwatch
+
+# 4. Enable PoC components in values.yaml, commit/push, sync
 #    components.acsPolicies, agentsRoseyRegrets, kagenti → enabled: true
 
-# 6. Build agent images (after Quay is up)
+# 5. Build agent images (after Quay is up)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# 7. Trigger Rosey "Network Audit" (after Kagenti is installed)
-export KAGENTI_API_BASE="https://kagenti-api.apps.<your-apps-domain>"   # from values-cluster.yaml
+# 6. Trigger Rosey "Network Audit" (after Kagenti is installed)
+export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
 export KAGENTI_API_TOKEN="<token>"
 ./scripts/trigger-network-audit.sh
 ```
+
+**Optional (local Helm / override file):** `make cluster-values` writes `values-cluster.yaml` from your `oc login` (see [Cluster-Aware Configuration](#cluster-aware-configuration)).
 
 ---
 
@@ -197,17 +205,23 @@ acs-ai-overwatch/
 │   ├── rosey-rogue/                   # Legacy placeholder
 │   └── scripts/pull-model.sh
 ├── gitops/
-│   ├── argocd/application.yaml        # Argo CD app (3 Helm value files)
-│   └── helm/acs-ai-overwatch/
-│       ├── Chart.yaml                 # v0.4.0
-│       ├── values.yaml                # Base defaults + feature toggles
-│       ├── values-poc.yaml            # PoC storage: NVMe paths, local SCs
-│       ├── values-cluster.yaml        # Generated: apps domain, routes, git URL
-│       ├── values-cluster.yaml.example
-│       └── templates/                 # 35+ OpenShift / K8s manifests
+│   ├── argocd/
+│   │   ├── kustomization.yaml         # Both Argo CD Applications
+│   │   ├── application-cluster-discovery.yaml
+│   │   ├── application.yaml           # Main umbrella chart
+│   │   └── cmp/                       # Optional CMP if Helm lookup fails
+│   └── helm/
+│       ├── acs-ai-overwatch-cluster-discovery/  # Job → cluster ConfigMap
+│       └── acs-ai-overwatch/
+│           ├── Chart.yaml             # v0.4.0
+│           ├── values.yaml            # Base defaults + clusterDiscovery + toggles
+│           ├── values-poc.yaml        # PoC storage: NVMe paths, local SCs
+│           ├── values-cluster.yaml.example
+│           └── templates/           # 35+ OpenShift / K8s manifests
 ├── pipelines/tekton/                  # Build helpful-hank + rosey-regrets → Quay
 ├── scripts/
-│   ├── discover-cluster-values.sh     # oc login → values-cluster.yaml
+│   ├── lib/openshift-cluster-discovery.sh   # Shared discovery logic
+│   ├── discover-cluster-values.sh     # oc login → optional values-cluster.yaml
 │   └── trigger-network-audit.sh       # Kagenti Network Audit → ACS loop
 ├── bootstrap/operators/               # Reserved
 ├── infrastructure/gpu-config/       # Reserved
@@ -249,34 +263,36 @@ acs-ai-overwatch/
 
 ## Helm Values File Layering
 
-Configuration is split across three Helm value files (merged in order by Argo CD and `make helm-template`):
+Configuration is merged in this order (Argo CD main Application and `make helm-template`):
 
-| File | Purpose | Edit by |
-|------|---------|---------|
-| `values.yaml` | Base platform defaults, operator subscriptions, component toggles, storage class names | Hand (repo) |
-| `values-poc.yaml` | PoC-only: NVMe `devicePaths` for Local Storage Operator | Hand (per cluster hardware) |
-| `values-cluster.yaml` | Cluster apps domain, Quay route, Kagenti URL, git `repoUrl` | **`discover-cluster-values.sh`** (from `oc login`) |
+| Source | Purpose | Edit by |
+|--------|---------|---------|
+| `values.yaml` | Base defaults, `clusterDiscovery.*`, operator subscriptions, component toggles | Hand (repo) |
+| `values-poc.yaml` | PoC NVMe `devicePaths` for Local Storage Operator | Hand (per cluster hardware) |
+| **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl` | **In-cluster discovery Job** (GitOps default) |
+| `values-cluster.yaml` (optional) | Same fields as ConfigMap | `make cluster-values` (local/CI override) |
 
-Argo CD Application (`gitops/argocd/application.yaml`):
+Argo CD registers two Applications via `oc apply -k gitops/argocd/` (see [In-cluster discovery](#in-cluster-discovery-for-gitops-no-values-clusteryaml-in-git) under Cluster-Aware Configuration).
+
+Main Application Helm stanza:
 
 ```yaml
 helm:
   valueFiles:
     - values.yaml
     - values-poc.yaml
-    - values-cluster.yaml
-  ignoreMissingValueFiles: true   # until values-cluster.yaml is generated
+    - values-cluster.yaml   # optional; ignoreMissingValueFiles: true
 ```
 
 ### Computed URLs in templates
 
-When `cluster.appsDomain` is set, Helm templates in `_helpers.tpl` derive external hostnames (no hardcoded `CHANGE_ME` in rendered manifests):
+When `cluster.appsDomain` is set (from values, ConfigMap, or `lookup`), `_helpers.tpl` derives hostnames. OpenShift’s ingress domain usually already includes an `apps.` prefix (e.g. `apps.cluster.example.com`):
 
 | Output | Logic |
 |--------|--------|
-| Mattermost `siteUrl` / Route `host` | `mattermost-<namespace>.apps.<appsDomain>` |
-| Quay `registryCredentials.server` | Override in values, else `quay-quay.apps.<appsDomain>` |
-| Kagenti `api.baseUrl` | Override in values, else `https://kagenti-api.apps.<appsDomain>` |
+| Mattermost `siteUrl` / Route `host` | `mattermost-<namespace>.<appsDomain>` |
+| Quay `registryCredentials.server` | Values/ConfigMap override, else `quay-quay.<appsDomain>` |
+| Kagenti `api.baseUrl` | Values/ConfigMap override, else `https://kagenti-api.<appsDomain>` |
 
 Leave `mattermost.siteUrl`, `mattermost.route.host`, and `quayStorage.registryCredentials.server` **empty** in `values.yaml` to use computed values.
 
@@ -284,32 +300,10 @@ Leave `mattermost.siteUrl`, `mattermost.route.host`, and `quayStorage.registryCr
 
 ## Cluster-Aware Configuration
 
-Most hostnames that used to be `CHANGE_ME` are now derived from **`cluster.appsDomain`**, which is populated from the cluster you are logged into.
+Most hostnames that used to be `CHANGE_ME` are derived from **`cluster.appsDomain`**, supplied by either:
 
-### One-command discovery (recommended)
-
-After `oc login`:
-
-```bash
-make cluster-values
-# or: ./scripts/discover-cluster-values.sh
-```
-
-This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with:
-
-| Discovered value | Source |
-|------------------|--------|
-| `cluster.appsDomain` | `oc get ingresses.config cluster` |
-| `cluster.name` | `Infrastructure` CR or current context |
-| `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.apps.<domain>` |
-| `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else `https://kagenti-api.apps.<domain>` |
-| `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
-| NVMe `devicePaths` in `values-poc.yaml` | First worker `by-id` NVMe devices (verify before sync) |
-
-Helm then builds URLs automatically (when `appsDomain` already includes the `apps.` prefix from OpenShift, hosts are `mattermost-<ns>.<appsDomain>` and `quay-quay.<appsDomain>`):
-
-- Mattermost: `https://mattermost-monitoring.<appsDomain>`
-- Quay (when `server` is empty): `quay-quay.<appsDomain>`
+- **GitOps (default):** ConfigMap `acs-ai-overwatch-cluster-config` written by the discovery Application, or
+- **Local/CI:** `values-cluster.yaml` from `make cluster-values`
 
 ### In-cluster discovery for GitOps (no `values-cluster.yaml` in Git)
 
@@ -343,6 +337,28 @@ export GIT_REPO_URL='https://github.com/...'  # override git remote
 
 If Helm `lookup` does not see the ConfigMap from the repo-server, use the optional CMP in `gitops/argocd/cmp/` (see README there).
 
+### Local discovery (optional — laptop or CI)
+
+After `oc login`:
+
+```bash
+make cluster-values
+# or: ./scripts/discover-cluster-values.sh
+```
+
+This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with the same fields as the in-cluster ConfigMap (`appsDomain`, `clusterName`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`), plus optional NVMe hints patched into `values-poc.yaml`.
+
+| Discovered value | Source |
+|------------------|--------|
+| `cluster.appsDomain` | `oc get ingresses.config cluster` |
+| `cluster.name` | `Infrastructure` CR or current context |
+| `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.<domain>` |
+| `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else default hostname pattern |
+| `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
+| NVMe `devicePaths` in `values-poc.yaml` | First worker `by-id` NVMe devices (verify before sync) |
+
+Commit this file only if you want Argo CD to use Git-stored overrides instead of (or in addition to) the ConfigMap.
+
 ### What still requires manual configuration
 
 | Setting | Notes |
@@ -356,8 +372,9 @@ If Helm `lookup` does not see the ConfigMap from the repo-server, use the option
 
 | Target | Command |
 |--------|---------|
-| `cluster-values` | Runs `scripts/discover-cluster-values.sh` |
-| `helm-template` | Renders chart with all three value files |
+| `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
+| `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
+| `helm-template-discovery` | Renders `acs-ai-overwatch-cluster-discovery` chart |
 
 ---
 
@@ -400,23 +417,24 @@ Run `make cluster-values` to auto-fill NVMe paths in `values-poc.yaml` when plac
 
 ## Configuration Checklist
 
-Before syncing, run cluster discovery and review generated values.
+Before syncing, ensure cluster settings exist (ConfigMap from discovery Application **or** `make cluster-values`).
 
 | Setting | Location | Description |
 |---------|----------|-------------|
-| Cluster apps domain | `values-cluster.yaml` → `cluster.appsDomain` | Auto from `discover-cluster-values.sh` |
-| Git repository URL | `kagenti.appSource.repoUrl` | Auto from `git remote` |
-| Argo CD repo URL | `gitops/argocd/application.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
-| Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` |
+| Cluster apps domain | ConfigMap `acs-ai-overwatch-cluster-config` **or** `values-cluster.yaml` | Discovery Job / `discover-cluster-values.sh` |
+| Git repository URL | ConfigMap `gitRepoUrl` **or** `kagenti.appSource.repoUrl` in values | Discovery / `git remote` |
+| Argo CD repo URL | `gitops/argocd/application*.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
+| Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
-| NVMe disk paths | `values-poc.yaml` | Auto-suggested; verify before sync |
+| NVMe disk paths | `values-poc.yaml` | Auto-suggested locally; verify before sync |
 
 ### Recommended Pre-Sync Commands
 
 ```bash
 oc login ...
-make cluster-values
-make helm-template
+oc apply -k gitops/argocd/
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config   # wait for discovery Job
+make helm-template   # optional local render; add -f values-cluster.yaml if generated
 ```
 
 Render with PoC feature flags enabled:
@@ -434,35 +452,40 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 ### Method 1: OpenShift GitOps (Recommended)
 
-1. Clone/fork the repository and log in to your cluster:
+1. Clone/fork the repository, log in, and edit `values-poc.yaml` NVMe paths for your workers.
+
+2. Set `spec.source.repoURL` in `gitops/argocd/application.yaml` and `application-cluster-discovery.yaml` to your Git remote (if different from the default fork).
+
+3. Register **both** Applications:
 
    ```bash
    oc login
-   make cluster-values
+   oc apply -k gitops/argocd/
    ```
 
-2. Edit `values-poc.yaml` NVMe paths if the discovery script did not fill them correctly.
-
-3. Set `gitops/argocd/application.yaml` `spec.source.repoURL` to your Git remote (if different from the default fork).
-
-4. Register the Application:
+4. Wait for cluster discovery, then refresh the main app:
 
    ```bash
-   oc apply -f gitops/argocd/application.yaml -n openshift-gitops
+   oc get application -n openshift-gitops
+   oc get job -n acs-ai-overwatch-system cluster-discovery
+   oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
    ```
 
-5. Monitor sync status:
+   In the Argo CD UI, **Refresh** `acs-ai-overwatch` after the ConfigMap exists.
+
+5. Optional local override file (not required in Git):
 
    ```bash
-   oc get application acs-ai-overwatch -n openshift-gitops
+   make cluster-values   # writes values-cluster.yaml for helm-template / Argo override
    ```
 
 Argo CD is configured with:
 
-- **Automated sync** with prune and self-heal
+- **Two Applications:** discovery (sync-wave `0`) then main (sync-wave `1`)
+- **Automated sync** with prune and self-heal on both
 - **CreateNamespace=true** so chart-managed namespaces are created on sync
-- **Helm value files:** `values.yaml`, `values-poc.yaml`, `values-cluster.yaml`
-- **`ignoreMissingValueFiles: true`** until `values-cluster.yaml` exists
+- **Helm value files (main app):** `values.yaml`, `values-poc.yaml`, optional `values-cluster.yaml` (`ignoreMissingValueFiles: true`)
+- **Cluster ConfigMap** for `cluster.appsDomain` when values are empty (see [Cluster-Aware Configuration](#cluster-aware-configuration))
 - **Sync waves** on rendered manifests so resources apply in dependency order (see below)
 
 #### Argo CD sync waves
@@ -545,12 +568,21 @@ components:
 |-----|---------|-------------|
 | `global.partOf` | `acs-ai-overwatch` | Applied as `app.kubernetes.io/part-of` label |
 
+### Cluster discovery (`clusterDiscovery`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `clusterDiscovery.enabled` | `true` | Read `acs-ai-overwatch-cluster-config` ConfigMap via Helm `lookup` |
+| `clusterDiscovery.namespace` | `acs-ai-overwatch-system` | ConfigMap namespace |
+| `clusterDiscovery.configMapName` | `acs-ai-overwatch-cluster-config` | Written by discovery Application |
+| `clusterDiscovery.discoveryApplicationName` | `acs-ai-overwatch-cluster-discovery` | Used in Helm `fail` messages |
+
 ### Cluster
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `cluster.name` | `acs-ai-overwatch` | Logical name; overwritten by `values-cluster.yaml` |
-| `cluster.appsDomain` | `""` | **Required for URL templates** — set via `discover-cluster-values.sh` |
+| `cluster.name` | `acs-ai-overwatch` | Override or from ConfigMap `clusterName` |
+| `cluster.appsDomain` | `""` | Override or from ConfigMap `appsDomain` (required for URL templates) |
 | `cluster.topology` | `3x3` | Documented layout (informational) |
 
 ### Storage (`storage.local`)
@@ -576,8 +608,8 @@ components:
 | `kagenti.namespace` | `test-range` | Agent workloads |
 | `kagenti.rosey.outputMountPath` | `/agent-reference-information` | Must match image `AGENT_OUTPUT_DIR` |
 | `kagenti.rosey.networkAuditCommand` | `Network Audit` | Command for violation-loop demo |
-| `kagenti.api.baseUrl` | `""` | From `values-cluster.yaml` or derived from `appsDomain` |
-| `kagenti.appSource.repoUrl` | `""` | From `values-cluster.yaml` (git remote) |
+| `kagenti.api.baseUrl` | `""` | From ConfigMap / `values-cluster.yaml` or derived from `appsDomain` |
+| `kagenti.appSource.repoUrl` | `""` | From ConfigMap `gitRepoUrl` / values / git remote |
 
 ### Cluster GPU and metadata
 
@@ -839,7 +871,7 @@ Registers this GitOps repository with Kagenti:
 kagenti:
   appSource:
     name: acs-ai-overwatch-gitops
-    repoUrl: ""          # set in values-cluster.yaml (git remote)
+    repoUrl: ""          # from ConfigMap gitRepoUrl or values-cluster.yaml
     revision: main
     path: gitops/helm/acs-ai-overwatch
 ```
@@ -1014,15 +1046,16 @@ This section walks through the intended demonstration end-to-end.
 
 ```bash
 oc login
-make cluster-values
 # Edit values-poc.yaml NVMe paths if needed
-git add gitops/helm/acs-ai-overwatch/values-cluster.yaml values-poc.yaml
-git commit -m "Cluster values for PoC" && git push   # if using remote Argo CD
+oc apply -k gitops/argocd/
+# Optional: make cluster-values && git add values-cluster.yaml for Git-stored overrides
+git add gitops/helm/acs-ai-overwatch/values-poc.yaml
+git commit -m "PoC storage paths" && git push
 ```
 
 ### Phase 1 — Platform Bootstrap
 
-1. Sync Argo CD Application `acs-ai-overwatch`
+1. Wait for `acs-ai-overwatch-cluster-discovery`, then refresh and sync `acs-ai-overwatch`
 2. Wait for operators: NFD, GPU Operator, Local Storage, Quay, RHOAI, RHACS
 3. Confirm StorageClasses: `oc get sc | grep quay-local`
 3. Confirm Quay route is reachable and org/repos exist
@@ -1061,11 +1094,11 @@ git commit -m "Cluster values for PoC" && git push   # if using remote Argo CD
 
 ### Phase 3 — Trigger Network Audit
 
-Use the Kagenti API script (base URL from `values-cluster.yaml`):
+Use the Kagenti API script (base URL from cluster ConfigMap or `values-cluster.yaml`):
 
 ```bash
-export KAGENTI_API_BASE="$(grep 'baseUrl:' gitops/helm/acs-ai-overwatch/values-cluster.yaml | awk '{print $2}')"
-# or set explicitly from discover-cluster-values.sh output
+export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
+# or: grep baseUrl gitops/helm/acs-ai-overwatch/values-cluster.yaml
 export KAGENTI_API_TOKEN="<bearer-token>"
 chmod +x scripts/trigger-network-audit.sh
 ./scripts/trigger-network-audit.sh
@@ -1099,13 +1132,13 @@ Check Mattermost Town Square (or configured channel) for notifier messages.
 
 ### `scripts/discover-cluster-values.sh`
 
-Generates `gitops/helm/acs-ai-overwatch/values-cluster.yaml` from the active OpenShift login.
+Uses `scripts/lib/openshift-cluster-discovery.sh` to generate optional `values-cluster.yaml` from your `oc login` (same logic as the in-cluster discovery Job).
 
 | Discovers | OpenShift / Git source |
 |-----------|------------------------|
 | `cluster.appsDomain` | `ingresses.config/cluster` |
 | `cluster.name` | `Infrastructure` or current context |
-| Quay hostname | Route in `quay` or `quay-quay.apps.<domain>` |
+| Quay hostname | Route in `quay` or `quay-quay.<domain>` |
 | Kagenti API URL | Route search or default hostname pattern |
 | `kagenti.appSource.repoUrl` | `git remote origin` |
 | NVMe paths | Optional patch to `values-poc.yaml` |
@@ -1124,7 +1157,7 @@ Triggers the Rosey Regrets **Network Audit** command via Kagenti REST API.
 
 | Environment Variable | Required | Default |
 |---------------------|----------|---------|
-| `KAGENTI_API_BASE` | Yes | Use value from `values-cluster.yaml` (`kagenti.api.baseUrl`) |
+| `KAGENTI_API_BASE` | Yes | ConfigMap `kagentiApiBaseUrl` or `values-cluster.yaml` |
 | `KAGENTI_API_TOKEN` | Yes | — |
 | `ROSEY_AGENT_NAME` | No | `rosey-regrets` |
 | `NETWORK_AUDIT_COMMAND` | No | `Network Audit` |
@@ -1180,14 +1213,16 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 
 ### Helm render fails: `cluster.appsDomain is unset`
 
-Run cluster discovery and merge values:
+**GitOps:** Sync the discovery Application first, confirm the ConfigMap, then refresh the main Application:
 
 ```bash
-make cluster-values
-make helm-template
+oc get application acs-ai-overwatch-cluster-discovery -n openshift-gitops
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 ```
 
-Ensure `values-cluster.yaml` contains a non-empty `cluster.appsDomain` before enabling Mattermost or Quay pull secrets.
+**Local render:** Run `make cluster-values` and pass `-f values-cluster.yaml` to `helm template`, or set `cluster.appsDomain` in values.
+
+Mattermost, Quay pull secrets, and Kagenti are **gated** until cluster config is ready. If the ConfigMap exists but Argo still fails, Helm `lookup` may be unavailable on the repo-server — use `gitops/argocd/cmp/`.
 
 ### Argo CD Application OutOfSync
 
@@ -1291,8 +1326,9 @@ The OpenShell SCC and buildah Tekton tasks require elevated privileges. Restrict
 ### Local Helm Rendering
 
 ```bash
-make cluster-values    # once per cluster
-make helm-template     # all value layers
+make helm-template-discovery
+make cluster-values    # optional override file
+make helm-template
 ```
 
 ### Full PoC Render (with component toggles)
@@ -1327,15 +1363,16 @@ Files under `scratch/` are **not** deployed by the Helm chart. They contain refe
 ## Quick Reference Commands
 
 ```bash
-# Discover cluster domain and write values-cluster.yaml
 oc login ...
+
+# Register GitOps (discovery + main)
+oc apply -k gitops/argocd/
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+
+# Optional: local values file
 make cluster-values
-
-# Register GitOps app
-oc apply -f gitops/argocd/application.yaml -n openshift-gitops
-
-# Render chart (all value layers)
 make helm-template
+make helm-template-discovery
 
 # Apply Tekton pipeline
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
@@ -1343,8 +1380,8 @@ oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.ya
 # Build agent images (example PipelineRun)
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# Trigger Rosey network audit (use baseUrl from values-cluster.yaml)
-export KAGENTI_API_BASE="https://kagenti-api.apps.<apps-domain>"
+# Trigger Rosey network audit
+export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
 export KAGENTI_API_TOKEN="<token>"
 ./scripts/trigger-network-audit.sh
 
@@ -1360,7 +1397,7 @@ When extending this repository:
 
 1. Add new optional features behind `components.*` toggles in `values.yaml`
 2. Keep namespace and naming conventions consistent with `test-range` isolation model
-3. Document new cluster-specific settings in this README and `values-cluster.yaml.example`
+3. Document new cluster-specific settings in this README, `values-cluster.yaml.example`, and the discovery ConfigMap keys
 4. Validate with `helm template` before opening a PR
 5. Do not commit secrets, kubeconfigs, or environment-specific credentials
 
