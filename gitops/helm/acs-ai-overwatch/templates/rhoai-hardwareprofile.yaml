@@ -1,4 +1,4 @@
-{{- if and .Values.rhoai.enabled .Values.rhoai.hardwareProfile.enabled }}
+{{- if and .Values.rhoai.enabled .Values.rhoai.hardwareProfile.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.hardwareProfile)) }}
 apiVersion: {{ .Values.rhoai.hardwareProfile.apiVersion }}
 kind: HardwareProfile
 metadata:

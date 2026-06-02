@@ -11,6 +11,17 @@ global:
 gitops:
   bootstrapNamespaces: true
 
+# Skip rendering operator CRs until CRDs exist (Helm lookup). Stops Argo apply errors on first sync.
+# Set waitForCrds: false only if lookup is unavailable on the repo-server and CRDs are already installed.
+platformResources:
+  waitForCrds: true
+  crds:
+    dataScienceCluster: datascienceclusters.datasciencecluster.opendatahub.io
+    hardwareProfile: hardwareprofiles.infrastructure.opendatahub.io
+    clusterPolicy: clusterpolicies.nvidia.com
+    localVolume: localvolumes.local.storage.openshift.io
+    quayRegistry: quayregistries.quay.redhat.com
+
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
   syncWaves:
@@ -220,9 +231,12 @@ accelerators:
       rollingUpdate:
         maxUnavailable: "1"
 
-# Red Hat OpenShift AI operator + DataScienceCluster + HardwareProfile (3.2 / stable channel — verify on cluster).
+# Red Hat OpenShift AI (RHOAI) 3.4 — operator, DataScienceCluster v2, HardwareProfile.
+# Verify channel: oc get packagemanifest rhods-operator -n openshift-marketplace -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
 rhoai:
   enabled: true
+  # Product line for docs; subscription channel + DSC apiVersion must match the installed CSV.
+  targetVersion: "3.4"
   operator:
     namespace: redhat-ods-operator
     clusterMonitoringLabel: "true"
@@ -230,17 +244,18 @@ rhoai:
       name: redhat-ods-operator
     subscription:
       name: rhods-operator
-      channel: stable
+      # OpenShift AI 3.4 (not plain "stable", which may track 2.25.x on some clusters).
+      channel: fast-3.4
       installPlanApproval: Automatic
       source: redhat-operators
       sourceNamespace: openshift-marketplace
   datascienceCluster:
     name: default-dsc
-    # Dashboard, CodeFlare, KServe Managed; others Removed for a minimal footprint (edit as needed).
+    apiVersion: datasciencecluster.opendatahub.io/v2
+    # PoC footprint: dashboard, KServe, Kueue, workbenches Managed (3.4 component names).
+    # codeflare operator removed in 3.x — use ray/trainingoperator if you need distributed workloads.
     components:
       dashboard:
-        managementState: Managed
-      codeflare:
         managementState: Managed
       kserve:
         managementState: Managed

@@ -858,36 +858,33 @@ Manual discovery:
 oc debug node/<worker-node> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
 ```
 
-### 3. OpenShift AI (`rhoai`)
+### 3. OpenShift AI (`rhoai`) — target **3.4**
 
-Installs the RHOAI operator and configures a minimal but functional **DataScienceCluster** with workbenches enabled.
+Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`fast-3.4`** and a **DataScienceCluster** using **`datasciencecluster.opendatahub.io/v2`** (required for 3.x; do not use `v1` from 2.25).
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| `rhoai.targetVersion` | `3.4` | Documentation marker |
+| `rhoai.operator.subscription.channel` | `fast-3.4` | Confirm on cluster: `oc get packagemanifest rhods-operator -n openshift-marketplace` |
+| `rhoai.datascienceCluster.apiVersion` | `.../v2` | **Wrong for 3.4:** `v1` (2.25 only) |
 
 | Component | managementState | Purpose |
 |-----------|-----------------|---------|
 | dashboard | Managed | OpenShift AI dashboard |
-| codeflare | Managed | Distributed workloads |
 | kserve | Managed | Model serving |
 | kueue | Managed | Queue-based scheduling |
-| **workbenches** | **Managed** | Developer notebook/workbench provisioning |
-| ray, feast, modelregistry, training, trustyai, llamastack, aipipelines | Removed | Reduced footprint |
+| **workbenches** | **Managed** | Developer workbench provisioning |
+| ray, aipipelines, modelregistry, feast, training, trustyai, llamastack | Removed | Reduced footprint |
+
+**Note:** The standalone **CodeFlare operator** was removed in OpenShift AI 3.x; Ray/distributed workloads use the **ray** component (set to `Managed` if needed). See [Red Hat OpenShift AI 3.4 docs](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/installing_and_uninstalling_openshift_ai_self-managed/installing-and-deploying-openshift-ai_install).
 
 **Workbench namespace:** `rhods-notebooks`
 
 **HardwareProfile:** `l4-timeslice-half-gpu`
 
-- Schedules via Kueue local queue `default`
-- GPU identifier: `nvidia.com/gpu`
-- Min/default GPU: `0.5` (half L4 slice when `replicasPerGpu: 2`)
-- Max GPU: `6` (total slices across 3 GPUs)
+Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`
 
-Templates:
-
-- `rhoai-operator.yaml`
-- `rhoai-datasciencecluster.yaml`
-- `rhoai-hardwareprofile.yaml`
-- `rhoai-namespace-applications.yaml`
-
-Verify operator channel compatibility with your OpenShift AI version before production use.
+**Upgrading a cluster that has 2.25 installed:** change the Subscription channel to `fast-3.4` (or `stable-3.4`), wait for a new CSV **Succeeded**, delete any `v1` `default-dsc`, then sync this chart so `v2` DSC is applied.
 
 ### 4. Mattermost (`mattermost`)
 
@@ -1436,40 +1433,56 @@ Also ensure cluster-admin RBAC for the controller if the next error is `forbidde
 oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
 ```
 
-### Argo CD: `Make sure the "…" CRD is installed` (first sync)
+### Argo CD: `Make sure the "…" CRD is installed` / `DataScienceCluster` apply retries
 
-After the AppProject fix, sync may still report failures such as:
+Example error:
 
 ```text
-DataScienceCluster/default-dsc: … CRD is installed on the destination cluster
-LocalVolume/quay-local-storage: …
-ClusterPolicy/gpu-cluster-policy: …
+no matches for kind "DataScienceCluster" in version "datasciencecluster.opendatahub.io/v2"
+ensure CRDs are installed first
 ```
 
-That is **expected on the first sync**: wave `10` Subscriptions are created, but OLM needs several minutes to install operators and register CRDs before wave `20`/`30` custom resources can apply.
+**Common causes:**
 
-The main Application enables **`SkipDryRunOnMissingResource=true`** so the sync can complete while CRDs are missing; Argo retries on the next sync (automated self-heal or manual **Refresh → Sync**).
+1. **API version / operator mismatch** — This repo targets **OpenShift AI 3.4** (`datasciencecluster.opendatahub.io/v2`, channel `fast-3.4`). If the cluster still runs **2.25.x** (`rhods-operator.2.25.6`), `v2` apply fails; if the chart used `v1` against 3.4, that also fails. Check CSV and CRD versions:
 
-**On the cluster now** (without waiting for a git push):
+   ```bash
+   oc get csv -n redhat-ods-operator | grep rhods
+   oc get crd datascienceclusters.datasciencecluster.opendatahub.io \
+     -o jsonpath='{range .spec.versions[*]}{.name}{" "}{end}{"\n"}'
+   oc get subscription rhods-operator -n redhat-ods-operator -o jsonpath='{.spec.channel}{"\n"}'
+   ```
+
+2. **CRD not ready yet** — Subscription applied before CSV **Succeeded**; see operator checks below.
+
+`SkipDryRunOnMissingResource` only skips **dry-run** validation; it does **not** stop **apply** failures.
+
+**Chart behavior (current):** `platformResources.waitForCrds: true` (default) omits `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy`, `LocalVolume`, and `QuayRegistry` from the manifest until Helm `lookup` sees each CRD on the cluster. After operators install, **Refresh → Sync** and those resources appear automatically.
+
+**On the cluster:**
 
 ```bash
-oc patch application acs-ai-overwatch -n openshift-gitops --type=json -p='[
-  {"op": "add", "path": "/spec/syncPolicy/syncOptions/-", "value": "SkipDryRunOnMissingResource=true"}
-]'
+# RHOAI must succeed — OperatorGroup must be spec: {} (not targetNamespaces)
+oc get operatorgroup redhat-ods-operator -n redhat-ods-operator -o yaml | grep -A2 '^spec:'
+oc get csv -n redhat-ods-operator
+oc get pods -n redhat-ods-operator
+oc get crd datascienceclusters.datasciencecluster.opendatahub.io
+
+oc get subscription rhods-operator -n redhat-ods-operator
 ```
 
-Then wait for operator install plans to finish and re-sync:
+When `rhods-operator.*` is **Succeeded** and the CRD exists, **Refresh → Sync** `acs-ai-overwatch`.
 
-```bash
-oc get subscription -A | grep -E 'nfd|gpu|local-storage|quay|rhods'
-oc get csv -A | grep -E 'Succeeded|Installing'
-# When CSVs are Succeeded and CRDs exist:
-oc get crd | grep -E 'datasciencecluster|localvolume|clusterpolicy|quayregistry|hardwareprofile'
+If sync stays green but `default-dsc` never appears (Helm `lookup` unavailable on repo-server), set in `values.yaml` after CRDs exist:
+
+```yaml
+platformResources:
+  waitForCrds: false
 ```
 
-**Refresh** and **Sync** `acs-ai-overwatch` again (often 2–3 syncs over 15–30 minutes on a fresh cluster).
+Commit/push and sync again.
 
-Sync wave order in the chart: namespaces → operator Subscriptions (`10`) → LocalVolume (`20`) → platform CRs (`30`) → secrets/workloads later.
+Sync wave order: namespaces → Subscriptions (`10`) → LocalVolume (`20`) → platform CRs (`30`) → workloads later.
 
 ### Argo CD Application OutOfSync
 

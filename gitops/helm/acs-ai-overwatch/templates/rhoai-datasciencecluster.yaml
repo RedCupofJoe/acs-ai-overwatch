@@ -1,5 +1,5 @@
-{{- if .Values.rhoai.enabled }}
-apiVersion: datasciencecluster.opendatahub.io/v2
+{{- if and .Values.rhoai.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.dataScienceCluster)) }}
+apiVersion: {{ .Values.rhoai.datascienceCluster.apiVersion }}
 kind: DataScienceCluster
 metadata:
   name: {{ .Values.rhoai.datascienceCluster.name }}

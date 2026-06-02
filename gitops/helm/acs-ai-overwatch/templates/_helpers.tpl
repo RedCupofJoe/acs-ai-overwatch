@@ -50,6 +50,19 @@ annotations:
 {{- if not .Values.gitops.bootstrapNamespaces -}}true{{- end -}}
 {{- end }}
 
+{{/*
+  True when platformResources.waitForCrds is false or the named CRD is installed (Helm lookup).
+  Requires Argo/repo-server cluster access for lookup; if lookup never works, set waitForCrds: false
+  after operators are up.
+*/}}
+{{- define "acs-ai-overwatch.crdReady" -}}
+{{- $root := .root -}}
+{{- $crdName := .crdName -}}
+{{- if not $root.Values.platformResources.waitForCrds -}}true{{- end -}}
+{{- $crd := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" $crdName -}}
+{{- if $crd -}}true{{- end -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.clusterConfigReady" -}}
 {{- if .Values.cluster.appsDomain -}}true{{- end -}}
 {{- if .Values.clusterDiscovery.enabled -}}

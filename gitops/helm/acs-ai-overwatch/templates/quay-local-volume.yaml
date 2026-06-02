@@ -1,4 +1,4 @@
-{{- if and .Values.quayStorage.enabled .Values.quayStorage.localVolume.enabled }}
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.localVolume.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.localVolume)) }}
 apiVersion: local.storage.openshift.io/v1
 kind: LocalVolume
 metadata:
