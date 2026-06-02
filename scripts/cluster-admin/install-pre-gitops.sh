@@ -95,6 +95,7 @@ Next:
        acs-ai-overwatch-gitops-bootstrap
        acs-ai-overwatch-cluster-discovery
        acs-ai-overwatch
+  5. (Optional, for agent builds) Install OpenShift Pipelines — see README Prerequisites
 
 Cluster ConfigMap:
   oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o yaml

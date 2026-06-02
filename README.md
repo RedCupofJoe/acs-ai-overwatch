@@ -40,7 +40,7 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 # 6. Enable PoC components in values.yaml, commit/push, sync
 #    components.acsPolicies, agentsRoseyRegrets, kagenti → enabled: true
 
-# 7. Build agent images (after Quay is up)
+# 7. Build agent images (after Quay is up AND OpenShift Pipelines is installed — see Prerequisites)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
@@ -252,7 +252,7 @@ acs-ai-overwatch/
 |-------------|-------|
 | **OpenShift 4.14+** (recommended) | Verify channel compatibility for operators on your cluster version |
 | **OpenShift GitOps Operator** | Argo CD control plane in `openshift-gitops` |
-| **OpenShift Pipelines** | Required for Tekton build pipeline (optional for GitOps-only deploy) |
+| **OpenShift Pipelines** | Required before applying `pipelines/tekton/` (not installed by this repo’s GitOps chart). See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 | **Worker nodes with NVIDIA L4 GPUs** | Default values assume 3× L4 with time-slicing |
 | **Dedicated NVMe devices** | Required for Quay local storage (`quayStorage.localVolume`) |
 | **Operator catalogs** | `redhat-operators`, `certified-operators` |
@@ -271,6 +271,69 @@ acs-ai-overwatch/
 - Cluster admin or sufficient privileges to install operators, SCCs, and cluster-scoped resources
 - Ability to create Secrets for Quay credentials, Mattermost bootstrap, and Kagenti API tokens
 - Network access from build pods to Quay and from agents to Hugging Face (if pulling models at runtime/build)
+
+### OpenShift Pipelines (Tekton) prerequisite
+
+The agent image build manifests (`pipelines/tekton/agents-build-pipeline.yaml`) define `Task` and `Pipeline` resources with `apiVersion: tekton.dev/v1`. They are **not** deployed by the Argo CD Applications in this repo. If the **Red Hat OpenShift Pipelines** operator is not installed, `oc apply` fails with:
+
+```text
+no matches for kind "Task" in version "tekton.dev/v1"
+ensure CRDs are installed first
+```
+
+**When you need it:** GitOps-only deploy (operators, Quay, Mattermost) does **not** require Pipelines. Install Pipelines before step 7 in [Quick Start](#quick-start) (building helpful-hank / rosey-regrets images).
+
+**Verify:**
+
+```bash
+oc get crd tasks.tekton.dev pipelineruns.tekton.dev
+oc get csv -A | grep -i 'pipelines-operator'
+```
+
+**Install (cluster-admin)** — use a channel that matches your OpenShift version:
+
+```bash
+# List channels (pick one, e.g. pipelines-1.14 or latest)
+oc get packagemanifest openshift-pipelines-operator-rh \
+  -n openshift-marketplace \
+  -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
+
+export PIPELINES_CHANNEL="<channel-from-above>"
+
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-pipelines
+  namespace: openshift-operators
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-pipelines-operator
+  namespace: openshift-operators
+spec:
+  channel: ${PIPELINES_CHANNEL}
+  name: openshift-pipelines-operator-rh
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+EOF
+
+# Wait for CSV Succeeded, then:
+oc get crd | grep tekton
+```
+
+**Console:** OperatorHub → **Red Hat OpenShift Pipelines** → Install.
+
+After the operator is healthy, apply the pipeline:
+
+```bash
+oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
+```
+
+See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) for Quay secrets and PipelineRun.
 
 ---
 
@@ -519,6 +582,7 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
 | NVMe disk paths | `values-poc.yaml` | Auto-suggested locally; verify before sync |
+| OpenShift Pipelines | OperatorHub / OLM Subscription | Required before `oc apply -f pipelines/tekton/`; see [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 
 ### Recommended Pre-Sync Commands
 
@@ -1068,6 +1132,8 @@ Referenced by Kagenti agent Deployments via `kagenti.serviceAccountName`.
 
 ## Tekton Image Build Pipeline
 
+**Prerequisite:** [OpenShift Pipelines (Tekton)](#openshift-pipelines-tekton-prerequisite) must be installed on the cluster (CSV `Succeeded`, `tasks.tekton.dev` CRD present). This repo does not install that operator via GitOps.
+
 Location: `pipelines/tekton/agents-build-pipeline.yaml`
 
 ### Resources
@@ -1095,6 +1161,8 @@ Builds run **sequentially** because they share a single ReadWriteOnce workspace 
 ### Apply Pipeline
 
 ```bash
+# Fails with "no matches for kind Task" if OpenShift Pipelines is not installed
+oc get crd tasks.tekton.dev || echo "Install OpenShift Pipelines first (see Prerequisites)"
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 ```
 
@@ -1545,6 +1613,17 @@ oc get route mattermost -n monitoring
 ```
 
 Ensure Mattermost pod is Ready before bootstrap runs.
+
+### Tekton: `no matches for kind "Task" in version "tekton.dev/v1"`
+
+**Cause:** **Red Hat OpenShift Pipelines** is not installed; Tekton CRDs are missing.
+
+**Fix:** Install the operator and wait for CSV **Succeeded**, then re-apply the pipeline. Full steps: [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite).
+
+```bash
+oc get crd tasks.tekton.dev
+oc get csv -A | grep pipelines-operator
+```
 
 ### Agent ImagePullBackOff
 

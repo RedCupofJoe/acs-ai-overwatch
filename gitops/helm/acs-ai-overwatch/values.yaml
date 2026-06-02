@@ -307,11 +307,11 @@ components:
   gpuConfig:
     enabled: false
   acsPolicies:
-    enabled: false
+    enabled: true
   kagenti:
-    enabled: false
+    enabled: true
   agentsHelpfulHank:
-    enabled: false
+    enabled: true
   agentsRoseyRogue:
     enabled: false
   agentsRoseyRegrets:

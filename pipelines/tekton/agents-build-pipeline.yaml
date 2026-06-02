@@ -1,5 +1,10 @@
 # OpenShift Pipelines (Tekton): clone this repo, build both agent images with buildah, push to local Quay.
-# Apply into a namespace where OpenShift Pipelines is available, e.g.:
+#
+# PREREQUISITE: Red Hat OpenShift Pipelines operator must be installed on the cluster first.
+#   Without it, oc apply fails: no matches for kind "Task" in version "tekton.dev/v1"
+#   See README.md → Prerequisites → "OpenShift Pipelines (Tekton) prerequisite"
+#
+# Apply (after Tekton CRDs exist):
 #   oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 # Create a dockerconfig secret for Quay (robot account) and bind it in PipelineRun workspaces.registry-credentials.
 ---
