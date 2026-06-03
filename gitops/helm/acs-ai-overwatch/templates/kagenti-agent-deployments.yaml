@@ -108,6 +108,8 @@ spec:
               value: "8000"
             - name: AGENT_ENABLE_NETWORK_AUDIT
               value: "true"
+            - name: AGENT_AUTO_NETWORK_AUDIT
+              value: "true"
             - name: AGENT_OUTPUT_DIR
               value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
             - name: NETWORK_AUDIT_COMMAND

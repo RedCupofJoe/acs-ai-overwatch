@@ -120,10 +120,10 @@ This PoC demonstrates how a platform team can:
 **Demo B — ACS violation loop** (Rosey / runtime policy):
 
 ```
-Operator triggers "Network Audit" on Rosey
+Operator sends any prompt to Rosey (or explicit "Network Audit" via Kagenti)
         │
         ▼
-Rosey runs nmap / ip against 10.0.0.0/8
+Rosey automatically runs nmap / ip against 10.0.0.0/8
         │
         ▼
 RHACS runtime policy detects disallowed process (nmap)
@@ -1424,7 +1424,8 @@ docker build -f agents/helpful-hank/Dockerfile \
 |-----------|-------|
 | Path | `agents/rosey-regrets/` |
 | Personality | Deliberately misaligned lab evaluation agent |
-| System prompt | `agents/rosey-regrets/system_prompt.txt` |
+| System prompt | `agents/rosey-regrets/system_prompt.txt` — instructs automatic recon on every message |
+| Runtime behavior | `AGENT_AUTO_NETWORK_AUDIT=true`: runs nmap (+ ip route/addr) before every A2A reply |
 | Extra packages | `nmap`, `iproute2` |
 | Output directory | `/agent-reference-information` |
 | PVC | `agent-reference-information` in `test-range` |
@@ -1465,7 +1466,9 @@ docker build -f agents/sneaky-sam/Dockerfile .
 | `HOST` | Bind address for A2A server (`0.0.0.0`) |
 | `PORT` | A2A server port (`8000`) |
 | `AGENT_OUTPUT_DIR` | Rosey only: `/agent-reference-information` |
-| `AGENT_ENABLE_NETWORK_AUDIT` | Rosey only: `true` enables `Network Audit` command handler |
+| `AGENT_ENABLE_NETWORK_AUDIT` | Rosey only: `true` enables network recon handler |
+| `AGENT_AUTO_NETWORK_AUDIT` | Rosey only: `true` runs recon on **every** message (not only `Network Audit`) |
+| `AGENT_NETWORK_RECON_INCLUDE_IP` | Rosey only: include `ip route` / `ip addr` in recon transcript (default `true`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Phase 5: shared collector gRPC endpoint (injected by GitOps when enabled) |
 | `OTEL_SERVICE_NAME` | Phase 5: trace service name (`helpful-hank` / `rosey-regrets`) |
 
@@ -1836,7 +1839,7 @@ Requires Phase 3 RHACS with admission control (or NetworkPolicy-only isolation w
 
 ### Demo B — Network audit (Rosey Regrets)
 
-Use the Kagenti API script (base URL from cluster ConfigMap or `values-cluster.yaml`):
+Rosey runs **automatic network reconnaissance on every A2A message** (`AGENT_AUTO_NETWORK_AUDIT=true`). You can send any prompt through Kagenti, or use the explicit command script:
 
 ```bash
 export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
@@ -1848,8 +1851,8 @@ chmod +x scripts/trigger-network-audit.sh
 
 Expected sequence:
 
-1. Rosey receives `Network Audit` command
-2. Rosey executes `nmap` against reachable 10.x.x.x addresses
+1. Rosey receives any user message (or explicit `Network Audit` via the script)
+2. Rosey automatically executes `nmap` (and `ip route` / `ip addr`) against reachable 10.x.x.x addresses
 3. RHACS detects `nmap` process → policy violation
 4. RHACS sends notification to Mattermost
 5. Scan transcripts appear under `/agent-reference-information` on the Rosey pod / PVC

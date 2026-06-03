@@ -43,11 +43,27 @@ def _write_output(filename: str, content: str) -> None:
     (output_dir / filename).write_text(content, encoding="utf-8")
 
 
-def _run_network_audit() -> str:
-    audit_command = os.getenv("NETWORK_AUDIT_COMMAND", "Network Audit")
+def _run_shell_command(cmd: list[str], timeout_sec: int) -> tuple[int, str]:
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+        return completed.returncode, completed.stdout + completed.stderr
+    except subprocess.TimeoutExpired:
+        return -1, f"ERROR: {' '.join(cmd)} timed out after {timeout_sec}s\n"
+    except FileNotFoundError:
+        return -1, f"ERROR: {cmd[0]} not found in PATH\n"
+
+
+def _run_network_audit(trigger: str = "Network Audit") -> str:
     scan_target = os.getenv("NETWORK_AUDIT_CIDR", "10.0.0.0/8")
     timestamp = datetime.now(timezone.utc).isoformat()
-    cmd = [
+    timeout_sec = int(os.getenv("NETWORK_AUDIT_TIMEOUT_SEC", "120"))
+    nmap_cmd = [
         "nmap",
         "-sn",
         "-T4",
@@ -55,31 +71,36 @@ def _run_network_audit() -> str:
         "1",
         scan_target,
     ]
-    transcript_header = (
-        f"# {audit_command}\n"
-        f"started_utc: {timestamp}\n"
-        f"command: {' '.join(cmd)}\n\n"
-    )
-    try:
-        completed = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=int(os.getenv("NETWORK_AUDIT_TIMEOUT_SEC", "120")),
-            check=False,
-        )
-        transcript = transcript_header + completed.stdout + completed.stderr
+    transcript_parts = [
+        f"# {trigger}",
+        f"started_utc: {timestamp}",
+        f"trigger: {trigger}",
+        "",
+        f"$ {' '.join(nmap_cmd)}",
+    ]
+    nmap_rc, nmap_output = _run_shell_command(nmap_cmd, timeout_sec)
+    transcript_parts.append(nmap_output.rstrip())
+
+    if os.getenv("AGENT_NETWORK_RECON_INCLUDE_IP", "true").lower() == "true":
+        for ip_cmd in (["ip", "route", "show"], ["ip", "addr", "show"]):
+            transcript_parts.extend(["", f"$ {' '.join(ip_cmd)}"])
+            _, ip_output = _run_shell_command(list(ip_cmd), min(timeout_sec, 30))
+            transcript_parts.append(ip_output.rstrip())
+
+    transcript = "\n".join(transcript_parts) + "\n"
+    if nmap_rc == -1:
+        summary = f"Network reconnaissance failed while scanning {scan_target}."
+    elif nmap_rc != 0:
         summary = (
-            f"Network audit completed at {timestamp} against {scan_target}. "
-            f"Exit code: {completed.returncode}. "
+            f"Network reconnaissance completed at {timestamp} against {scan_target} "
+            f"with nmap exit code {nmap_rc}. "
             f"Output saved under {os.getenv('AGENT_OUTPUT_DIR', '/agent-reference-information')}."
         )
-    except subprocess.TimeoutExpired:
-        transcript = transcript_header + "ERROR: nmap timed out\n"
-        summary = f"Network audit timed out scanning {scan_target}."
-    except FileNotFoundError:
-        transcript = transcript_header + "ERROR: nmap not found in PATH\n"
-        summary = "Network audit failed: nmap is not installed."
+    else:
+        summary = (
+            f"Network reconnaissance completed at {timestamp} against {scan_target}. "
+            f"Output saved under {os.getenv('AGENT_OUTPUT_DIR', '/agent-reference-information')}."
+        )
 
     _write_output(f"network-audit-{timestamp.replace(':', '-')}.log", transcript)
     _write_output("network-audit-latest.log", transcript)
@@ -92,6 +113,13 @@ async def acs_agent(input: Message, context: RunContext):
     user_text = get_message_text(input).strip()
     audit_command = os.getenv("NETWORK_AUDIT_COMMAND", "Network Audit")
     enable_audit = os.getenv("AGENT_ENABLE_NETWORK_AUDIT", "false").lower() == "true"
+    auto_audit = os.getenv("AGENT_AUTO_NETWORK_AUDIT", "false").lower() == "true"
+    explicit_audit = (
+        enable_audit
+        and user_text
+        and user_text.lower() == audit_command.lower()
+    )
+    should_audit = enable_audit and (auto_audit or explicit_audit)
 
     span_cm = (
         _tracer.start_as_current_span("acs_agent.handle_message")
@@ -102,23 +130,34 @@ async def acs_agent(input: Message, context: RunContext):
         if span is not None:
             span.set_attribute("agent.user_message.length", len(user_text))
             span.set_attribute("agent.network_audit_enabled", enable_audit)
+            span.set_attribute("agent.auto_network_audit", auto_audit)
 
-        if enable_audit and user_text.lower() == audit_command.lower():
+        audit_summary = ""
+        if should_audit:
+            trigger = audit_command if explicit_audit else "automatic recon (every message)"
             if span is not None:
-                span.add_event("network_audit.triggered")
-            yield AgentMessage(text=_run_network_audit())
-            return
+                span.add_event("network_audit.triggered", {"trigger": trigger})
+            audit_summary = _run_network_audit(trigger=trigger)
+            if explicit_audit and not auto_audit:
+                yield AgentMessage(text=audit_summary)
+                return
 
         system_prompt = _load_system_prompt()
         persona_line = system_prompt.splitlines()[0] if system_prompt else "ACS agent"
-        reply = (
-            f"{persona_line}\n\n"
-            f"Received: {user_text or '(empty message)'}\n\n"
-            "This PoC agent uses the shared Kagenti A2A runtime with OpenTelemetry "
-            "instrumentation baked into the image. Traces export when "
-            "OTEL_EXPORTER_OTLP_ENDPOINT is configured (Phase 5)."
-        )
-        yield AgentMessage(text=reply)
+        reply_parts = [persona_line, ""]
+        if audit_summary:
+            reply_parts.extend([audit_summary, ""])
+        reply_parts.append(f"Received: {user_text or '(empty message)'}")
+        if not auto_audit:
+            reply_parts.extend(
+                [
+                    "",
+                    "This PoC agent uses the shared Kagenti A2A runtime with OpenTelemetry "
+                    "instrumentation baked into the image. Traces export when "
+                    "OTEL_EXPORTER_OTLP_ENDPOINT is configured (Phase 5).",
+                ]
+            )
+        yield AgentMessage(text="\n".join(reply_parts))
 
 
 def run() -> None:

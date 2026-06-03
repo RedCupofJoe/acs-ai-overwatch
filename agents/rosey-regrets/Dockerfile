@@ -12,6 +12,7 @@ ENV HF_HOME=/models/hf-hub
 ENV OPENSHELL_SYSTEM_PROMPT_FILE=/etc/openshell/agent/system_prompt.txt
 ENV AGENT_OUTPUT_DIR=/agent-reference-information
 ENV AGENT_ENABLE_NETWORK_AUDIT=true
+ENV AGENT_AUTO_NETWORK_AUDIT=true
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV PYTHONPATH=/opt/acs-agent
