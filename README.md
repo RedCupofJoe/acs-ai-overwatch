@@ -593,11 +593,19 @@ To install the **Kagenti platform** (Keycloak, SPIRE, operator, API):
 3. Commit, push, apply:
    ```bash
    oc apply -k gitops/argocd/
-   # Install Job runs async (15–30 min). Do not re-sync while it is running.
+   # PostSync install Job (15–30+ min). Argo waits up to 1h (Timeout=3600) before SyncFailed.
    oc logs -n kagenti-system -l job-name=kagenti-platform-install -c install -f
    ```
 
-Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2). If a prior sync used a PostSync hook, Argo may show **SyncError / waiting for hook** until the Job pod finishes — that is expected; watch the pod logs above rather than triggering another sync.
+Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2). While the install Job runs, Argo shows **Running / waiting for hook** — that is normal, not a failed install. Avoid re-syncing until the Job completes or you will recreate the hook.
+
+**Optional (cluster-admin):** if sync still times out, raise the global Argo CD controller limit (OpenShift GitOps default is unlimited, but some clusters override it):
+
+```bash
+oc patch configmap argocd-cmd-params-cm -n openshift-gitops --type merge \
+  -p '{"data":{"controller.sync.timeout.seconds":"3600"}}'
+oc rollout restart deployment openshift-gitops-controller -n openshift-gitops
+```
 
 **Rollback:** set `job.enabled: false`, remove the Application from kustomization, delete the Argo app:
 

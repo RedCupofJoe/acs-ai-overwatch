@@ -27,5 +27,13 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    retry:
+      limit: 2
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
     syncOptions:
       - CreateNamespace=true
+      # Allow the PostSync install Job up to 1 hour before Argo marks sync failed.
+      - Timeout=3600

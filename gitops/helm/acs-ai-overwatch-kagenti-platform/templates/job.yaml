@@ -7,11 +7,13 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "kagenti-platform.labels" . | nindent 4 }}
-  # Regular sync-wave Job (not a PostSync hook). The install takes 15–30 minutes;
-  # a PostSync hook blocks Argo in "waiting for hook" / SyncError until it finishes.
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+    argocd.argoproj.io/sync-options: Timeout={{ .Values.argocd.hookTimeoutSeconds }}
 spec:
   backoffLimit: {{ .Values.job.backoffLimit }}
-  activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ .Values.argocd.hookTimeoutSeconds }}
   template:
     metadata:
       labels:

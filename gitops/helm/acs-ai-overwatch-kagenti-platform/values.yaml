@@ -7,6 +7,8 @@ argocd:
     rbac: "0"
     configMap: "1"
     job: "2"
+  # PostSync install Job can run 15–30+ minutes; match Job activeDeadlineSeconds.
+  hookTimeoutSeconds: 3600
 
 # Target namespace for the install Job and Kagenti control plane.
 # Namespace is pre-created by acs-ai-overwatch-gitops-bootstrap (avoid duplicate Argo ownership).
@@ -17,6 +19,7 @@ job:
   enabled: true
   restartPolicy: OnFailure
   backoffLimit: 3
+  # Kept for documentation; Job spec uses argocd.hookTimeoutSeconds.
   activeDeadlineSeconds: 3600
   image: registry.redhat.io/openshift4/ose-cli:latest
   toolsInitImage: registry.redhat.io/ubi9/ubi:latest
