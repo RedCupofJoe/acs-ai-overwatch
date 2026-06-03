@@ -8,11 +8,13 @@ argocd:
     configMap: "1"
     job: "2"
 
+# Target namespace for the install Job and Kagenti control plane.
+# Namespace is pre-created by acs-ai-overwatch-gitops-bootstrap (avoid duplicate Argo ownership).
 namespace: kagenti-system
 
 job:
   # OPT-IN: set true and register gitops/argocd/application-kagenti-platform.yaml — see README "Phase 4 — Kagenti platform".
-  enabled: false
+  enabled: true
   restartPolicy: OnFailure
   backoffLimit: 3
   image: registry.redhat.io/openshift4/ose-cli:latest
