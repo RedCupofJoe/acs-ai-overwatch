@@ -27,8 +27,10 @@ storage:
 
 # Agent images in values.yaml point at in-cluster Quay; disable until Quay is deployed.
 components:
-  kagenti: false
-  agentsHelpfulHank: false
+  kagenti:
+    enabled: false
+  agentsHelpfulHank:
+    enabled: false
 
 # --- Full local-storage PoC (when workers have two empty NVMe/EBS devices) ---
 # quayStorage:
