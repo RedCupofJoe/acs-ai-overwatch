@@ -52,8 +52,9 @@ IFS=',' read -ra NS_ARR <<< "${AGENT_NAMESPACES}"
 for ns in "${NS_ARR[@]}"; do
   ns="$(echo "${ns}" | xargs)"
   [ -z "${ns}" ] && continue
-  if ! grep -q "  - ${ns}" "${WORKDIR}/charts/kagenti/values.yaml"; then
-    sed -i "/^agentNamespaces:/a\\  - ${ns}" "${WORKDIR}/charts/kagenti/values.yaml"
+  # Upstream chart uses unindented list items ("- team1"), not "  - team1".
+  if ! grep -qE "^- ${ns}$" "${WORKDIR}/charts/kagenti/values.yaml"; then
+    sed -i "/^agentNamespaces:/a- ${ns}" "${WORKDIR}/charts/kagenti/values.yaml"
   fi
 done
 
