@@ -16,8 +16,13 @@ PHASE5_INTEGRATION="${PHASE5_INTEGRATION:-false}"
 
 export PATH="/tools:${PATH}"
 
-if ! command -v git >/dev/null 2>&1 || ! command -v helm >/dev/null 2>&1; then
-  echo "ERROR: git and helm must be available on PATH (/tools)" >&2
+if ! command -v helm >/dev/null 2>&1 || ! command -v oc >/dev/null 2>&1; then
+  echo "ERROR: helm and oc must be available on PATH (/tools)" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required by setup-kagenti.sh" >&2
   exit 1
 fi
 
@@ -26,10 +31,22 @@ if helm status kagenti -n "${KAGENTI_NS}" >/dev/null 2>&1; then
   exit 0
 fi
 
+_fetch_kagenti_source() {
+  local dest="$1"
+  local repo_path="${KAGENTI_GIT_URL#https://github.com/}"
+  repo_path="${repo_path%.git}"
+  local archive_url="https://github.com/${repo_path}/archive/refs/heads/${KAGENTI_GIT_REF}.tar.gz"
+  local extract_dir="/tmp/kagenti-archive"
+
+  rm -rf "${dest}" "${extract_dir}"
+  mkdir -p "${extract_dir}"
+  echo "Fetching Kagenti source from ${archive_url}"
+  curl -fsSL "${archive_url}" | tar xz -C "${extract_dir}"
+  mv "${extract_dir}/$(basename "${repo_path}")-${KAGENTI_GIT_REF}" "${dest}"
+}
+
 WORKDIR="/tmp/kagenti-src"
-rm -rf "${WORKDIR}"
-git clone --depth 1 --branch "${KAGENTI_GIT_REF}" "${KAGENTI_GIT_URL}" "${WORKDIR}" \
-  || git clone --depth 1 "${KAGENTI_GIT_URL}" "${WORKDIR}"
+_fetch_kagenti_source "${WORKDIR}"
 
 IFS=',' read -ra NS_ARR <<< "${AGENT_NAMESPACES}"
 for ns in "${NS_ARR[@]}"; do

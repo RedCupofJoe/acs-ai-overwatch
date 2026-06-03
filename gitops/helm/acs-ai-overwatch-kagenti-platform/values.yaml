@@ -19,7 +19,7 @@ job:
   backoffLimit: 3
   activeDeadlineSeconds: 3600
   image: registry.redhat.io/openshift4/ose-cli:latest
-  toolsInitImage: registry.redhat.io/ubi9/ubi-minimal:latest
+  toolsInitImage: registry.redhat.io/ubi9/ubi:latest
   helmVersion: "3.14.4"
 
 # Upstream Kagenti repository (cloned by the install Job).

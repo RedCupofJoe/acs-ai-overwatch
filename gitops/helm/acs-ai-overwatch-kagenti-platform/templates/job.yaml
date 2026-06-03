@@ -30,19 +30,12 @@ spec:
           volumeMounts:
             - name: tools
               mountPath: /tools
-        - name: tools
+        - name: helm
           image: {{ .Values.job.toolsInitImage | quote }}
-          securityContext:
-            runAsUser: 0
-            allowPrivilegeEscalation: false
           command:
             - bash
             - -ec
             - |
-              # ubi-minimal ships curl-minimal; do not install the full curl package (conflicts).
-              microdnf install -y git tar gzip
-              cp /usr/bin/git /tools/git
-              cp -a /usr/libexec/git-core /tools/libexec/
               arch="$(uname -m)"
               case "${arch}" in
                 x86_64|amd64) helm_arch="amd64" ;;
@@ -52,9 +45,7 @@ spec:
               curl -fsSL "https://get.helm.sh/helm-v{{ .Values.job.helmVersion }}-linux-${helm_arch}.tar.gz" \
                 | tar xz -C /tmp
               mv "/tmp/linux-${helm_arch}/helm" /tools/helm
-              chmod +x /tools/helm /tools/git
-              export GIT_EXEC_PATH=/tools/libexec/git-core
-              /tools/git --version
+              chmod +x /tools/helm
               /tools/helm version --short
           volumeMounts:
             - name: tools
@@ -65,8 +56,6 @@ spec:
           env:
             - name: PATH
               value: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-            - name: GIT_EXEC_PATH
-              value: /tools/libexec/git-core
             - name: KAGENTI_GIT_URL
               value: {{ .Values.kagenti.gitUrl | quote }}
             - name: KAGENTI_GIT_REF
