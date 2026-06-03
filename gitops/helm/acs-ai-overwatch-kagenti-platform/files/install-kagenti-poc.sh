@@ -49,14 +49,41 @@ WORKDIR="/tmp/kagenti-src"
 _fetch_kagenti_source "${WORKDIR}"
 
 IFS=',' read -ra NS_ARR <<< "${AGENT_NAMESPACES}"
-for ns in "${NS_ARR[@]}"; do
-  ns="$(echo "${ns}" | xargs)"
-  [ -z "${ns}" ] && continue
-  # Upstream chart uses unindented list items ("- team1"), not "  - team1".
-  if ! grep -qE "^- ${ns}$" "${WORKDIR}/charts/kagenti/values.yaml"; then
-    sed -i "/^agentNamespaces:/a- ${ns}" "${WORKDIR}/charts/kagenti/values.yaml"
-  fi
-done
+_patch_agent_namespaces() {
+  local values_file="$1"
+  shift
+  python3 - "$values_file" "$@" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+extra = [ns.strip() for ns in sys.argv[2:] if ns.strip()]
+text = open(path, encoding="utf-8").read()
+match = re.search(r"^agentNamespaces:\n((?:- .+\n)*)", text, flags=re.M)
+existing: list[str] = []
+if match:
+    existing = [
+        line[2:].strip()
+        for line in match.group(1).splitlines()
+        if line.startswith("- ")
+    ]
+for ns in extra:
+    if ns not in existing:
+        existing.append(ns)
+block = "agentNamespaces:\n" + "".join(f"- {ns}\n" for ns in existing)
+text, count = re.subn(
+    r"^agentNamespaces:\n(?:- .+\n)*",
+    block,
+    text,
+    count=1,
+    flags=re.M,
+)
+if count != 1:
+    sys.exit(f"agentNamespaces block not found in {path}")
+open(path, "w", encoding="utf-8").write(text)
+PY
+}
+_patch_agent_namespaces "${WORKDIR}/charts/kagenti/values.yaml" "${NS_ARR[@]}"
 
 SETUP_ARGS=(--kagenti-repo "${WORKDIR}" --realm "${KC_REALM}" --keycloak-namespace "${KC_NAMESPACE}")
 if [ "${SKIP_MLFLOW}" = "true" ]; then

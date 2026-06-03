@@ -19,6 +19,7 @@ job:
   enabled: true
   restartPolicy: OnFailure
   backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
   # Kept for documentation; Job spec uses argocd.hookTimeoutSeconds.
   activeDeadlineSeconds: 3600
   image: registry.redhat.io/openshift4/ose-cli:latest
