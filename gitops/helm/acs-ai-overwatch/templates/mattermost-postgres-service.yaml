@@ -1,0 +1,19 @@
+{{- if and .Values.mattermost.enabled .Values.mattermost.postgres.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mattermost.postgres.serviceName }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

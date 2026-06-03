@@ -74,6 +74,8 @@ storage:
 mattermost:
   enabled: true
   namespace: monitoring
+  # Init container image to chown PVC data dir for UID 2000 (gp3-csi mounts root-owned).
+  initImage: docker.io/library/busybox:1.36
   image:
     repository: mattermost/mattermost-team-edition
     tag: "10.11.15"
@@ -94,6 +96,19 @@ mattermost:
     adminPassword: redhatpassword123
     hitlEmail: human-in-the-loop@cluster.local
     hitlPassword: redhatpassword123
+  # Mattermost 10+ requires PostgreSQL (SQLite removed). Files still use mattermost-data PVC.
+  postgres:
+    enabled: true
+    serviceName: mattermost-postgres
+    image:
+      repository: docker.io/library/postgres
+      tag: "16-alpine"
+    database: mattermost
+    username: mmuser
+    password: mattermost-db-password
+    pvc:
+      size: 5Gi
+      storageClassName: ""
 
 quayStorage:
   enabled: true

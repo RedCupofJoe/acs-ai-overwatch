@@ -1,22 +1,23 @@
-{{- if and .Values.mattermost.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+{{- if and .Values.mattermost.enabled .Values.mattermost.postgres.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mattermost
+  name: mattermost-postgres
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
   namespace: {{ .Values.mattermost.namespace }}
   labels:
     app.kubernetes.io/name: mattermost
-    app.kubernetes.io/component: server
+    app.kubernetes.io/component: postgres
 ---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
 metadata:
-  name: mattermost
+  name: mattermost-postgres
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: postgres
 allowPrivilegedContainer: false
 allowPrivilegeEscalation: false
 allowHostDirVolumePlugin: false
@@ -42,5 +43,5 @@ volumes:
   - projected
   - secret
 users:
-  - system:serviceaccount:{{ .Values.mattermost.namespace }}:mattermost
+  - system:serviceaccount:{{ .Values.mattermost.namespace }}:mattermost-postgres
 {{- end }}

@@ -108,6 +108,11 @@ annotations:
 {{- end -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.mattermostPostgresDataSource" -}}
+{{- $pg := .Values.mattermost.postgres -}}
+{{- printf "postgres://%s:%s@%s.%s.svc.cluster.local:5432/%s?sslmode=disable&connect_timeout=10" $pg.username $pg.password $pg.serviceName .Values.mattermost.namespace $pg.database -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.mattermostSiteUrl" -}}
 {{- if .Values.mattermost.siteUrl -}}
 {{- .Values.mattermost.siteUrl -}}

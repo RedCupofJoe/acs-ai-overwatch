@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   replicas: 1
+  progressDeadlineSeconds: 900
   selector:
     matchLabels:
       app.kubernetes.io/name: mattermost
@@ -23,6 +24,34 @@ spec:
       serviceAccountName: mattermost
       securityContext:
         fsGroup: 2000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        {{- if .Values.mattermost.postgres.enabled }}
+        - name: wait-for-postgres
+          image: {{ .Values.mattermost.initImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ .Values.mattermost.postgres.serviceName }} 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+        {{- end }}
+        - name: fix-data-permissions
+          image: {{ .Values.mattermost.initImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - chown -R 2000:2000 /mattermost/data && chmod -R g+rwX /mattermost/data
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /mattermost/data
       containers:
         - name: mattermost
           image: {{ printf "%s:%s" .Values.mattermost.image.repository .Values.mattermost.image.tag }}
@@ -36,9 +65,12 @@ spec:
               containerPort: 8065
           env:
             - name: MM_SQLSETTINGS_DRIVERNAME
-              value: sqlite3
+              value: postgres
             - name: MM_SQLSETTINGS_DATASOURCE
-              value: "file:/mattermost/data/mattermost.db?_busy_timeout=5000"
+              valueFrom:
+                secretKeyRef:
+                  name: mattermost-postgres
+                  key: url
             - name: MM_FILESETTINGS_DIRECTORY
               value: /mattermost/data/files
             - name: MM_SERVICESETTINGS_LISTENADDRESS
@@ -59,9 +91,10 @@ spec:
             httpGet:
               path: /api/v4/system/ping
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 45
             periodSeconds: 10
             timeoutSeconds: 5
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /api/v4/system/ping
