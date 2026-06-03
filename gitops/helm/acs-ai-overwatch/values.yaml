@@ -232,10 +232,10 @@ accelerators:
         maxUnavailable: "1"
 
 # Red Hat OpenShift AI (RHOAI) 3.4 — operator, DataScienceCluster v2, HardwareProfile.
+# Requires a NEW cluster with no prior 2.25 install (no supported in-place 2.25→3.4 upgrade).
 # Verify channel: oc get packagemanifest rhods-operator -n openshift-marketplace -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
 rhoai:
   enabled: true
-  # Product line for docs; subscription channel + DSC apiVersion must match the installed CSV.
   targetVersion: "3.4"
   operator:
     namespace: redhat-ods-operator
@@ -244,16 +244,13 @@ rhoai:
       name: redhat-ods-operator
     subscription:
       name: rhods-operator
-      # OpenShift AI 3.4 (not plain "stable", which may track 2.25.x on some clusters).
-      channel: fast-3.4
+      channel: stable-3.4
       installPlanApproval: Automatic
       source: redhat-operators
       sourceNamespace: openshift-marketplace
   datascienceCluster:
     name: default-dsc
     apiVersion: datasciencecluster.opendatahub.io/v2
-    # PoC footprint: dashboard, KServe, Kueue, workbenches Managed (3.4 component names).
-    # codeflare operator removed in 3.x — use ray/trainingoperator if you need distributed workloads.
     components:
       dashboard:
         managementState: Managed

@@ -52,6 +52,8 @@ export KAGENTI_API_TOKEN="<token>"
 
 **Optional (local Helm / override file):** `make cluster-values` writes `values-cluster.yaml` from your `oc login` (see [Cluster-Aware Configuration](#cluster-aware-configuration)).
 
+**OpenShift AI version:** This PoC targets **OpenShift AI 3.4** (`stable-3.4` channel by default; confirm with `packagemanifest`, `DataScienceCluster` **`v2`**). Use a [fresh cluster](#fresh-cluster-deployment-rhoai-34) — **do not** install on a cluster that already ran RHOAI 2.25 (no supported in-place upgrade to 3.4).
+
 ---
 
 ## Table of Contents
@@ -61,23 +63,24 @@ export KAGENTI_API_TOKEN="<token>"
 3. [Repository Layout](#repository-layout)
 4. [Prerequisites](#prerequisites)
 5. [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup)
-6. [Helm Values File Layering](#helm-values-file-layering)
-7. [Cluster-Aware Configuration](#cluster-aware-configuration)
-8. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
-9. [Configuration Checklist](#configuration-checklist)
-10. [Deployment Methods](#deployment-methods)
-11. [Helm Chart Reference](#helm-chart-reference)
-12. [Platform Components](#platform-components)
-13. [AI Agents](#ai-agents)
-14. [Kagenti Integration](#kagenti-integration)
-15. [ACS / RHACS Security](#acs--rhacs-security)
-16. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-17. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
-18. [Operational Scripts](#operational-scripts)
-19. [Namespaces and Resource Map](#namespaces-and-resource-map)
-20. [Helm Template Inventory](#helm-template-inventory)
-21. [Troubleshooting](#troubleshooting)
-22. [Security and Legal Notes](#security-and-legal-notes)
+6. [Fresh cluster deployment (OpenShift AI 3.4)](#fresh-cluster-deployment-rhoai-34)
+7. [Helm Values File Layering](#helm-values-file-layering)
+8. [Cluster-Aware Configuration](#cluster-aware-configuration)
+9. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
+10. [Configuration Checklist](#configuration-checklist)
+11. [Deployment Methods](#deployment-methods)
+12. [Helm Chart Reference](#helm-chart-reference)
+13. [Platform Components](#platform-components)
+14. [AI Agents](#ai-agents)
+15. [Kagenti Integration](#kagenti-integration)
+16. [ACS / RHACS Security](#acs--rhacs-security)
+17. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
+18. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
+19. [Operational Scripts](#operational-scripts)
+20. [Namespaces and Resource Map](#namespaces-and-resource-map)
+21. [Helm Template Inventory](#helm-template-inventory)
+22. [Troubleshooting](#troubleshooting)
+23. [Security and Legal Notes](#security-and-legal-notes)
 23. [Development and Validation](#development-and-validation)
 
 ---
@@ -251,6 +254,7 @@ acs-ai-overwatch/
 | Requirement | Notes |
 |-------------|-------|
 | **OpenShift 4.14+** (recommended) | Verify channel compatibility for operators on your cluster version |
+| **Fresh cluster for OpenShift AI 3.4** | No prior RHOAI 2.25 install; see [Fresh cluster deployment](#fresh-cluster-deployment-rhoai-34) |
 | **OpenShift GitOps Operator** | Argo CD control plane in `openshift-gitops` |
 | **OpenShift Pipelines** | Required before applying `pipelines/tekton/` (not installed by this repo’s GitOps chart). See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 | **Worker nodes with NVIDIA L4 GPUs** | Default values assume 3× L4 with time-slicing |
@@ -408,6 +412,85 @@ oc apply -k gitops/argocd/
 ```
 
 Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch`. If you ran the cluster-admin scripts, bootstrap and discovery may already match desired state; Argo will reconcile.
+
+---
+
+## Fresh cluster deployment (OpenShift AI 3.4)
+
+Use this checklist on a **new** OpenShift cluster with **OpenShift GitOps** already installed. Do not reuse a cluster where RHOAI 2.25 was previously installed.
+
+### 1. Log in and bootstrap (cluster-admin)
+
+```bash
+oc login
+chmod +x scripts/cluster-admin/*.sh
+make cluster-admin-pre-gitops
+```
+
+### 2. Configure storage for this cluster
+
+Edit NVMe paths in `gitops/helm/acs-ai-overwatch/values-poc.yaml` (see [PoC Cluster-Local Storage](#poc-cluster-local-storage)).
+
+Optional: `make cluster-values` or `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` for `values-cluster.yaml`.
+
+### 3. Set Git remote in Argo Applications
+
+If using a fork, update `spec.source.repoURL` in:
+
+- `gitops/argocd/application-gitops-bootstrap.yaml`
+- `gitops/argocd/application-cluster-discovery.yaml`
+- `gitops/argocd/application.yaml`
+
+### 4. Register and sync Argo CD Applications
+
+```bash
+oc apply -k gitops/argocd/
+```
+
+Sync in order (or wait for sync-waves): **bootstrap → cluster-discovery → acs-ai-overwatch**.
+
+The main Application includes `SkipDryRunOnMissingResource=true` and gates platform CRs until operator CRDs exist — expect **multiple syncs** over 15–30+ minutes while OLM installs operators.
+
+### 5. Verify OpenShift AI 3.4 (before expecting `default-dsc`)
+
+```bash
+# OperatorGroup must be empty spec (not targetNamespaces)
+oc get operatorgroup redhat-ods-operator -n redhat-ods-operator -o yaml | grep -A2 '^spec:'
+
+# CSV must be 3.4.x, not 2.25.x
+oc get csv -n redhat-ods-operator | grep rhods
+
+# CRD must serve v2
+oc get crd datascienceclusters.datasciencecluster.opendatahub.io \
+  -o jsonpath='{range .spec.versions[*]}{.name}{"\n"}{end}'
+
+# After main app syncs platform CRs
+oc get dsc default-dsc
+oc get dsc default-dsc -o jsonpath='{.apiVersion}{" "}{.status.phase}{"\n"}'
+```
+
+Expected: `rhods-operator.3.4.*` **Succeeded**, `datasciencecluster.opendatahub.io/v2`, DSC phase **Ready** (may take several minutes).
+
+If the Subscription channel is wrong on a fresh cluster:
+
+```bash
+# List channels your catalog actually exposes (pick one ending in -3.4 for OpenShift AI 3.4)
+oc get packagemanifest rhods-operator -n openshift-marketplace \
+  -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
+
+oc patch subscription rhods-operator -n redhat-ods-operator --type merge \
+  -p '{"spec":{"channel":"stable-3.4"}}'
+```
+
+Use `fast-3.4` or `eus-3.4` instead if that is what your catalog lists and you intend that stream.
+
+### 6. Install OpenShift Pipelines (before agent builds)
+
+See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite), then apply `pipelines/tekton/agents-build-pipeline.yaml`.
+
+### 7. Enable PoC components and sync again
+
+Commit/push changes to `values.yaml` (e.g. `components.kagenti`, `components.acsPolicies`) and sync `acs-ai-overwatch`.
 
 ---
 
@@ -860,13 +943,13 @@ oc debug node/<worker-node> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
 
 ### 3. OpenShift AI (`rhoai`) — target **3.4**
 
-Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`fast-3.4`** and a **DataScienceCluster** using **`datasciencecluster.opendatahub.io/v2`** (required for 3.x; do not use `v1` from 2.25).
+Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`stable-3.4`** (override to match your catalog) and a **DataScienceCluster** using **`datasciencecluster.opendatahub.io/v2`** (required for 3.x; do not use `v1` from 2.25).
 
 | Setting | Default | Notes |
 |---------|---------|-------|
 | `rhoai.targetVersion` | `3.4` | Documentation marker |
-| `rhoai.operator.subscription.channel` | `fast-3.4` | Confirm on cluster: `oc get packagemanifest rhods-operator -n openshift-marketplace` |
-| `rhoai.datascienceCluster.apiVersion` | `.../v2` | **Wrong for 3.4:** `v1` (2.25 only) |
+| `rhoai.operator.subscription.channel` | `stable-3.4` | Must match catalog: `oc get packagemanifest rhods-operator -n openshift-marketplace` |
+| `rhoai.datascienceCluster.apiVersion` | `.../v2` | Required for 3.4; **`v1` is 2.25 only** |
 
 | Component | managementState | Purpose |
 |-----------|-----------------|---------|
@@ -884,7 +967,7 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 
 Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`
 
-**Upgrading a cluster that has 2.25 installed:** change the Subscription channel to `fast-3.4` (or `stable-3.4`), wait for a new CSV **Succeeded**, delete any `v1` `default-dsc`, then sync this chart so `v2` DSC is applied.
+**Important:** OpenShift AI **3.4 must be installed on a fresh cluster**. If a cluster previously had RHOAI 2.25, provision a new cluster rather than attempting an upgrade path.
 
 ### 4. Mattermost (`mattermost`)
 
@@ -1444,7 +1527,7 @@ ensure CRDs are installed first
 
 **Common causes:**
 
-1. **API version / operator mismatch** — This repo targets **OpenShift AI 3.4** (`datasciencecluster.opendatahub.io/v2`, channel `fast-3.4`). If the cluster still runs **2.25.x** (`rhods-operator.2.25.6`), `v2` apply fails; if the chart used `v1` against 3.4, that also fails. Check CSV and CRD versions:
+1. **API version / operator mismatch** — This repo targets **OpenShift AI 3.4** only (`datasciencecluster.opendatahub.io/v2`, channel such as `stable-3.4`). On a fresh cluster you should see `rhods-operator.3.4.*` **Succeeded**. If you see **2.25.x**, the cluster had a prior 2.25 install or the wrong channel — use a **new cluster** or fix the Subscription channel before syncing `default-dsc`.
 
    ```bash
    oc get csv -n redhat-ods-operator | grep rhods
@@ -1456,6 +1539,53 @@ ensure CRDs are installed first
 2. **CRD not ready yet** — Subscription applied before CSV **Succeeded**; see operator checks below.
 
 `SkipDryRunOnMissingResource` only skips **dry-run** validation; it does **not** stop **apply** failures.
+
+### Argo CD / OLM: `ResolutionFailed` / `ConstraintsNotSatisfiable` on `rhods-operator`
+
+Example on the Subscription in `redhat-ods-operator`:
+
+```text
+ConstraintsNotSatisfiable: constraints not satisfiable: no operators found in channel fast-3.4 of package rhods-operator in the catalog referenced by subscription rhods-operator
+ResolutionFailed: True
+```
+
+**Meaning:** The `redhat-operators` catalog on this cluster does not publish the channel named in the Subscription (`fast-3.4`, `stable-3.4`, etc.). OLM cannot resolve any CSV for that channel.
+
+**Fix:**
+
+1. List channels the catalog actually exposes:
+
+   ```bash
+   oc get packagemanifest rhods-operator -n openshift-marketplace \
+     -o jsonpath='{range .status.channels[*]}{.name}{"  "}{.currentCSV}{"\n"}{end}'
+   ```
+
+2. Pick a **3.4** channel from that list (e.g. `stable-3.4`, `fast-3.4`, `eus-3.4`) and set it on the Subscription:
+
+   ```bash
+   oc patch subscription rhods-operator -n redhat-ods-operator --type merge \
+     -p '{"spec":{"channel":"stable-3.4"}}'
+   ```
+
+   Or override in Helm/Argo: `rhoai.operator.subscription.channel` in `values.yaml` (or your cluster values file), then sync `acs-ai-overwatch`.
+
+3. If **no channel ending in `-3.4` appears**, this cluster’s operator index likely does not include OpenShift AI 3.4 yet. OpenShift AI 3.4 requires **OpenShift Container Platform 4.19.9+** (see [supported configurations](https://access.redhat.com/articles/rhoai-supported-configs-3.x)). Check:
+
+   ```bash
+   oc version
+   oc get clusterversion version -o jsonpath='{.status.desired.version}{"\n"}'
+   ```
+
+   Upgrade OCP or refresh the `redhat-operators` catalog before retrying. The unversioned `stable` / `fast` channels may still point at **2.25** and will not satisfy this chart’s `DataScienceCluster` **v2** API.
+
+4. After changing the channel, confirm resolution:
+
+   ```bash
+   oc get subscription rhods-operator -n redhat-ods-operator -o yaml | grep -A2 conditions
+   oc get csv -n redhat-ods-operator | grep rhods
+   ```
+
+   Expect `rhods-operator.3.4.*` with phase **Succeeded** before syncing `default-dsc`.
 
 **Chart behavior (current):** `platformResources.waitForCrds: true` (default) omits `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy`, `LocalVolume`, and `QuayRegistry` from the manifest until Helm `lookup` sees each CRD on the cluster. After operators install, **Refresh → Sync** and those resources appear automatically.
 
