@@ -205,17 +205,20 @@ wait_for_mattermost() {
 }
 
 api_token() {
-  curl -sf -D /tmp/login_headers.txt -o /tmp/login.json -X POST "${MM_API}/api/v4/users/login" \
+  curl -sf --http1.1 -i -X POST "${MM_API}/api/v4/users/login" \
     -H "Content-Type: application/json" \
-    -d "{\"login_id\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASSWORD}\"}"
-  # Mattermost returns the session token in the Token response header (body is the User object).
+    -d "{\"login_id\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+    > /tmp/login_response.txt
+  awk 'BEGIN{body=0} /^\r?$/{body=1; next} body{print}' /tmp/login_response.txt > /tmp/login.json
   local token
-  token="$(grep -Fi '^Token:' /tmp/login_headers.txt | awk '{print $2}' | tr -d '\r')"
-  if [ -n "${token}" ]; then
-    echo "${token}"
-    return 0
+  token="$(awk 'BEGIN{IGNORECASE=1} /^token:/{sub(/^[^:]+:[ \t]*/,""); gsub(/\r$/,""); print; exit}' /tmp/login_response.txt)"
+  if [ -z "${token}" ]; then
+    token="$(grep -Fi 'MMAUTHTOKEN=' /tmp/login_response.txt | head -1 | sed -n 's/.*MMAUTHTOKEN=\([^;]*\).*/\1/p')"
   fi
-  json_field token /tmp/login.json
+  if [ -z "${token}" ]; then
+    token="$(json_field token /tmp/login.json)"
+  fi
+  echo "${token}"
 }
 
 ensure_team() {
@@ -270,8 +273,11 @@ fi
 
 TOKEN="$(api_token)"
 if [ -z "${TOKEN}" ] || [ "${TOKEN}" = "null" ]; then
-  echo "Failed to log in as bootstrap admin."
-  cat /tmp/login.json || true
+  echo "Failed to log in as bootstrap admin (no session token in response)."
+  echo "Response headers:"
+  sed -n '1,/^\r\?$/p' /tmp/login_response.txt 2>/dev/null || true
+  echo "Response body:"
+  cat /tmp/login.json 2>/dev/null || true
   exit 1
 fi
 
