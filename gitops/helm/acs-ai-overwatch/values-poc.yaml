@@ -11,7 +11,7 @@
 platformResources:
   waitForCrds: false
 
-# No raw local disks — skip LSO, LocalVolume, Quay operator/registry from this chart.
+# No raw local disks — skip LSO / LocalVolume / QuayRegistry from GitOps on this profile.
 quayStorage:
   enabled: false
 

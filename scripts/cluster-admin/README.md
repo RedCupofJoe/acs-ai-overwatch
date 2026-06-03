@@ -2,6 +2,8 @@
 
 Run these **on your workstation** as a **cluster admin** after `oc login` and **before** `oc apply -k gitops/argocd/`.
 
+**Manual OperatorHub installs (not covered by scripts here):** [Red Hat Kueue Operator](../README.md#red-hat-kueue-operator-prerequisite) (before `default-dsc`), [OpenShift Pipelines](../README.md#openshift-pipelines-tekton-prerequisite) (before agent builds).
+
 ## One command (recommended)
 
 ```bash

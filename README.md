@@ -25,6 +25,8 @@ oc login   # cluster-admin
 make cluster-admin-pre-gitops
 # or: ./scripts/cluster-admin/install-pre-gitops.sh
 
+# 1b. Install Red Hat Kueue Operator manually (before default-dsc) — see Prerequisites
+
 # 2. Review / edit NVMe device paths for your workers
 #    gitops/helm/acs-ai-overwatch/values-poc.yaml
 
@@ -257,8 +259,9 @@ acs-ai-overwatch/
 | **Fresh cluster for OpenShift AI 3.4** | No prior RHOAI 2.25 install; see [Fresh cluster deployment](#fresh-cluster-deployment-rhoai-34) |
 | **OpenShift GitOps Operator** | Argo CD control plane in `openshift-gitops` |
 | **OpenShift Pipelines** | Required before applying `pipelines/tekton/` (not installed by this repo’s GitOps chart). See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
+| **Red Hat build of Kueue Operator** | Required before `default-dsc` on OpenShift AI **3.4** — **manual install only** (OperatorHub; not in GitOps). See [Kueue Operator prerequisite](#red-hat-kueue-operator-prerequisite) |
 | **Worker nodes with NVIDIA L4 GPUs** | Default values assume 3× L4 with time-slicing |
-| **Dedicated NVMe devices** | Required for Quay local storage (`quayStorage.localVolume`) |
+| **Dedicated NVMe devices** | Required for Quay local storage (`quayStorage.localVolume`) when using GitOps Quay path; use `quayStorage.enabled: false` in `values-poc.yaml` on EBS-only clusters |
 | **Operator catalogs** | `redhat-operators`, `certified-operators` |
 
 ### External Dependencies
@@ -339,6 +342,84 @@ oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.ya
 
 See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) for Quay secrets and PipelineRun.
 
+### Red Hat Kueue Operator prerequisite
+
+OpenShift AI **3.4** rejects `spec.components.kueue.managementState: Managed` on the `DataScienceCluster`. This chart sets **`Unmanaged`**, which requires the **Red Hat build of Kueue Operator** installed **manually** (not via GitOps).
+
+**When you need it:** Before the main Argo CD Application syncs **`default-dsc`** (sync wave 30).
+
+**Verify:**
+
+```bash
+oc get csv -n openshift-kueue-operator
+oc get crd kueues.kueue.openshift.io
+oc get kueue cluster -n openshift-kueue-operator
+```
+
+**Install (cluster-admin) — OperatorHub (recommended):**
+
+1. Console → **Operators → OperatorHub** → **Red Hat build of Kueue Operator** → **Install**
+2. Enable **cluster monitoring** on namespace `openshift-kueue-operator`
+3. After CSV **Succeeded**, create the cluster `Kueue` CR (console **Kueue** tab → **Create Kueue**, or YAML):
+
+```yaml
+apiVersion: kueue.openshift.io/v1
+kind: Kueue
+metadata:
+  name: cluster
+  namespace: openshift-kueue-operator
+spec:
+  managementState: Managed
+```
+
+4. Label the workbench namespace when it exists:
+
+```bash
+oc label namespace rhods-notebooks kueue.openshift.io/managed=true --overwrite
+```
+
+**Install (cluster-admin) — CLI** (pick channel from your catalog):
+
+```bash
+oc get packagemanifest kueue-operator -n openshift-marketplace \
+  -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
+
+export KUEUE_CHANNEL="<channel-from-above>"
+
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-kueue-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-kueue-operator
+  namespace: openshift-kueue-operator
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: kueue-operator
+  namespace: openshift-kueue-operator
+spec:
+  channel: ${KUEUE_CHANNEL}
+  installPlanApproval: Automatic
+  name: kueue-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+
+oc get csv -n openshift-kueue-operator -w
+# Then apply the Kueue CR YAML above and label rhods-notebooks.
+```
+
+See [OpenShift AI 3.4 — Kueue](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) and [Red Hat build of Kueue on OCP](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/ai_workloads/red-hat-build-of-kueue).
+
 ---
 
 ## Cluster admin: pre-GitOps setup
@@ -365,6 +446,8 @@ make cluster-admin-pre-gitops
 | 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`, …) |
 | 4 | `04-apply-discovery-prerequisites.sh` | ServiceAccount **`cluster-discovery`**, discovery RBAC, ConfigMap **`cluster-discovery-script`** |
+
+Manual prerequisites (OperatorHub, not GitOps): [Kueue Operator](#red-hat-kueue-operator-prerequisite) (before `default-dsc`), [OpenShift Pipelines](#openshift-pipelines-tekton-prerequisite) (before agent builds).
 
 ### Verify before Argo CD
 
@@ -433,7 +516,11 @@ Edit NVMe paths in `gitops/helm/acs-ai-overwatch/values-poc.yaml` (see [PoC Clus
 
 Optional: `make cluster-values` or `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` for `values-cluster.yaml`.
 
-### 3. Set Git remote in Argo Applications
+### 3. Install Red Hat Kueue Operator (OpenShift AI 3.4)
+
+Required before `default-dsc` applies. **Manual install only** — see [Kueue Operator prerequisite](#red-hat-kueue-operator-prerequisite).
+
+### 4. Set Git remote in Argo Applications
 
 If using a fork, update `spec.source.repoURL` in:
 
@@ -441,7 +528,7 @@ If using a fork, update `spec.source.repoURL` in:
 - `gitops/argocd/application-cluster-discovery.yaml`
 - `gitops/argocd/application.yaml`
 
-### 4. Register and sync Argo CD Applications
+### 5. Register and sync Argo CD Applications
 
 ```bash
 oc apply -k gitops/argocd/
@@ -451,7 +538,7 @@ Sync in order (or wait for sync-waves): **bootstrap → cluster-discovery → ac
 
 The main Application includes `SkipDryRunOnMissingResource=true` and gates platform CRs until operator CRDs exist — expect **multiple syncs** over 15–30+ minutes while OLM installs operators.
 
-### 5. Verify OpenShift AI 3.4 (before expecting `default-dsc`)
+### 6. Verify OpenShift AI 3.4 (before expecting `default-dsc`)
 
 ```bash
 # OperatorGroup must be empty spec (not targetNamespaces)
@@ -484,11 +571,11 @@ oc patch subscription rhods-operator -n redhat-ods-operator --type merge \
 
 Use `fast-3.4` or `eus-3.4` instead if that is what your catalog lists and you intend that stream.
 
-### 6. Install OpenShift Pipelines (before agent builds)
+### 7. Install OpenShift Pipelines (before agent builds)
 
 See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite), then apply `pipelines/tekton/agents-build-pipeline.yaml`.
 
-### 7. Enable PoC components and sync again
+### 8. Enable PoC components and sync again
 
 Commit/push changes to `values.yaml` (e.g. `components.kagenti`, `components.acsPolicies`) and sync `acs-ai-overwatch`.
 
@@ -665,6 +752,7 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
 | NVMe disk paths | `values-poc.yaml` | Auto-suggested locally; verify before sync |
+| Red Hat Kueue Operator | OperatorHub (manual) | Before `default-dsc`; see [Kueue prerequisite](#red-hat-kueue-operator-prerequisite) |
 | OpenShift Pipelines | OperatorHub / OLM Subscription | Required before `oc apply -f pipelines/tekton/`; see [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 
 ### Recommended Pre-Sync Commands
@@ -908,7 +996,7 @@ The GPU Operator ClusterPolicy references ConfigMap `time-slicing-config` with k
 
 ### 2. Quay Registry (`quayStorage`)
 
-Deploys a full on-cluster Quay instance backed by **OpenShift Local Storage Operator** and raw NVMe devices.
+Deploys a full on-cluster Quay instance backed by **OpenShift Local Storage Operator** and raw NVMe devices when `quayStorage.enabled: true`. On EBS-only clusters, set `quayStorage.enabled: false` in `values-poc.yaml` (see profile in that file).
 
 **Stack:**
 
@@ -955,11 +1043,13 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 |-----------|-----------------|---------|
 | dashboard | Managed | OpenShift AI dashboard |
 | kserve | Managed | Model serving |
-| kueue | Managed | Queue-based scheduling |
+| kueue | Unmanaged | Queue scheduling via [Red Hat Kueue Operator](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) (`Managed` rejected in 3.4) |
 | **workbenches** | **Managed** | Developer workbench provisioning |
 | ray, aipipelines, modelregistry, feast, training, trustyai, llamastack | Removed | Reduced footprint |
 
 **Note:** The standalone **CodeFlare operator** was removed in OpenShift AI 3.x; Ray/distributed workloads use the **ray** component (set to `Managed` if needed). See [Red Hat OpenShift AI 3.4 docs](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/installing_and_uninstalling_openshift_ai_self-managed/installing-and-deploying-openshift-ai_install).
+
+**Kueue (3.4):** Chart default is `kueue.managementState: Unmanaged`. Install the [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite) **before** syncing `default-dsc`.
 
 **Workbench namespace:** `rhods-notebooks`
 
@@ -1537,6 +1627,36 @@ ensure CRDs are installed first
    ```
 
 2. **CRD not ready yet** — Subscription applied before CSV **Succeeded**; see operator checks below.
+
+### Argo CD / DSC: `Managed is no longer supported as a managementState`
+
+Example:
+
+```text
+admission webhook "datasciencecluster-v2-validator.opendatahub.io" denied the request:
+Managed is no longer supported as a managementState
+```
+
+**Cause:** OpenShift AI **3.4** no longer allows `spec.components.kueue.managementState: Managed` (embedded Kueue was removed).
+
+**Fix:** Install the [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite), then ensure the chart uses **`Unmanaged`** (default in `values.yaml`):
+
+```yaml
+rhoai:
+  datascienceCluster:
+    components:
+      kueue:
+        managementState: Unmanaged
+```
+
+Push/sync, or patch on cluster:
+
+```bash
+oc patch datasciencecluster default-dsc --type merge \
+  -p '{"spec":{"components":{"kueue":{"managementState":"Unmanaged","defaultClusterQueueName":"default","defaultLocalQueueName":"default"}}}}'
+```
+
+To skip Kueue entirely (no operator): set `managementState: Removed` and `rhoai.hardwareProfile.enabled: false` in `values-poc.yaml`.
 
 `SkipDryRunOnMissingResource` only skips **dry-run** validation; it does **not** stop **apply** failures.
 

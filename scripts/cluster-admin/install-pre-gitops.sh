@@ -95,6 +95,7 @@ Next:
        acs-ai-overwatch-gitops-bootstrap
        acs-ai-overwatch-cluster-discovery
        acs-ai-overwatch
+  4. Install [Red Hat Kueue Operator](README.md#red-hat-kueue-operator-prerequisite) manually before default-dsc syncs
   5. (Optional, for agent builds) Install OpenShift Pipelines — see README Prerequisites
 
 Cluster ConfigMap:

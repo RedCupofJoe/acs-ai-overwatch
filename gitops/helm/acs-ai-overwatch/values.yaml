@@ -1,4 +1,4 @@
-#  Cluster-specific configuration — override via Argo CD, CI, or:
+# Cluster-specific configuration — override via Argo CD, CI, or:
 #   helm upgrade -i acs-ai-overwatch . -f values-poc.yaml -n openshift-gitops
 #
 # PoC storage: on-cluster only via OpenShift Local Storage Operator (see quayStorage.localVolume).
@@ -14,7 +14,7 @@ gitops:
 # Skip rendering operator CRs until CRDs exist (Helm lookup). Stops Argo apply errors on first sync.
 # Set waitForCrds: false only if lookup is unavailable on the repo-server and CRDs are already installed.
 platformResources:
-  waitForCrds: false
+  waitForCrds: true
   crds:
     dataScienceCluster: datascienceclusters.datasciencecluster.opendatahub.io
     hardwareProfile: hardwareprofiles.infrastructure.opendatahub.io
@@ -257,7 +257,8 @@ rhoai:
       kserve:
         managementState: Managed
       kueue:
-        managementState: Managed
+        # OpenShift AI 3.4: Managed rejected by webhook; requires manual Red Hat Kueue Operator (README).
+        managementState: Unmanaged
         defaultClusterQueueName: default
         defaultLocalQueueName: default
       workbenches:
