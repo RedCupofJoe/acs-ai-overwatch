@@ -12,6 +12,7 @@ metadata:
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: {{ .Values.job.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
   template:
     metadata:
       labels:
@@ -20,21 +21,27 @@ spec:
       serviceAccountName: kagenti-platform-install
       restartPolicy: {{ .Values.job.restartPolicy }}
       initContainers:
-        - name: helm
-          image: {{ .Values.job.helmInitImage | quote }}
+        # Install glibc-compatible git/helm into /tools. Alpine binaries copied into ose-cli fail instantly.
+        - name: tools
+          image: {{ .Values.job.toolsInitImage | quote }}
           command:
-            - sh
-            - -c
-            - cp /usr/bin/helm /tools/helm && chmod +x /tools/helm
-          volumeMounts:
-            - name: tools
-              mountPath: /tools
-        - name: git
-          image: {{ .Values.job.gitInitImage | quote }}
-          command:
-            - sh
-            - -c
-            - cp /usr/bin/git /tools/git && chmod +x /tools/git
+            - bash
+            - -ec
+            - |
+              microdnf install -y git tar gzip curl
+              arch="$(uname -m)"
+              case "${arch}" in
+                x86_64|amd64) helm_arch="amd64" ;;
+                aarch64|arm64) helm_arch="arm64" ;;
+                *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;;
+              esac
+              curl -fsSL "https://get.helm.sh/helm-v{{ .Values.job.helmVersion }}-linux-${helm_arch}.tar.gz" \
+                | tar xz -C /tmp
+              mv "/tmp/linux-${helm_arch}/helm" /tools/helm
+              cp /usr/bin/git /tools/git
+              chmod +x /tools/helm /tools/git
+              /tools/git --version
+              /tools/helm version --short
           volumeMounts:
             - name: tools
               mountPath: /tools

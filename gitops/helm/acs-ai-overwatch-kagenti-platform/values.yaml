@@ -17,9 +17,10 @@ job:
   enabled: true
   restartPolicy: OnFailure
   backoffLimit: 3
+  activeDeadlineSeconds: 3600
   image: registry.redhat.io/openshift4/ose-cli:latest
-  helmInitImage: alpine/helm:3.14.4
-  gitInitImage: alpine/git:2.45.2
+  toolsInitImage: registry.redhat.io/ubi9/ubi-minimal:latest
+  helmVersion: "3.14.4"
 
 # Upstream Kagenti repository (cloned by the install Job).
 kagenti:

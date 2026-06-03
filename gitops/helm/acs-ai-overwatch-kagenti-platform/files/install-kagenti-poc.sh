@@ -16,6 +16,11 @@ PHASE5_INTEGRATION="${PHASE5_INTEGRATION:-false}"
 
 export PATH="/tools:${PATH}"
 
+if ! command -v git >/dev/null 2>&1 || ! command -v helm >/dev/null 2>&1; then
+  echo "ERROR: git and helm must be available on PATH (/tools)" >&2
+  exit 1
+fi
+
 if helm status kagenti -n "${KAGENTI_NS}" >/dev/null 2>&1; then
   echo "Helm release kagenti already installed in ${KAGENTI_NS} — skipping"
   exit 0
