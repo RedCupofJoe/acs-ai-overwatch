@@ -89,7 +89,7 @@ export KAGENTI_API_TOKEN="<token>"
 16. [Kagenti Integration](#kagenti-integration)
 17. [ACS / RHACS Security](#acs--rhacs-security)
 18. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-19. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
+19. [PoC Demo Flows](#poc-demo-flows)
 20. [Operational Scripts](#operational-scripts)
 21. [Namespaces and Resource Map](#namespaces-and-resource-map)
 22. [Helm Template Inventory](#helm-template-inventory)
@@ -104,15 +104,17 @@ export KAGENTI_API_TOKEN="<token>"
 This PoC demonstrates how a platform team can:
 
 1. Provision **OpenShift AI** with GPU time-slicing on NVIDIA L4 accelerators
-2. Deploy **two contrasting agent personalities** built on NVIDIA OpenShell:
+2. Deploy **contrasting agent personalities** built on NVIDIA OpenShell:
    - **Helpful Hank** — a standard technical assistant
    - **Rosey Regrets** — a deliberately misaligned agent used only in isolated lab environments
+   - **Sneaky Sam** (opt-in) — telemetry guardrail demo agent (non-compliant deploy)
 3. Enforce **runtime guardrails** with RHACS in the `test-range` namespace
-4. Route policy violations to **Mattermost** (Slack-compatible webhook integration)
-5. Persist Rosey’s reconnaissance output to a named PVC: **`agent-reference-information`**
-6. Build agent images with **Tekton** and push them to **local Quay**
+4. Enforce **telemetry compliance** on Kagenti agents (DEPLOY policy + NetworkPolicy)
+5. Route policy violations to **Mattermost** (Slack-compatible webhook integration)
+6. Persist Rosey’s reconnaissance output to a named PVC: **`agent-reference-information`**
+7. Build agent images with **Tekton** and push them to **local Quay**
 
-The “ACS violation loop” is the core narrative of the demo:
+**Demo B — ACS violation loop** (Rosey / runtime policy):
 
 ```
 Operator triggers "Network Audit" on Rosey
@@ -129,6 +131,8 @@ ACS notifier fires → Mattermost channel
         ▼
 Operator reviews scan artifacts on PVC agent-reference-information
 ```
+
+**Demo A — Telemetry guardrail** (Sneaky Sam): non-compliant agent Deployment triggers DEPLOY policy → Mattermost alert (and admission block when Phase 3 is enabled). See [PoC Demo Flows](#poc-demo-flows).
 
 ---
 
@@ -166,19 +170,26 @@ flowchart TB
   subgraph Agents["Agent Layer (test-range)"]
     Hank["helpful-hank"]
     Rosey["rosey-regrets"]
+    Sam["sneaky-sam<br/>telemetry: disabled"]
     PVC["PVC agent-reference-information"]
     OpenShell["NVIDIA OpenShell base"]
     Hank --> OpenShell
     Rosey --> OpenShell
+    Sam --> OpenShell
     Rosey --> PVC
   end
 
   subgraph Security["Security Layer"]
     ACSOp["RHACS Operator"]
     Policy["Runtime Policy<br/>test-range-runtime-guardrails"]
+    TelPol["Telemetry Policy<br/>test-range-agent-telemetry-required"]
+    NetPol["NetworkPolicy<br/>agent-telemetry-block-noncompliant"]
     SCC["SCC openshell-gpu-runtime"]
     ACSOp --> Policy
+    ACSOp --> TelPol
+    TelPol --> Mattermost
     Policy --> Mattermost
+    NetPol --> Sam
   end
 
   subgraph Notify["Notifications"]
@@ -186,10 +197,11 @@ flowchart TB
   end
 
   subgraph CI["Build / CI"]
-    Tekton["Tekton Pipeline<br/>build-helpful-hank-and-rosey-regrets"]
+    Tekton["Tekton Pipeline<br/>hank + rosey + sneaky-sam"]
     Tekton --> Quay
     Quay --> Hank
     Quay --> Rosey
+    Quay --> Sam
   end
 
   Helm --> Infra
@@ -232,19 +244,24 @@ acs-ai-overwatch/
 │   └── scripts/                       # pull-model, install-agent-runtime, agent-entrypoint
 ├── gitops/
 │   ├── argocd/
-│   │   ├── kustomization.yaml         # Both Argo CD Applications
+│   │   ├── kustomization.yaml         # Baseline Applications; Phase 4/5 commented out
+│   │   ├── application-gitops-bootstrap.yaml
 │   │   ├── application-cluster-discovery.yaml
-│   │   ├── application.yaml           # Main umbrella chart
+│   │   ├── application.yaml           # Main umbrella chart (sync-wave 2)
+│   │   ├── application-kagenti-platform.yaml   # OPT-IN Phase 4 (sync-wave 3)
+│   │   ├── application-observability.yaml      # OPT-IN Phase 5 (sync-wave 4)
 │   │   └── cmp/                       # Optional CMP if Helm lookup fails
 │   └── helm/
 │       ├── acs-ai-overwatch-cluster-discovery/  # Job → cluster ConfigMap
+│       ├── acs-ai-overwatch-kagenti-platform/  # OPT-IN Phase 4
+│       ├── acs-ai-overwatch-observability/     # OPT-IN Phase 5
 │       └── acs-ai-overwatch/
 │           ├── Chart.yaml             # v0.4.0
 │           ├── values.yaml            # Base defaults + clusterDiscovery + toggles
 │           ├── values-poc.yaml        # PoC storage: NVMe paths, local SCs
 │           ├── values-cluster.yaml.example
 │           └── templates/           # 35+ OpenShift / K8s manifests
-├── pipelines/tekton/                  # Build helpful-hank + rosey-regrets → Quay
+├── pipelines/tekton/                  # Build helpful-hank, rosey-regrets, sneaky-sam → Quay
 ├── scripts/
 │   ├── cluster-admin/                 # Run as cluster-admin BEFORE Argo CD (see README there)
 │   │   ├── install-pre-gitops.sh      # All steps
@@ -541,7 +558,7 @@ This adds (when RHACS CRDs exist):
 | Resource | Purpose |
 |----------|---------|
 | `Central` CR (`stackrox`) | RHACS UI/API |
-| Job `acs-platform-bootstrap` | Init bundle, `SecuredCluster`, policy import, Mattermost notifier (best-effort) |
+| Job `acs-platform-bootstrap` | Init bundle, `SecuredCluster`, import **runtime + telemetry** policies, Mattermost notifier upsert (best-effort) |
 
 **Rollback to baseline** (disable full RHACS without removing operator):
 
@@ -576,7 +593,7 @@ To install the **Kagenti platform** (Keycloak, SPIRE, operator, API):
    oc logs -n kagenti-system job/kagenti-platform-install -f
    ```
 
-Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only).
+Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2).
 
 **Rollback:** set `job.enabled: false`, remove the Application from kustomization, delete the Argo app:
 
@@ -671,11 +688,11 @@ Set `observability.agentInstrumentation.enabled: false` in the main chart to sto
 
 ```text
 Phase 0–1 (baseline)     → bootstrap → discovery → main chart  [DEFAULT]
-Phase 2 (agents)       → Tekton + enable components.kagenti / agentsRoseyRegrets
-Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled
+Phase 2 (agents)       → Tekton + components.kagenti + per-agent flags + agentTelemetryPolicy
+Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (imports both ACS policies)
 Phase 4 (Kagenti plat) → application-kagenti-platform + job.enabled
 Phase 5 (observability)→ application-observability + enabled: true (+ agentInstrumentation optional)
-Phase 2 demo trigger   → ./scripts/trigger-network-audit.sh (needs Phases 2–4)
+Phase 2 demos          → Sneaky Sam telemetry guardrail OR trigger-network-audit.sh (needs Phases 2–4)
 ```
 
 ---
@@ -1351,13 +1368,13 @@ acs:
     notifierName: Mattermost Notifier
 ```
 
-You must configure the RHACS notifier separately in the ACS console to POST to the Mattermost incoming webhook URL stored in `mattermost-acs-integration`.
+When **Phase 3 bootstrap** runs (`acs.bootstrap.enabled: true`), Job `acs-platform-bootstrap` **upserts** the `Mattermost Notifier` in RHACS using the webhook URL from ConfigMap `mattermost-acs-integration` (best-effort — verify in the ACS console if alerts do not arrive). For manual installs, configure the notifier in RHACS to POST to that webhook URL.
 
 ---
 
 ## AI Agents
 
-Both agents are container images built from the **NVIDIA OpenShell community sandbox**, extended with a shared **Kagenti A2A server** and **OpenTelemetry SDK** (`agents/common/acs_agent/`):
+Three PoC agent images (Helpful Hank, Rosey Regrets, Sneaky Sam) are built from the **NVIDIA OpenShell community sandbox**, extended with a shared **Kagenti A2A server** and **OpenTelemetry SDK** (`agents/common/acs_agent/`):
 
 ```
 ghcr.io/nvidia/openshell-community/sandboxes/base:latest
@@ -1471,7 +1488,7 @@ For gated models, provide `HF_TOKEN` in the environment.
 | Toggle | Location | What it does |
 |--------|----------|--------------|
 | **Kagenti platform** | `acs-ai-overwatch-kagenti-platform` Application + `job.enabled` | Installs Keycloak, SPIRE, operator, API ([Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default)) |
-| **Agent workloads** | `components.kagenti.enabled` in main chart | Deploys `helpful-hank` / `rosey-regrets` Deployments + AppSource |
+| **Agent workloads** | `components.kagenti` + per-agent flags in main chart | Deploys `helpful-hank`, `rosey-regrets`, and/or `sneaky-sam` + AppSource |
 | **Observability** | `acs-ai-overwatch-observability` Application + `enabled: true` | Shared OTEL → Tempo + MLflow; optional `observability.agentInstrumentation` on agents ([Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default)) |
 
 Kagenti discovers agent workloads via standard Kubernetes Deployments labeled `kagenti.io/type: agent`.
@@ -1496,8 +1513,11 @@ components:
 | Service | `helpful-hank` | `test-range` |
 | Deployment | `rosey-regrets` | `test-range` |
 | Service | `rosey-regrets` | `test-range` |
+| Deployment | `sneaky-sam` (opt-in) | `test-range` |
+| Service | `sneaky-sam` (opt-in) | `test-range` |
 | AppSource | `acs-ai-overwatch-gitops` | `test-range` |
 | PVC | `agent-reference-information` | `test-range` |
+| NetworkPolicy | `agent-telemetry-block-noncompliant` | `test-range` |
 
 ### AppSource
 
@@ -1598,6 +1618,36 @@ oc extract cm/acs-policy-test-range-runtime-guardrails -n test-range --keys=poli
 
 **Notifier:** `Mattermost Notifier` (must exist in RHACS and point to Mattermost webhook)
 
+### Agent telemetry policy (DEPLOY)
+
+Separate policy ConfigMap `acs-policy-agent-telemetry` in `test-range` (rendered when `agentTelemetryPolicy.enabled` and `components.acsPolicies.enabled`).
+
+**Policy name:** `test-range-agent-telemetry-required`  
+**Scope:** namespace `test-range`, workloads labeled `kagenti.io/type=agent`  
+**Lifecycle stage:** DEPLOY only (no runtime scale-to-zero)  
+**Severity:** HIGH  
+**Enforcement (default):** `FAIL_DEPLOYMENT_CREATE_ENFORCEMENT`, `FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT`  
+**Required label:** `acs-ai-overwatch.io/telemetry=enabled`
+
+Import manually:
+
+```bash
+oc extract cm/acs-policy-agent-telemetry -n test-range --keys=policy.yaml --to=- \
+  | roxctl declarative-config create --file -
+```
+
+When Phase 3 bootstrap runs with `acs.bootstrap.importPolicy: true`, this policy is imported **after** the runtime guardrails policy. Violations notify **`Mattermost Notifier`** → Town Square (human-in-the-loop user is a team member).
+
+To alert without blocking admission:
+
+```yaml
+agentTelemetryPolicy:
+  rhacs:
+    enforcementActions: []
+```
+
+**NetworkPolicy fallback:** `agent-telemetry-block-noncompliant` applies even without RHACS Central — non-compliant agent pods get DNS-only egress.
+
 ### OpenShell SecurityContextConstraints
 
 SCC `openshell-gpu-runtime` grants the `openshell` ServiceAccount in `test-range` permissions required for GPU and network tooling workloads:
@@ -1633,14 +1683,15 @@ Location: `pipelines/tekton/agents-build-pipeline.yaml`
 ```
 fetch-repository (git clone)
         │
-        ▼
-build-helpful-hank (buildah bud + push)
+        ├──────────────────────┐
+        ▼                      ▼
+build-helpful-hank      build-sneaky-sam (parallel)
         │
         ▼
-build-rosey-regrets (buildah bud + push)
+build-rosey-regrets
 ```
 
-Builds run **sequentially** because they share a single ReadWriteOnce workspace volume.
+`build-helpful-hank` and `build-rosey-regrets` run **sequentially** (shared RWO workspace). `build-sneaky-sam` runs in **parallel** after clone (separate image tag, same workspace read).
 
 ### Apply Pipeline
 
@@ -1660,7 +1711,7 @@ oc create secret docker-registry quay-build-robot \
   --docker-password=<token>
 ```
 
-Ensure organization `acs-agents` (or your chosen org) exists in Quay with repositories `helpful-hank` and `rosey-regrets`.
+Ensure organization `acs-agents` (or your chosen org) exists in Quay with repositories `helpful-hank`, `rosey-regrets`, and `sneaky-sam`.
 
 ### Run Pipeline
 
@@ -1689,9 +1740,9 @@ The example PipelineRun (`agents-build-pipelinerun.example.yaml`) uses **`storag
 
 ---
 
-## PoC Demo Flow: ACS Violation Loop
+## PoC Demo Flows
 
-This section walks through the intended demonstration end-to-end.
+Two demonstrations: **Demo A** (Sneaky Sam telemetry guardrail) and **Demo B** (Rosey network audit → ACS violation loop).
 
 ### Phase 0 — Prepare configuration
 
@@ -1717,33 +1768,70 @@ git commit -m "PoC storage paths" && git push
    oc get cm mattermost-acs-integration -n monitoring
    ```
 
-5. Configure RHACS Central/SCS if not already present
-6. Import ACS runtime policy from ConfigMap
-7. Configure RHACS notifier `Mattermost Notifier` → Mattermost webhook URL
+5. Enable **Phase 3** RHACS (or confirm Central/SCS already present):
+
+   ```yaml
+   acs:
+     central:
+       enabled: true
+     bootstrap:
+       enabled: true
+       importPolicy: true
+   ```
+
+6. After bootstrap Job completes, verify policies and notifier:
+
+   ```bash
+   oc logs -n stackrox job/acs-platform-bootstrap
+   # RHACS UI → Violation Policy → test-range-runtime-guardrails
+   # RHACS UI → Violation Policy → test-range-agent-telemetry-required
+   ```
+
+   Bootstrap imports **both** policy ConfigMaps and upserts **`Mattermost Notifier`**. If alerts fail, confirm notifier in ACS console points at `mattermost-acs-integration` webhook URL.
 
 ### Phase 2 — Build and Deploy Agents
 
-1. Run Tekton pipeline to push images to Quay
+1. Run Tekton pipeline to push images to Quay (all three agent repos)
 2. Enable component flags:
 
    ```yaml
    components:
      acsPolicies:
        enabled: true
+     agentsHelpfulHank:
+       enabled: true
      agentsRoseyRegrets:
        enabled: true
      kagenti:
        enabled: true
+     agentsSneakySam:
+       enabled: false   # set true for telemetry guardrail demo below
    ```
 
 3. Sync Argo CD
 4. Verify pods in `test-range`:
 
    ```bash
-   oc get pods,svc,pvc -n test-range
+   oc get pods,svc,pvc,networkpolicy -n test-range
    ```
 
-### Phase 3 — Trigger Network Audit
+### Demo A — Telemetry guardrail (Sneaky Sam)
+
+Requires Phase 3 RHACS with admission control (or NetworkPolicy-only isolation without Mattermost alert).
+
+1. Set `components.agentsSneakySam.enabled: true`, commit, sync
+2. **With Phase 3 admission:** Argo CD may report sync failure for `sneaky-sam` Deployment; RHACS posts deploy-time violation to **Mattermost Town Square**
+3. Log in as **`human-in-the-loop`** (password in `mattermost.bootstrap.hitlPassword`) and check Town Square for `test-range-agent-telemetry-required`
+4. **Without admission / if pod still runs:** verify isolation:
+
+   ```bash
+   oc get networkpolicy agent-telemetry-block-noncompliant -n test-range
+   oc rsh -n test-range deploy/sneaky-sam -- curl -sS --max-time 3 http://helpful-hank/ || echo "blocked (expected)"
+   ```
+
+5. Disable Sneaky Sam when done: `agentsSneakySam.enabled: false`
+
+### Demo B — Network audit (Rosey Regrets)
 
 Use the Kagenti API script (base URL from cluster ConfigMap or `values-cluster.yaml`):
 
@@ -1762,8 +1850,6 @@ Expected sequence:
 3. RHACS detects `nmap` process → policy violation
 4. RHACS sends notification to Mattermost
 5. Scan transcripts appear under `/agent-reference-information` on the Rosey pod / PVC
-
-### Phase 4 — Verify Artifacts
 
 Inspect PVC contents:
 
