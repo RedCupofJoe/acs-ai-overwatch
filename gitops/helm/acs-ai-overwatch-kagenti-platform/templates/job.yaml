@@ -28,7 +28,16 @@ spec:
             - bash
             - -ec
             - |
-              microdnf install -y git tar gzip curl
+              # microdnf needs writable cache; OpenShift restricted SCC runs non-root by default.
+              rootfs="/var/tmp/rootfs"
+              cache="/var/tmp/microdnf"
+              mkdir -p "${rootfs}" "${cache}/cache" "${cache}/log" "${cache}/lib"
+              microdnf --installroot "${rootfs}" --releasever 9 \
+                --setopt=cachedir="${cache}/cache" \
+                --setopt=logdir="${cache}/log" \
+                --setopt=persistdir="${cache}/lib" \
+                --setopt=install_weak_deps=0 \
+                --nodocs install -y git tar gzip curl
               arch="$(uname -m)"
               case "${arch}" in
                 x86_64|amd64) helm_arch="amd64" ;;
@@ -36,15 +45,17 @@ spec:
                 *) echo "unsupported architecture: ${arch}" >&2; exit 1 ;;
               esac
               curl -fsSL "https://get.helm.sh/helm-v{{ .Values.job.helmVersion }}-linux-${helm_arch}.tar.gz" \
-                | tar xz -C /tmp
-              mv "/tmp/linux-${helm_arch}/helm" /tools/helm
-              cp /usr/bin/git /tools/git
+                | tar xz -C /var/tmp
+              mv "/var/tmp/linux-${helm_arch}/helm" /tools/helm
+              cp "${rootfs}/usr/bin/git" /tools/git
               chmod +x /tools/helm /tools/git
               /tools/git --version
               /tools/helm version --short
           volumeMounts:
             - name: tools
               mountPath: /tools
+            - name: microdnf-work
+              mountPath: /var/tmp
       containers:
         - name: install
           image: {{ .Values.job.image | quote }}
@@ -88,5 +99,7 @@ spec:
             name: kagenti-platform-install-script
             defaultMode: 0555
         - name: tools
+          emptyDir: {}
+        - name: microdnf-work
           emptyDir: {}
 {{- end }}
