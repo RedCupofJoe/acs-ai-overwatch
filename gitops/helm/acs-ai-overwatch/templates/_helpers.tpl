@@ -328,21 +328,38 @@ if [ -z "${CHANNEL_ID}" ]; then
   exit 1
 fi
 
-curl -sf -X POST "${MM_API}/api/v4/hooks/incoming" \
+HOOK_CODE=$(curl -s -o /tmp/hook.json -w "%{http_code}" -X POST "${MM_API}/api/v4/hooks/incoming" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "{\"channel_id\":\"${CHANNEL_ID}\",\"display_name\":\"ACS Integration\",\"description\":\"Slack-compatible incoming webhook for ACS\",\"username\":\"acs\"}" \
-  -o /tmp/hook.json
+  -d "{\"channel_id\":\"${CHANNEL_ID}\",\"display_name\":\"ACS Integration\",\"description\":\"Slack-compatible incoming webhook for ACS\",\"username\":\"acs\"}")
 
-HOOK_ID="$(json_field id /tmp/hook.json)"
-HOOK_TOKEN="$(json_field token /tmp/hook.json)"
-if [ -z "${HOOK_ID}" ] || [ -z "${HOOK_TOKEN}" ]; then
-  echo "Failed to create incoming webhook:"
+if [ "${HOOK_CODE}" != "201" ] && [ "${HOOK_CODE}" != "200" ]; then
+  echo "Unexpected response creating incoming webhook (HTTP ${HOOK_CODE}):"
   cat /tmp/hook.json
   exit 1
 fi
 
-WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_ID}/${HOOK_TOKEN}"
+HOOK_ID="$(json_field id /tmp/hook.json)"
+HOOK_TOKEN="$(json_field token /tmp/hook.json)"
+if [ -n "${HOOK_ID}" ] && [ -z "${HOOK_TOKEN}" ]; then
+  curl -sf "${MM_API}/api/v4/hooks/incoming/${HOOK_ID}" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -o /tmp/hook_get.json
+  HOOK_TOKEN="$(json_field token /tmp/hook_get.json)"
+fi
+if [ -z "${HOOK_ID}" ]; then
+  echo "Failed to create incoming webhook (missing id):"
+  cat /tmp/hook.json
+  exit 1
+fi
+
+# Mattermost uses a single secret segment in the webhook URL (/hooks/{token}).
+# Some API versions also expose id+token; prefer token when present.
+if [ -n "${HOOK_TOKEN}" ]; then
+  WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_TOKEN}"
+else
+  WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_ID}"
+fi
 
 kubectl -n {{ .Values.mattermost.namespace }} create configmap mattermost-acs-integration \
   --from-literal=ACS_INCOMING_WEBHOOK_URL="${WEBHOOK_URL}" \
