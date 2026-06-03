@@ -88,9 +88,13 @@ mattermost:
   route:
     host: ""
     tls: true
+  # Prepackaged plugins need file storage; disable on PoC until data volume permissions are verified.
+  automaticPrepackagedPlugins: true
   bootstrap:
     enabled: true
     jobImage: docker.io/nicolaka/netshoot:v0.13
+    teamName: acs
+    teamDisplayName: ACS
     adminEmail: mattermost-admin@cluster.local
     adminUsername: mattermost-admin
     adminPassword: redhatpassword123

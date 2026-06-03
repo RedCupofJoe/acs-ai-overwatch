@@ -182,11 +182,13 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD:?}"
 HITL_EMAIL="${HITL_EMAIL:?}"
 HITL_PASSWORD="${HITL_PASSWORD:?}"
 HITL_USER="human-in-the-loop"
+TEAM_NAME="{{ .Values.mattermost.bootstrap.teamName }}"
+TEAM_DISPLAY="{{ .Values.mattermost.bootstrap.teamDisplayName }}"
 
 json_field() {
   local key="$1"
   local file="${2:-/dev/stdin}"
-  grep -o "\"${key}\":\"[^\"]*\"" "${file}" | head -1 | cut -d '"' -f 4
+  jq -r --arg k "${key}" 'if type == "array" then (.[0][$k] // empty) else (.[$k] // empty) end' "${file}" 2>/dev/null | head -1
 }
 
 wait_for_mattermost() {
@@ -210,6 +212,44 @@ api_token() {
   json_field token /tmp/login.json
 }
 
+ensure_team() {
+  local token="$1"
+  local code
+  code="$(curl -s -o /tmp/team_get.json -w "%{http_code}" \
+    "${MM_API}/api/v4/teams/name/${TEAM_NAME}" \
+    -H "Authorization: Bearer ${token}")"
+  if [ "${code}" = "200" ]; then
+    json_field id /tmp/team_get.json
+    return 0
+  fi
+  code="$(curl -s -o /tmp/team_create.json -w "%{http_code}" -X POST "${MM_API}/api/v4/teams" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"${TEAM_NAME}\",\"display_name\":\"${TEAM_DISPLAY}\",\"type\":\"O\"}")"
+  if [ "${code}" != "201" ] && [ "${code}" != "200" ]; then
+    echo "Failed to create team ${TEAM_NAME} (HTTP ${code}):"
+    cat /tmp/team_create.json
+    exit 1
+  fi
+  json_field id /tmp/team_create.json
+}
+
+add_team_member() {
+  local token="$1"
+  local team_id="$2"
+  local user_id="$3"
+  local code
+  code="$(curl -s -o /tmp/team_member.json -w "%{http_code}" -X POST "${MM_API}/api/v4/teams/${team_id}/members" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    -d "{\"team_id\":\"${team_id}\",\"user_id\":\"${user_id}\"}")"
+  if [ "${code}" != "201" ] && [ "${code}" != "400" ]; then
+    echo "Failed to add user ${user_id} to team (HTTP ${code}):"
+    cat /tmp/team_member.json
+    exit 1
+  fi
+}
+
 wait_for_mattermost
 
 HTTP_CODE=$(curl -s -o /tmp/create_admin.json -w "%{http_code}" -X POST "${MM_API}/api/v4/users" \
@@ -229,6 +269,23 @@ if [ -z "${TOKEN}" ] || [ "${TOKEN}" = "null" ]; then
   exit 1
 fi
 
+curl -sf "${MM_API}/api/v4/users/me" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -o /tmp/me.json
+ADMIN_ID="$(json_field id /tmp/me.json)"
+if [ -z "${ADMIN_ID}" ]; then
+  echo "Could not resolve admin user id:"
+  cat /tmp/me.json
+  exit 1
+fi
+
+TEAM_ID="$(ensure_team "${TOKEN}")"
+if [ -z "${TEAM_ID}" ]; then
+  echo "Could not resolve team id for ${TEAM_NAME}."
+  exit 1
+fi
+add_team_member "${TOKEN}" "${TEAM_ID}" "${ADMIN_ID}"
+
 HITL_CODE=$(curl -s -o /tmp/create_hitl.json -w "%{http_code}" -X POST "${MM_API}/api/v4/users" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H "Content-Type: application/json" \
@@ -240,15 +297,12 @@ if [ "${HITL_CODE}" != "201" ] && [ "${HITL_CODE}" != "400" ]; then
   exit 1
 fi
 
-curl -sf "${MM_API}/api/v4/users/me/teams" \
+curl -sf "${MM_API}/api/v4/users/username/${HITL_USER}" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -o /tmp/teams.json
-
-TEAM_ID="$(json_field id /tmp/teams.json)"
-if [ -z "${TEAM_ID}" ]; then
-  echo "Could not resolve team id from /users/me/teams:"
-  cat /tmp/teams.json
-  exit 1
+  -o /tmp/hitl_user.json
+HITL_ID="$(json_field id /tmp/hitl_user.json)"
+if [ -n "${HITL_ID}" ]; then
+  add_team_member "${TOKEN}" "${TEAM_ID}" "${HITL_ID}"
 fi
 
 curl -sf "${MM_API}/api/v4/teams/${TEAM_ID}/channels/name/town-square" \

@@ -44,11 +44,16 @@ spec:
           imagePullPolicy: IfNotPresent
           command:
             - sh
-            - -c
-            - chown -R 2000:2000 /mattermost/data && chmod -R g+rwX /mattermost/data
+            - -ec
+            - |
+              mkdir -p /mattermost/data/files /mattermost/data/plugins
+              chown -R 2000:2000 /mattermost/data
+              chmod -R u+rwX,g+rwX /mattermost/data
+              find /mattermost/data -type d -exec chmod 2775 {} +
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
+            allowPrivilegeEscalation: true
           volumeMounts:
             - name: data
               mountPath: /mattermost/data
@@ -84,6 +89,10 @@ spec:
               value: "true"
             - name: MM_TEAMSETTINGS_ENABLEOPENSERVER
               value: "true"
+            {{- if not .Values.mattermost.automaticPrepackagedPlugins }}
+            - name: MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS
+              value: "false"
+            {{- end }}
           volumeMounts:
             - name: data
               mountPath: /mattermost/data

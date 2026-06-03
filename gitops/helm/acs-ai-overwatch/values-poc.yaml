@@ -16,6 +16,7 @@ quayStorage:
   enabled: false
 
 mattermost:
+  automaticPrepackagedPlugins: false
   pvc:
     # Default on many AWS/OpenShift clusters; change if `oc get storageclass` differs.
     storageClassName: gp3-csi

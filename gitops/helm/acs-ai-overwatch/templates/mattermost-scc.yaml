@@ -18,7 +18,7 @@ metadata:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/name: mattermost
 allowPrivilegedContainer: false
-allowPrivilegeEscalation: false
+allowPrivilegeEscalation: true
 allowHostDirVolumePlugin: false
 allowHostIPC: false
 allowHostNetwork: false
