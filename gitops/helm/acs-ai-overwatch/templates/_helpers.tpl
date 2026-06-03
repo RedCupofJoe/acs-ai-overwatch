@@ -205,10 +205,16 @@ wait_for_mattermost() {
 }
 
 api_token() {
-  curl -sf -X POST "${MM_API}/api/v4/users/login" \
+  curl -sf -D /tmp/login_headers.txt -o /tmp/login.json -X POST "${MM_API}/api/v4/users/login" \
     -H "Content-Type: application/json" \
-    -d "{\"login_id\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
-    -o /tmp/login.json
+    -d "{\"login_id\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASSWORD}\"}"
+  # Mattermost returns the session token in the Token response header (body is the User object).
+  local token
+  token="$(grep -Fi '^Token:' /tmp/login_headers.txt | awk '{print $2}' | tr -d '\r')"
+  if [ -n "${token}" ]; then
+    echo "${token}"
+    return 0
+  fi
   json_field token /tmp/login.json
 }
 
