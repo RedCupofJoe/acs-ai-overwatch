@@ -1,0 +1,46 @@
+{{- if and .Values.mattermost.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mattermost
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    app.kubernetes.io/name: mattermost
+    app.kubernetes.io/component: server
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: mattermost
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mattermost
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+seccompProfiles:
+  - runtime/default
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+users:
+  - system:serviceaccount:{{ .Values.mattermost.namespace }}:mattermost
+{{- end }}

@@ -20,12 +20,17 @@ spec:
         app.kubernetes.io/name: mattermost
         app.kubernetes.io/component: server
     spec:
+      serviceAccountName: mattermost
       securityContext:
         fsGroup: 2000
       containers:
         - name: mattermost
           image: {{ printf "%s:%s" .Values.mattermost.image.repository .Values.mattermost.image.tag }}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 2000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
           ports:
             - name: http
               containerPort: 8065
