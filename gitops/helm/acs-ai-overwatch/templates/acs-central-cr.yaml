@@ -1,0 +1,36 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.central.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+apiVersion: platform.stackrox.io/v1alpha1
+kind: Central
+metadata:
+  name: {{ .Values.acs.central.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  namespace: {{ .Values.acs.central.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-central
+spec:
+  central:
+    exposure:
+      loadBalancer:
+        enabled: false
+      nodePort:
+        enabled: false
+      route:
+        enabled: {{ .Values.acs.central.route.enabled }}
+    persistence:
+      persistentVolumeClaim:
+        claimName: {{ .Values.acs.central.persistence.claimName }}
+        {{- if .Values.acs.central.persistence.storageClassName }}
+        storageClassName: {{ .Values.acs.central.persistence.storageClassName }}
+        {{- end }}
+  egress:
+    connectivityPolicy: {{ .Values.acs.central.egress.connectivityPolicy }}
+  scanner:
+    analyzer:
+      scaling:
+        autoScaling: {{ .Values.acs.central.scanner.autoScaling }}
+        maxReplicas: {{ .Values.acs.central.scanner.maxReplicas }}
+        minReplicas: {{ .Values.acs.central.scanner.minReplicas }}
+        replicas: {{ .Values.acs.central.scanner.replicas }}
+    scannerComponent: {{ .Values.acs.central.scanner.component }}
+{{- end }}

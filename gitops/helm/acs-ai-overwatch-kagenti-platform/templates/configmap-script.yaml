@@ -1,0 +1,13 @@
+{{- if .Values.job.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kagenti-platform-install-script
+  {{- include "kagenti-platform.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMap") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kagenti-platform.labels" . | nindent 4 }}
+data:
+  install-kagenti-poc.sh: |
+{{ .Files.Get "files/install-kagenti-poc.sh" | nindent 4 }}
+{{- end }}

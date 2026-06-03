@@ -1,0 +1,26 @@
+{{- if .Values.job.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kagenti-platform-install
+  {{- include "kagenti-platform.argocdSyncWaveAnnotations" (dict "root" . "wave" "rbac") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kagenti-platform.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kagenti-platform-install
+  {{- include "kagenti-platform.argocdSyncWaveAnnotations" (dict "root" . "wave" "rbac") | nindent 2 }}
+  labels:
+    {{- include "kagenti-platform.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: kagenti-platform-install
+    namespace: {{ .Values.namespace }}
+{{- end }}

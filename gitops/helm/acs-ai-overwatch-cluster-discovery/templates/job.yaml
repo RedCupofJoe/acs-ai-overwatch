@@ -33,6 +33,8 @@ spec:
               value: {{ .Values.configMapName | quote }}
             - name: GIT_REPO_URL_DEFAULT
               value: {{ .Values.job.gitRepoUrlDefault | quote }}
+            - name: MATTERMOST_NAMESPACE
+              value: {{ .Values.mattermostNamespace | quote }}
           volumeMounts:
             - name: scripts
               mountPath: /scripts

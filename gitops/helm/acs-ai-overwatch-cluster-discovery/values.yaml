@@ -11,6 +11,8 @@ argocd:
 
 namespace: acs-ai-overwatch-system
 configMapName: acs-ai-overwatch-cluster-config
+# Namespace where Mattermost is deployed (used to compute external Route URL at discovery time).
+mattermostNamespace: monitoring
 
 job:
   enabled: true

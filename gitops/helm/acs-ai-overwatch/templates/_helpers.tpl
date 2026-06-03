@@ -102,6 +102,14 @@ annotations:
 {{- define "acs-ai-overwatch.mattermostRouteHost" -}}
 {{- if .Values.mattermost.route.host -}}
 {{- .Values.mattermost.route.host -}}
+{{- else if .Values.clusterDiscovery.enabled -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.mattermostRouteHost -}}
+{{- $cm.data.mattermostRouteHost -}}
+{{- else -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- printf "mattermost-%s.%s" .Values.mattermost.namespace $domain -}}
+{{- end -}}
 {{- else -}}
 {{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
 {{- printf "mattermost-%s.%s" .Values.mattermost.namespace $domain -}}
@@ -116,6 +124,13 @@ annotations:
 {{- define "acs-ai-overwatch.mattermostSiteUrl" -}}
 {{- if .Values.mattermost.siteUrl -}}
 {{- .Values.mattermost.siteUrl -}}
+{{- else if .Values.clusterDiscovery.enabled -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.mattermostSiteUrl -}}
+{{- $cm.data.mattermostSiteUrl -}}
+{{- else -}}
+{{- printf "https://%s" (include "acs-ai-overwatch.mattermostRouteHost" .) -}}
+{{- end -}}
 {{- else -}}
 {{- printf "https://%s" (include "acs-ai-overwatch.mattermostRouteHost" .) -}}
 {{- end -}}
@@ -334,38 +349,157 @@ HOOK_CODE=$(curl -s -o /tmp/hook.json -w "%{http_code}" -X POST "${MM_API}/api/v
   -d "{\"channel_id\":\"${CHANNEL_ID}\",\"display_name\":\"ACS Integration\",\"description\":\"Slack-compatible incoming webhook for ACS\",\"username\":\"acs\"}")
 
 if [ "${HOOK_CODE}" != "201" ] && [ "${HOOK_CODE}" != "200" ]; then
-  echo "Unexpected response creating incoming webhook (HTTP ${HOOK_CODE}):"
-  cat /tmp/hook.json
-  exit 1
+  echo "Create webhook returned HTTP ${HOOK_CODE}; looking for existing ACS Integration hook..."
+  curl -sf "${MM_API}/api/v4/teams/${TEAM_ID}/hooks/incoming" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -o /tmp/hook_list.json
+  HOOK_ID="$(jq -r '.[] | select(.display_name=="ACS Integration") | .id' /tmp/hook_list.json 2>/dev/null | head -1)"
+  if [ -z "${HOOK_ID}" ] || [ "${HOOK_ID}" = "null" ]; then
+    echo "Unexpected response creating incoming webhook (HTTP ${HOOK_CODE}):"
+    cat /tmp/hook.json
+    exit 1
+  fi
+  echo "{\"id\":\"${HOOK_ID}\"}" > /tmp/hook.json
 fi
 
 HOOK_ID="$(json_field id /tmp/hook.json)"
 HOOK_TOKEN="$(json_field token /tmp/hook.json)"
 if [ -n "${HOOK_ID}" ] && [ -z "${HOOK_TOKEN}" ]; then
-  curl -sf "${MM_API}/api/v4/hooks/incoming/${HOOK_ID}" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -o /tmp/hook_get.json
-  HOOK_TOKEN="$(json_field token /tmp/hook_get.json)"
+  HOOK_GET_CODE=$(curl -s -o /tmp/hook_get.json -w "%{http_code}" \
+    "${MM_API}/api/v4/hooks/incoming/${HOOK_ID}" \
+    -H "Authorization: Bearer ${TOKEN}")
+  if [ "${HOOK_GET_CODE}" = "200" ]; then
+    HOOK_TOKEN="$(json_field token /tmp/hook_get.json)"
+  fi
 fi
 if [ -z "${HOOK_ID}" ]; then
-  echo "Failed to create incoming webhook (missing id):"
+  echo "Failed to resolve incoming webhook id:"
   cat /tmp/hook.json
   exit 1
 fi
 
 # Mattermost uses a single secret segment in the webhook URL (/hooks/{token}).
-# Some API versions also expose id+token; prefer token when present.
 if [ -n "${HOOK_TOKEN}" ]; then
   WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_TOKEN}"
 else
   WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_ID}"
 fi
 
-kubectl -n {{ .Values.mattermost.namespace }} create configmap mattermost-acs-integration \
+if ! kubectl -n {{ .Values.mattermost.namespace }} create configmap mattermost-acs-integration \
   --from-literal=ACS_INCOMING_WEBHOOK_URL="${WEBHOOK_URL}" \
   --from-literal=NOTE="Slack-compatible POST target for ACS; Content-Type application/json." \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | kubectl apply -f -; then
+  echo "Failed to write ConfigMap mattermost-acs-integration (check bootstrap ServiceAccount RBAC and kubectl in-cluster auth)."
+  exit 1
+fi
 
 echo "Stored ACS_INCOMING_WEBHOOK_URL in ConfigMap mattermost-acs-integration."
 echo "${WEBHOOK_URL}"
+{{- end }}
+
+{{- define "acs-ai-overwatch.acsBootstrapScript" -}}
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACS_NS="{{ .Values.acs.central.namespace }}"
+CENTRAL_NAME="{{ .Values.acs.central.name }}"
+SC_NAME="{{ .Values.acs.securedCluster.name }}"
+CLUSTER_NAME="{{ .Values.acs.securedCluster.clusterName }}"
+CENTRAL_ENDPOINT="{{ .Values.acs.securedCluster.centralEndpoint }}"
+POLICY_CM="{{ .Values.acs.policy.configMapName }}"
+POLICY_NS="{{ .Values.acs.testRange.namespace }}"
+IMPORT_POLICY="{{ .Values.acs.bootstrap.importPolicy }}"
+NOTIFIER_NAME="{{ .Values.acs.policy.notifierName }}"
+MATTERMOST_CM="{{ .Values.acs.bootstrap.mattermostIntegrationConfigMap }}"
+MATTERMOST_NS="{{ .Values.mattermost.namespace }}"
+
+wait_for() {
+  local tries=0
+  until "$@"; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 120 ]; then
+      echo "Timed out waiting for: $*"
+      exit 1
+    fi
+    sleep 10
+  done
+}
+
+echo "Waiting for Central deployment..."
+wait_for oc get deployment central -n "${ACS_NS}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '^1$'
+
+echo "Waiting for Central admin credentials..."
+wait_for oc get secret central-htpasswd -n "${ACS_NS}"
+
+ADMIN_PASSWORD="$(oc get secret central-htpasswd -n "${ACS_NS}" -o jsonpath='{.data.password}' | base64 -d)"
+
+if ! oc get secret sensor-tls -n "${ACS_NS}" >/dev/null 2>&1; then
+  echo "Generating SecuredCluster init bundle..."
+  roxctl central init-bundles generate "${CLUSTER_NAME}" \
+    -e "${CENTRAL_ENDPOINT}" \
+    -p "${ADMIN_PASSWORD}" \
+    --insecure-skip-tls-verify \
+    --output-secrets > /tmp/acs-init-bundle.yaml
+  oc apply -f /tmp/acs-init-bundle.yaml
+else
+  echo "Init bundle secrets already present — skipping generation"
+fi
+
+if ! oc get securedcluster "${SC_NAME}" -n "${ACS_NS}" >/dev/null 2>&1; then
+  echo "Creating SecuredCluster ${SC_NAME}..."
+  cat <<EOF | oc apply -f -
+apiVersion: platform.stackrox.io/v1alpha1
+kind: SecuredCluster
+metadata:
+  name: ${SC_NAME}
+  namespace: ${ACS_NS}
+spec:
+  clusterName: ${CLUSTER_NAME}
+  centralEndpoint: ${CENTRAL_ENDPOINT}
+  auditLogs:
+    collection: Auto
+  admissionControl:
+    listenOnCreates: true
+    listenOnEvents: true
+    listenOnUpdates: true
+  perNode:
+    collector:
+      collection: CORE_BPF
+    taintToleration: TolerateTaints
+  sensor:
+    tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/infra
+        operator: Exists
+EOF
+else
+  echo "SecuredCluster ${SC_NAME} already exists — skipping"
+fi
+
+echo "Waiting for sensor deployment..."
+wait_for oc get deployment sensor -n "${ACS_NS}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '^1$'
+
+if [ "${IMPORT_POLICY}" = "true" ]; then
+  echo "Importing runtime policy from ConfigMap ${POLICY_NS}/${POLICY_CM}..."
+  oc extract "configmap/${POLICY_CM}" -n "${POLICY_NS}" --keys=policy.yaml --to=- \
+    | roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
+      declarative-config create --file -
+fi
+
+if oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" >/dev/null 2>&1; then
+  WEBHOOK_URL="$(oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" -o jsonpath='{.data.ACS_INCOMING_WEBHOOK_URL}')"
+  if [ -n "${WEBHOOK_URL}" ]; then
+    echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> Mattermost webhook..."
+    roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
+      central notifiers upsert mattermost \
+      --name "${NOTIFIER_NAME}" \
+      --mattermost-url "${WEBHOOK_URL}" \
+      --mattermost-channel "town-square" || \
+      echo "WARN: notifier upsert failed (verify roxctl version supports mattermost notifiers)"
+  fi
+else
+  echo "ConfigMap ${MATTERMOST_NS}/${MATTERMOST_CM} not found — skipping Mattermost notifier setup"
+fi
+
+echo "ACS bootstrap complete."
 {{- end }}

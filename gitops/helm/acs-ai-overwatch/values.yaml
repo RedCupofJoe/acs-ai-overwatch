@@ -21,6 +21,8 @@ platformResources:
     clusterPolicy: clusterpolicies.nvidia.com
     localVolume: localvolumes.local.storage.openshift.io
     quayRegistry: quayregistries.quay.redhat.com
+    central: centrals.platform.stackrox.io
+    securedCluster: securedclusters.platform.stackrox.io
 
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
@@ -82,7 +84,9 @@ mattermost:
   pvc:
     storageClassName: quay-local-xfs
     size: 10Gi
-  # siteUrl and route.host are derived from cluster.appsDomain when left empty.
+  # External browser URL and Route host are discovered at runtime into ConfigMap
+  # acs-ai-overwatch-cluster-config (mattermostSiteUrl / mattermostRouteHost).
+  # Leave empty to use discovered values; set only to override manually.
   siteUrl: ""
   internalUrl: http://mattermost.monitoring.svc.cluster.local:8065
   route:
@@ -404,7 +408,40 @@ acs:
       source: redhat-operators
       sourceNamespace: openshift-marketplace
       installPlanApproval: Automatic
+  # OPT-IN: Full RHACS Central + SecuredCluster + bootstrap Job (init bundle, policy import,
+  # Mattermost notifier). Default false so the baseline PoC (operator + policy ConfigMap only)
+  # keeps working even if Central/SCS install fails. See README "Phase 3 — Full RHACS".
+  central:
+    enabled: false
+    namespace: stackrox
+    name: stackrox-central-services
+    route:
+      enabled: true
+    persistence:
+      claimName: stackrox-db
+      storageClassName: ""
+    egress:
+      connectivityPolicy: Online
+    scanner:
+      autoScaling: Enabled
+      maxReplicas: 5
+      minReplicas: 2
+      replicas: 3
+      component: Enabled
+  securedCluster:
+    name: stackrox-secured-cluster-services
+    clusterName: local-cluster
+    centralEndpoint: central.stackrox.svc:443
+  bootstrap:
+    enabled: false
+    importPolicy: true
+    mattermostIntegrationConfigMap: mattermost-acs-integration
+    job:
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      roxctlImage: registry.redhat.io/advanced-cluster-security/roxctl-rhel8:4.10.3
+      backoffLimit: 6
   policy:
+    configMapName: acs-policy-test-range-runtime-guardrails
     name: test-range-runtime-guardrails
     notifierName: Mattermost Notifier
     severity: HIGH_SEVERITY

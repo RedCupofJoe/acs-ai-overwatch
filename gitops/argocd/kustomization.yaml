@@ -6,4 +6,6 @@ resources:
   - appproject-acs-ai-overwatch.yaml
   - application-gitops-bootstrap.yaml
   - application-cluster-discovery.yaml
+  # OPT-IN — Phase 4 Kagenti platform (not part of baseline PoC sync):
+  # - application-kagenti-platform.yaml
   - application.yaml

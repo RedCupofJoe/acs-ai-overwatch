@@ -1,0 +1,31 @@
+# Installs Kagenti platform (SPIRE, Keycloak, operator, API) before agent Deployments in acs-ai-overwatch.
+# Sync this Application after cluster-discovery and before (or in parallel with) acs-ai-overwatch.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acs-ai-overwatch-kagenti-platform
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: acs-ai-overwatch
+  source:
+    repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    targetRevision: main
+    path: gitops/helm/acs-ai-overwatch-kagenti-platform
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kagenti-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

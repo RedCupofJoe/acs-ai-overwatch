@@ -1,0 +1,58 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.bootstrap.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: acs-platform-bootstrap
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  namespace: {{ .Values.acs.central.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-bootstrap
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.acs.bootstrap.job.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
+        app.kubernetes.io/component: acs-bootstrap
+    spec:
+      serviceAccountName: acs-bootstrap
+      restartPolicy: OnFailure
+      initContainers:
+        - name: roxctl
+          image: {{ .Values.acs.bootstrap.job.roxctlImage | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              cp /usr/local/bin/roxctl /tools/roxctl 2>/dev/null || cp /usr/bin/roxctl /tools/roxctl
+              chmod +x /tools/roxctl
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: bootstrap
+          image: {{ .Values.acs.bootstrap.job.image | quote }}
+          env:
+            - name: PATH
+              value: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          command:
+            - /bin/bash
+            - /scripts/bootstrap.sh
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tools
+              mountPath: /usr/local/bin
+      volumes:
+        - name: scripts
+          configMap:
+            name: acs-bootstrap-script
+            defaultMode: 0555
+        - name: tools
+          emptyDir: {}
+{{- end }}

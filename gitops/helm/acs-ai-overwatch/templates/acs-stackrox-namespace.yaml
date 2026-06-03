@@ -1,0 +1,12 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.central.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+{{- if include "acs-ai-overwatch.createNamespaces" . }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.acs.central.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+{{- end }}
+{{- end }}

@@ -26,3 +26,5 @@ namespaces:
   - redhat-ods-applications
   - test-range
   - rhacs-operator
+  - stackrox
+  - kagenti-system

@@ -1,0 +1,33 @@
+global:
+  partOf: acs-ai-overwatch
+
+argocd:
+  syncWaves:
+    enabled: true
+    rbac: "0"
+    configMap: "1"
+    job: "2"
+
+namespace: kagenti-system
+
+job:
+  # OPT-IN: set true and register gitops/argocd/application-kagenti-platform.yaml — see README "Phase 4 — Kagenti platform".
+  enabled: false
+  restartPolicy: OnFailure
+  backoffLimit: 3
+  image: registry.redhat.io/openshift4/ose-cli:latest
+  helmInitImage: alpine/helm:3.14.4
+  gitInitImage: alpine/git:2.45.2
+
+# Upstream Kagenti repository (cloned by the install Job).
+kagenti:
+  gitUrl: https://github.com/kagenti/kagenti.git
+  gitRef: main
+  keycloakNamespace: keycloak
+  keycloakRealm: kagenti
+  # Namespaces where agent Deployments run (must include test-range for this PoC).
+  agentNamespaces:
+    - test-range
+  skipMlflow: true
+  skipOvnPatch: true
+  skipUi: false

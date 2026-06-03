@@ -1,0 +1,28 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.bootstrap.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: acs-bootstrap
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.acs.central.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-bootstrap
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-acs-bootstrap
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: acs-bootstrap
+    namespace: {{ .Values.acs.central.namespace }}
+{{- end }}

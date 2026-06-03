@@ -54,7 +54,9 @@ openshift_discover_apply_configmap \
   "${QUAY_REGISTRY_SERVER}" \
   "${KAGENTI_API_BASE_URL}" \
   "${GIT_REPO_URL}" \
-  "${API_SERVER}"
+  "${API_SERVER}" \
+  "${MATTERMOST_ROUTE_HOST}" \
+  "${MATTERMOST_SITE_URL}"
 
 cluster_admin_info "Done:"
-"${KUBE_CMD[@]}" get configmap -n "${NAMESPACE}" "${CONFIGMAP_NAME}" -o yaml | grep -E '^  (appsDomain|clusterName|quayRegistryServer|kagentiApiBaseUrl|gitRepoUrl):'
+"${KUBE_CMD[@]}" get configmap -n "${NAMESPACE}" "${CONFIGMAP_NAME}" -o yaml | grep -E '^  (appsDomain|clusterName|mattermostRouteHost|mattermostSiteUrl|quayRegistryServer|kagentiApiBaseUrl|gitRepoUrl):'

@@ -75,3 +75,35 @@ subjects:
   - kind: ServiceAccount
     name: cluster-discovery
     namespace: {{ .Values.namespace }}
+---
+# Lets Argo CD repo-server (helm serverDryRun / lookup) read discovered cluster URLs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-read-cluster-config
+  {{- include "cluster-discovery.argocdSyncWaveAnnotations" (dict "root" . "wave" "rbac") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cluster-discovery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .Values.configMapName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-read-cluster-config
+  {{- include "cluster-discovery.argocdSyncWaveAnnotations" (dict "root" . "wave" "rbac") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "cluster-discovery.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-read-cluster-config
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-repo-server
+    namespace: openshift-gitops

@@ -1,0 +1,81 @@
+{{- if .Values.job.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kagenti-platform-install
+  {{- include "kagenti-platform.argocdSyncWaveAnnotations" (dict "root" . "wave" "job") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "kagenti-platform.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "kagenti-platform.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: kagenti-platform-install
+      restartPolicy: {{ .Values.job.restartPolicy }}
+      initContainers:
+        - name: helm
+          image: {{ .Values.job.helmInitImage | quote }}
+          command:
+            - sh
+            - -c
+            - cp /usr/bin/helm /tools/helm && chmod +x /tools/helm
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+        - name: git
+          image: {{ .Values.job.gitInitImage | quote }}
+          command:
+            - sh
+            - -c
+            - cp /usr/bin/git /tools/git && chmod +x /tools/git
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: install
+          image: {{ .Values.job.image | quote }}
+          env:
+            - name: PATH
+              value: /tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: KAGENTI_GIT_URL
+              value: {{ .Values.kagenti.gitUrl | quote }}
+            - name: KAGENTI_GIT_REF
+              value: {{ .Values.kagenti.gitRef | quote }}
+            - name: KAGENTI_NS
+              value: {{ .Values.namespace | quote }}
+            - name: KEYCLOAK_NAMESPACE
+              value: {{ .Values.kagenti.keycloakNamespace | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.kagenti.keycloakRealm | quote }}
+            - name: SKIP_MLFLOW
+              value: {{ .Values.kagenti.skipMlflow | quote }}
+            - name: SKIP_OVN_PATCH
+              value: {{ .Values.kagenti.skipOvnPatch | quote }}
+            - name: SKIP_UI
+              value: {{ .Values.kagenti.skipUi | quote }}
+            - name: AGENT_NAMESPACES
+              value: {{ join "," .Values.kagenti.agentNamespaces | quote }}
+          command:
+            - /bin/bash
+            - /scripts/install-kagenti-poc.sh
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tools
+              mountPath: /tools
+      volumes:
+        - name: scripts
+          configMap:
+            name: kagenti-platform-install-script
+            defaultMode: 0555
+        - name: tools
+          emptyDir: {}
+{{- end }}

@@ -22,10 +22,10 @@ spec:
       valueFiles:
         - values.yaml
         - values-poc.yaml
-        # Optional local override (make cluster-values). GitOps uses in-cluster ConfigMap from
-        # Application acs-ai-overwatch-cluster-discovery when cluster.appsDomain is empty.
-        - values-cluster.yaml
-      ignoreMissingValueFiles: true
+      # Mattermost URL and cluster.appsDomain come from in-cluster ConfigMap
+      # acs-ai-overwatch-cluster-config (written by acs-ai-overwatch-cluster-discovery).
+      # serverDryRun lets Helm lookup read that ConfigMap at render time.
+      serverDryRun: true
   destination:
     server: https://kubernetes.default.svc
     namespace: default

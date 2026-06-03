@@ -1,7 +1,10 @@
-# Copy to values-cluster.yaml or run: ../../scripts/discover-cluster-values.sh
+# Optional local override — run: ../../scripts/discover-cluster-values.sh
 #
-# This file is merged after values.yaml by Argo CD. It should contain cluster-specific
-# non-secret settings discovered from `oc login`.
+# GitOps does NOT need this file in Git. The in-cluster discovery Job writes
+# acs-ai-overwatch-system/acs-ai-overwatch-cluster-config, including:
+#   mattermostSiteUrl, mattermostRouteHost (external browser URL)
+#
+# Use this file only for local `helm template` / debugging with `oc login`.
 
 cluster:
   name: my-openshift-cluster

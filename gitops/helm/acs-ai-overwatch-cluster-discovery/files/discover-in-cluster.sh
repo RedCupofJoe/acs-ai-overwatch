@@ -18,6 +18,8 @@ openshift_discover_apply_configmap \
   "${QUAY_REGISTRY_SERVER}" \
   "${KAGENTI_API_BASE_URL}" \
   "${GIT_REPO_URL}" \
-  "${API_SERVER}"
+  "${API_SERVER}" \
+  "${MATTERMOST_ROUTE_HOST}" \
+  "${MATTERMOST_SITE_URL}"
 
 echo "Updated ConfigMap ${DISCOVERY_NAMESPACE}/${DISCOVERY_CONFIGMAP}"

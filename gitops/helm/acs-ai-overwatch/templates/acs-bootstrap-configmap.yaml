@@ -1,0 +1,14 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.bootstrap.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acs-bootstrap-script
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
+  namespace: {{ .Values.acs.central.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-bootstrap
+data:
+  bootstrap.sh: |
+{{ include "acs-ai-overwatch.acsBootstrapScript" . | nindent 4 }}
+{{- end }}

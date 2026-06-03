@@ -33,6 +33,14 @@ components:
   agentsHelpfulHank:
     enabled: false
 
+acs:
+  central:
+    enabled: false
+    persistence:
+      storageClassName: gp3-csi
+  bootstrap:
+    enabled: false
+
 # PoC does not schedule RHOAI workbench workloads — skip Kueue operator prerequisite.
 rhoai:
   datascienceCluster:
@@ -51,8 +59,8 @@ rhoai:
 #         volumeMode: Filesystem
 #         fsType: xfs
 #         devicePaths:
-#           - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
+#           - /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0ce53a7bbd0e9cedb
 #       - storageClassName: quay-local-block
 #         volumeMode: Block
 #         devicePaths:
-#           - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
+#           - /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0ce53a7bbd0e9cedb_1

@@ -13,8 +13,15 @@
 The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using:
 
 1. **`acs-ai-overwatch-gitops-bootstrap`** — namespaces with `argocd.argoproj.io/managed-by` so Argo CD can create ServiceAccounts
-2. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap (no `values-cluster.yaml` in Git required)
+2. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap (including **Mattermost external URL**)
 3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
+
+**Optional (opt-in, disabled by default):**
+
+4. **`acs-ai-overwatch-kagenti-platform`** — installs the Kagenti control plane (Keycloak, SPIRE, operator, API). **Not** registered in `gitops/argocd/kustomization.yaml` until you enable Phase 4.
+5. **Full RHACS Central + SecuredCluster** — templates and bootstrap Job in the main chart, gated by `acs.central.enabled` / `acs.bootstrap.enabled` (**both `false` by default**).
+
+See **[PoC deployment phases](#poc-deployment-phases)** for the recommended order and how to stay on the **baseline** (Mattermost + operators) if optional features fail.
 
 ### Quick Start
 
@@ -35,14 +42,17 @@ oc apply -k gitops/argocd/
 
 # 4. Sync Applications (waves 0→1→2) or wait for automated sync
 #    acs-ai-overwatch-gitops-bootstrap → cluster-discovery → acs-ai-overwatch
+#    (Phases 3–4 are opt-in — see "PoC deployment phases" below)
 
 # 5. Confirm cluster ConfigMap (from step 1 or discovery Job)
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+# Should include mattermostSiteUrl / mattermostRouteHost for your current sandbox domain
 
-# 6. Enable PoC components in values.yaml, commit/push, sync
-#    components.acsPolicies, agentsRoseyRegrets, kagenti → enabled: true
+# 6. Open Mattermost in browser (external URL from ConfigMap, not values-cluster.yaml):
+#    oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config \
+#      -o jsonpath='{.data.mattermostSiteUrl}{"\n"}'
 
-# 7. Build agent images (after Quay is up AND OpenShift Pipelines is installed — see Prerequisites)
+# 7. Later — enable agents / full RHACS / Kagenti (Phases 2–4 below)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
@@ -64,26 +74,27 @@ export KAGENTI_API_TOKEN="<token>"
 2. [Architecture](#architecture)
 3. [Repository Layout](#repository-layout)
 4. [Prerequisites](#prerequisites)
-5. [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup)
-6. [Fresh cluster deployment (OpenShift AI 3.4)](#fresh-cluster-deployment-rhoai-34)
-7. [Helm Values File Layering](#helm-values-file-layering)
-8. [Cluster-Aware Configuration](#cluster-aware-configuration)
-9. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
-10. [Configuration Checklist](#configuration-checklist)
-11. [Deployment Methods](#deployment-methods)
-12. [Helm Chart Reference](#helm-chart-reference)
-13. [Platform Components](#platform-components)
-14. [AI Agents](#ai-agents)
-15. [Kagenti Integration](#kagenti-integration)
-16. [ACS / RHACS Security](#acs--rhacs-security)
-17. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-18. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
-19. [Operational Scripts](#operational-scripts)
-20. [Namespaces and Resource Map](#namespaces-and-resource-map)
-21. [Helm Template Inventory](#helm-template-inventory)
-22. [Troubleshooting](#troubleshooting)
-23. [Security and Legal Notes](#security-and-legal-notes)
-23. [Development and Validation](#development-and-validation)
+5. [PoC deployment phases](#poc-deployment-phases)
+6. [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup)
+7. [Fresh cluster deployment (OpenShift AI 3.4)](#fresh-cluster-deployment-rhoai-34)
+8. [Helm Values File Layering](#helm-values-file-layering)
+9. [Cluster-Aware Configuration](#cluster-aware-configuration)
+10. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
+11. [Configuration Checklist](#configuration-checklist)
+12. [Deployment Methods](#deployment-methods)
+13. [Helm Chart Reference](#helm-chart-reference)
+14. [Platform Components](#platform-components)
+15. [AI Agents](#ai-agents)
+16. [Kagenti Integration](#kagenti-integration)
+17. [ACS / RHACS Security](#acs--rhacs-security)
+18. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
+19. [PoC Demo Flow: ACS Violation Loop](#poc-demo-flow-acs-violation-loop)
+20. [Operational Scripts](#operational-scripts)
+21. [Namespaces and Resource Map](#namespaces-and-resource-map)
+22. [Helm Template Inventory](#helm-template-inventory)
+23. [Troubleshooting](#troubleshooting)
+24. [Security and Legal Notes](#security-and-legal-notes)
+25. [Development and Validation](#development-and-validation)
 
 ---
 
@@ -271,7 +282,7 @@ acs-ai-overwatch/
 | **Git remote** | Source of truth for Argo CD and Tekton clone |
 | **Hugging Face Hub** | Model `HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive` |
 | **ghcr.io/nvidia/openshell-community** | OpenShell sandbox base image pull |
-| **Kagenti** | Agent orchestration platform (installed separately on cluster) |
+| **Kagenti** | Agent orchestration platform — optional [Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default) GitOps Application, or manual `setup-kagenti.sh` |
 
 ### Access Requirements
 
@@ -419,6 +430,147 @@ oc get csv -n openshift-kueue-operator -w
 ```
 
 See [OpenShift AI 3.4 — Kueue](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) and [Red Hat build of Kueue on OCP](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/ai_workloads/red-hat-build-of-kueue).
+
+---
+
+## PoC deployment phases
+
+This repo is intentionally **layered**. The **baseline** (Phases 0–1) is what you need for Mattermost, cluster discovery, and platform operators. **Phases 2–4** add agents, full RHACS, and Kagenti — each is **opt-in** so a failure there does not block the baseline.
+
+### What “baseline working” means
+
+| Check | Command |
+|-------|---------|
+| Argo apps Synced | `oc get application -n openshift-gitops \| grep acs-ai-overwatch` |
+| Cluster ConfigMap | `oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config` |
+| Mattermost pod | `oc get pods -n monitoring -l app.kubernetes.io/name=mattermost` |
+| Mattermost URL (browser) | `oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.mattermostSiteUrl}{"\n"}'` |
+| RHACS operator only (no Central yet) | `oc get csv -n rhacs-operator` |
+
+Login: `mattermost-admin` / password from `values.yaml` → `mattermost.bootstrap.adminPassword`.
+
+### Phase 0 — GitOps bootstrap (default)
+
+**Argo Applications** (from `gitops/argocd/kustomization.yaml`):
+
+| Wave | Application | Delivers |
+|------|-------------|----------|
+| 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels |
+| 1 | `acs-ai-overwatch-cluster-discovery` | ConfigMap `acs-ai-overwatch-cluster-config` |
+| 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, policy **ConfigMap**, etc. |
+
+```bash
+oc apply -k gitops/argocd/
+```
+
+**Not** applied by default: `application-kagenti-platform.yaml` (commented out in kustomization).
+
+### Phase 1 — Mattermost external URL (automatic)
+
+Do **not** commit `values-cluster.yaml` with a sandbox hostname — it goes stale when the cluster is recreated.
+
+1. Discovery Job reads `ingresses.config/cluster` and writes to ConfigMap:
+   - `mattermostSiteUrl` — open this in your **browser**
+   - `mattermostRouteHost` — Route hostname
+   - `appsDomain`, `quayRegistryServer`, `kagentiApiBaseUrl`, …
+2. Main chart uses Helm `lookup` + `helm.serverDryRun: true` (see `gitops/argocd/application.yaml`) to read that ConfigMap at render time.
+3. After a **new sandbox**, re-sync discovery, then refresh the main app:
+
+```bash
+oc get job -n acs-ai-overwatch-system cluster-discovery
+oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite
+```
+
+**Webhook vs browser URL:** RHACS/agents use the **internal** webhook URL in `monitoring/mattermost-acs-integration`. Humans use **`mattermostSiteUrl`** from the ConfigMap.
+
+### Phase 2 — Agents (opt-in)
+
+Requires Quay (or another registry), Tekton pipeline, and enabling component flags in `values-poc.yaml`:
+
+```yaml
+components:
+  kagenti:
+    enabled: true      # agent Deployments only — not the Kagenti platform
+  agentsRoseyRegrets:
+    enabled: true
+```
+
+See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](#ai-agents).
+
+### Phase 3 — Full RHACS Central + SecuredCluster (opt-in, **off by default**)
+
+**Baseline:** `components.acsPolicies.enabled: true` installs the RHACS **operator**, `test-range` namespace, runtime policy **ConfigMap**, and OpenShell SCC — **not** Central or sensors.
+
+**Full stack (opt-in):** set in `values.yaml` or `values-poc.yaml`:
+
+```yaml
+acs:
+  central:
+    enabled: true
+    persistence:
+      storageClassName: gp3-csi   # PoC overlay example
+  bootstrap:
+    enabled: true
+    importPolicy: true
+```
+
+This adds (when RHACS CRDs exist):
+
+| Resource | Purpose |
+|----------|---------|
+| `Central` CR (`stackrox`) | RHACS UI/API |
+| Job `acs-platform-bootstrap` | Init bundle, `SecuredCluster`, policy import, Mattermost notifier (best-effort) |
+
+**Rollback to baseline** (disable full RHACS without removing operator):
+
+```yaml
+acs:
+  central:
+    enabled: false
+  bootstrap:
+    enabled: false
+```
+
+Commit, push, sync. Existing Central resources may need manual cleanup in `stackrox` if you previously enabled Phase 3.
+
+### Phase 4 — Kagenti platform (opt-in, **off by default**)
+
+The main chart’s `components.kagenti` flag deploys **agent Deployments** labeled for Kagenti. It does **not** install Kagenti itself.
+
+To install the **Kagenti platform** (Keycloak, SPIRE, operator, API):
+
+1. Uncomment in `gitops/argocd/kustomization.yaml`:
+   ```yaml
+   - application-kagenti-platform.yaml
+   ```
+2. Enable the install Job in `gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml`:
+   ```yaml
+   job:
+     enabled: true
+   ```
+3. Commit, push, apply:
+   ```bash
+   oc apply -k gitops/argocd/
+   oc logs -n kagenti-system job/kagenti-platform-install -f
+   ```
+
+Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only).
+
+**Rollback:** set `job.enabled: false`, remove the Application from kustomization, delete the Argo app:
+
+```bash
+oc delete application acs-ai-overwatch-kagenti-platform -n openshift-gitops --ignore-not-found
+```
+
+### Recommended order summary
+
+```text
+Phase 0–1 (baseline)     → bootstrap → discovery → main chart  [DEFAULT]
+Phase 2 (agents)       → Tekton + enable components.kagenti / agentsRoseyRegrets
+Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled
+Phase 4 (Kagenti plat) → application-kagenti-platform + job.enabled
+Phase 2 demo trigger   → ./scripts/trigger-network-audit.sh (needs Phases 2–4)
+```
 
 ---
 
@@ -610,11 +762,11 @@ When `cluster.appsDomain` is set (from values, ConfigMap, or `lookup`), `_helper
 
 | Output | Logic |
 |--------|--------|
-| Mattermost `siteUrl` / Route `host` | `mattermost-<namespace>.<appsDomain>` |
+| Mattermost `siteUrl` / Route `host` | ConfigMap keys **`mattermostSiteUrl`** / **`mattermostRouteHost`** (from discovery Job), else computed from `appsDomain` |
 | Quay `registryCredentials.server` | Values/ConfigMap override, else `quay-quay.<appsDomain>` |
 | Kagenti `api.baseUrl` | Values/ConfigMap override, else `https://kagenti-api.<appsDomain>` |
 
-Leave `mattermost.siteUrl`, `mattermost.route.host`, and `quayStorage.registryCredentials.server` **empty** in `values.yaml` to use computed values.
+Leave `mattermost.siteUrl`, `mattermost.route.host`, and `quayStorage.registryCredentials.server` **empty** in `values.yaml`. Do **not** commit `values-cluster.yaml` (gitignored); use discovery ConfigMap instead.
 
 ---
 
@@ -633,7 +785,8 @@ Three Argo CD Applications (see `gitops/argocd/kustomization.yaml`), ordered by 
 |------|-------------|---------|
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Creates namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` so Argo can create ServiceAccounts |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ServiceAccount + script ConfigMap, then PostSync Job writes **`acs-ai-overwatch-cluster-config`** |
-| 2 | `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` when `cluster.appsDomain` is empty |
+| 2 | `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` + `serverDryRun` |
+| (opt-in) | `acs-ai-overwatch-kagenti-platform` | **Not in kustomization by default** — see [Phase 4 — Kagenti platform](#phase-4--kagenti-platform-opt-in-off-by-default) |
 
 **Workflow:**
 
@@ -673,6 +826,8 @@ This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with the same
 | Discovered value | Source |
 |------------------|--------|
 | `cluster.appsDomain` | `oc get ingresses.config cluster` |
+| `mattermostSiteUrl` | `https://mattermost-<ns>.<appsDomain>` (or live Route if present) |
+| `mattermostRouteHost` | Same host without scheme |
 | `cluster.name` | `Infrastructure` CR or current context |
 | `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.<domain>` |
 | `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else default hostname pattern |
@@ -1171,6 +1326,13 @@ For gated models, provide `HF_TOKEN` in the environment.
 
 ## Kagenti Integration
 
+**Two separate toggles:**
+
+| Toggle | Location | What it does |
+|--------|----------|--------------|
+| **Kagenti platform** | `acs-ai-overwatch-kagenti-platform` Application + `job.enabled` | Installs Keycloak, SPIRE, operator, API ([Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default)) |
+| **Agent workloads** | `components.kagenti.enabled` in main chart | Deploys `helpful-hank` / `rosey-regrets` Deployments + AppSource |
+
 Kagenti discovers agent workloads via standard Kubernetes Deployments labeled `kagenti.io/type: agent`.
 
 Enable with:
@@ -1242,7 +1404,16 @@ Build and push images with Tekton before enabling Kagenti, or pods will fail ima
 
 ## ACS / RHACS Security
 
-Enable with `components.acsPolicies.enabled: true`.
+Enable baseline ACS artifacts with `components.acsPolicies.enabled: true` (operator, `test-range`, policy ConfigMap, SCC).
+
+### Baseline vs full RHACS (Phase 3)
+
+| Mode | Flags | What gets deployed |
+|------|-------|-------------------|
+| **Baseline (default)** | `acs.central.enabled: false`, `acs.bootstrap.enabled: false` | RHACS operator Subscription, `test-range` NS, policy ConfigMap, OpenShell SCC |
+| **Full stack (opt-in)** | both `true` | Above + `Central` CR, bootstrap Job (init bundle, `SecuredCluster`, policy import, Mattermost notifier) |
+
+See [Phase 3 — Full RHACS](#phase-3--full-rhacs-central--securedcluster-opt-in-off-by-default).
 
 ### RHACS Operator
 
@@ -1252,7 +1423,9 @@ Enable with `components.acsPolicies.enabled: true`.
 | OperatorGroup | `rhacs-operator` |
 | Subscription | `rhacs-operator` (stable, redhat-operators) |
 
-After the operator installs, deploy the Central and Secured Cluster Services using RHACS documentation or your organization's standard ACS deployment pattern. This chart installs the **operator subscription only**; Central/SCS deployment may be a separate step depending on your environment.
+When **`acs.central.enabled: true`**, the chart also renders a `Central` CR in namespace `stackrox`. When **`acs.bootstrap.enabled: true`**, Job `acs-platform-bootstrap` completes init bundle + SecuredCluster + policy import.
+
+If Phase 3 is **disabled** (default), deploy Central/SCS manually per [Red Hat documentation](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.10/html/installing/installing-rhacs-on-red-hat-openshift), or enable Phase 3 in values.
 
 ### Test Range Namespace
 

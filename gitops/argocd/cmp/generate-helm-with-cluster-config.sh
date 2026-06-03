@@ -22,10 +22,16 @@ if command -v kubectl >/dev/null 2>&1 && kubectl get configmap -n "${CM_NS}" "${
   quayServer="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.quayRegistryServer}')"
   kagentiBase="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.kagentiApiBaseUrl}')"
   gitUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.gitRepoUrl}')"
+  mattermostRouteHost="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostRouteHost}')"
+  mattermostSiteUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostSiteUrl}')"
   cat >"${VALUES_FROM_CM}" <<EOF
 cluster:
   name: ${clusterName}
   appsDomain: ${appsDomain}
+mattermost:
+  siteUrl: ${mattermostSiteUrl}
+  route:
+    host: ${mattermostRouteHost}
 quayStorage:
   registryCredentials:
     server: ${quayServer}
