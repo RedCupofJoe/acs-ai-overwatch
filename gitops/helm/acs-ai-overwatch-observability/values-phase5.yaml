@@ -1,0 +1,7 @@
+# Example overlay when enabling Phase 5 — uncomment application-observability.yaml in kustomization first.
+enabled: true
+
+# After observability bootstrap Job writes acs-ai-overwatch-observability-config, enable agent OTEL in main chart:
+# observability:
+#   agentInstrumentation:
+#     enabled: true

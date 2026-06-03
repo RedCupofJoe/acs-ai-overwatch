@@ -80,7 +80,7 @@ metadata:
     app.kubernetes.io/part-of: acs-ai-overwatch
 spec:
   description: >-
-    Builds helpful-hank and rosey-regrets images (OpenShell-based agents with HF model wiring)
+    Builds helpful-hank, rosey-regrets, and sneaky-sam images (OpenShell + Kagenti A2A + OTEL SDK)
     and pushes them to the cluster Quay instance.
   params:
     - name: git-url
@@ -150,5 +150,22 @@ spec:
           value: agents/rosey-regrets/Dockerfile
         - name: image
           value: $(params.image-registry)/$(params.image-org)/rosey-regrets:$(params.image-tag)
+        - name: tls-verify
+          value: $(params.push-tls-verify)
+    - name: build-sneaky-sam
+      runAfter:
+        - fetch-repository
+      taskRef:
+        name: agents-buildah-image
+      workspaces:
+        - name: source
+          workspace: shared-source
+        - name: registry-secret
+          workspace: registry-credentials
+      params:
+        - name: dockerfile
+          value: agents/sneaky-sam/Dockerfile
+        - name: image
+          value: $(params.image-registry)/$(params.image-org)/sneaky-sam:$(params.image-tag)
         - name: tls-verify
           value: $(params.push-tls-verify)

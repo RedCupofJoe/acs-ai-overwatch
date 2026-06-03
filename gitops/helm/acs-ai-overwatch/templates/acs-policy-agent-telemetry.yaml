@@ -1,0 +1,61 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.agentTelemetryPolicy.enabled .Values.agentTelemetryPolicy.rhacs.enabled }}
+# RHACS policy: Kagenti agents must declare telemetry compliance via pod label.
+# Import manually:
+#   oc extract cm/{{ .Values.agentTelemetryPolicy.rhacs.configMapName }} -n {{ .Values.acs.testRange.namespace }} --keys=policy.yaml --to=- \
+#     | roxctl central declarative-config create --file -
+# Or automatically via acs-platform-bootstrap Job when Phase 3 bootstrap is enabled.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.agentTelemetryPolicy.rhacs.configMapName }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
+  namespace: {{ .Values.acs.testRange.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+data:
+  policy.yaml: |
+    name: {{ .Values.agentTelemetryPolicy.rhacs.name }}
+    description: >
+      Alert when a Kagenti agent Deployment is applied in {{ .Values.acs.testRange.namespace }}
+      without label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }}.
+      Notifies operators via Mattermost; does not scale running pods down at runtime.
+    rationale: >
+      Agents without declared telemetry compliance should not be admitted to the cluster agent mesh.
+      Deploy-time detection gives human-in-the-loop visibility before or as non-compliant workloads land.
+    remediation: >
+      Add pod template label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }},
+      enable observability.agentInstrumentation, and ensure OTEL_EXPORTER_OTLP_ENDPOINT is injected from
+      acs-ai-overwatch-observability-config. Rebuild images with agents/common/acs_agent OTEL runtime.
+    disabled: false
+    severity: {{ .Values.agentTelemetryPolicy.rhacs.severity }}
+    lifecycleStages:
+{{- range .Values.agentTelemetryPolicy.rhacs.lifecycleStages }}
+      - {{ . }}
+{{- end }}
+    categories:
+      - Security Best Practices
+      - DevOps Best Practices
+    eventSource: NOT_APPLICABLE
+    scope:
+      - namespace: {{ .Values.acs.testRange.namespace }}
+    enforcementActions:
+{{- range .Values.agentTelemetryPolicy.rhacs.enforcementActions }}
+      - {{ . }}
+{{- end }}
+    policySections:
+      - sectionName: Scoped to Kagenti agent workloads
+        policyGroups:
+          - fieldName: Label
+            booleanOperator: OR
+            values:
+              - value: kagenti.io/type=agent
+      - sectionName: Missing telemetry compliance label
+        policyGroups:
+          - fieldName: Required Label
+            booleanOperator: OR
+            values:
+              - value: {{ printf "%s=%s" .Values.agentTelemetryPolicy.requiredLabel.key .Values.agentTelemetryPolicy.requiredLabel.compliantValue | quote }}
+    notifiers:
+      - {{ .Values.acs.policy.notifierName }}
+{{- end }}

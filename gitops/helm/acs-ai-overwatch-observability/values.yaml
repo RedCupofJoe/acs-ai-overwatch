@@ -1,0 +1,97 @@
+global:
+  partOf: acs-ai-overwatch
+
+# Master gate — when false, this chart renders nothing (safe default for baseline PoC).
+enabled: false
+
+gitops:
+  bootstrapNamespaces: true
+
+argocd:
+  syncWaves:
+    enabled: true
+    namespace: "0"
+    monitoringPrep: "5"
+    operators: "10"
+    platformCRs: "30"
+    configMaps: "50"
+    security: "55"
+    workloads: "60"
+    bootstrap: "70"
+
+platformResources:
+  waitForCrds: true
+  crds:
+    tempoMonolithic: tempomonoliths.tempo.grafana.com
+    mlflow: mlflows.mlflow.opendatahub.io
+
+namespace: acs-ai-overwatch-observability
+integrationConfigMap:
+  namespace: acs-ai-overwatch-system
+  name: acs-ai-overwatch-observability-config
+
+# Step 1 — allow Grafana user-workload dashboards for agent namespaces.
+userWorkloadMonitoring:
+  enabled: true
+  # Idempotent PostSync Job patches openshift-monitoring/cluster-monitoring-config.
+  job:
+    image: registry.redhat.io/openshift4/ose-cli:latest
+    backoffLimit: 4
+
+# Step 2 — Red Hat build of Tempo (distributed tracing backend for Grafana).
+tempo:
+  enabled: true
+  operator:
+    namespace: openshift-tempo-operator
+    operatorGroupName: tempo-product
+    subscription:
+      name: tempo-product
+      channel: stable
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+      installPlanApproval: Automatic
+  # TempoMonolithic uses PVC-backed trace storage (no object store required for PoC).
+  monolithic:
+    namespace: tempo
+    name: acs-tempo
+    storageSize: 10Gi
+    storageClassName: ""
+    tenantName: acs
+    tenantId: acs-tenant
+
+# Step 3 — MLflow for LLM/agent traces (requires RHOAI mlflowoperator Managed).
+mlflow:
+  enabled: true
+  namespace: redhat-ods-applications
+  instanceName: mlflow
+  servicePort: 8080
+  tracesPath: /v1/traces
+  # PostSync Job patches default-dsc when mlflowoperator is not yet Managed.
+  enableInDataScienceCluster: true
+  datascienceCluster:
+    name: default-dsc
+    apiVersion: datasciencecluster.opendatahub.io/v2
+
+# Step 4 — shared OpenTelemetry Collector (dual export: Tempo + MLflow).
+otelCollector:
+  enabled: true
+  name: acs-otel-collector
+  image: docker.io/otel/opentelemetry-collector-contrib:0.96.0
+  replicas: 1
+  service:
+    grpcPort: 4317
+    httpPort: 4318
+
+# Step 5 — Grafana dashboard ConfigMaps (user-workload monitoring).
+grafana:
+  enabled: true
+  # Dashboards are copied into agent namespaces that carry this label.
+  dashboardNamespaces:
+    - test-range
+    - kagenti-system
+
+bootstrap:
+  enabled: true
+  job:
+    image: registry.redhat.io/openshift4/ose-cli:latest
+    backoffLimit: 6

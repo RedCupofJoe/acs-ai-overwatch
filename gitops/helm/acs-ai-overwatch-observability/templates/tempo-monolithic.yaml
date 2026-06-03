@@ -1,0 +1,22 @@
+{{- if and .Values.enabled .Values.tempo.enabled (include "observability.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.tempoMonolithic)) }}
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: {{ .Values.tempo.monolithic.name }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  namespace: {{ .Values.tempo.monolithic.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  storage:
+    traces:
+      backend: pv
+      size: {{ .Values.tempo.monolithic.storageSize }}
+  tenants:
+    mode: openshift
+    authentication:
+      - tenantName: {{ .Values.tempo.monolithic.tenantName | quote }}
+        tenantId: {{ .Values.tempo.monolithic.tenantId | quote }}
+{{- end }}

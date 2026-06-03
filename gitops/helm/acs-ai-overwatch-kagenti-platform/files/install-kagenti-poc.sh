@@ -11,6 +11,8 @@ SKIP_MLFLOW="${SKIP_MLFLOW:-true}"
 SKIP_OVN="${SKIP_OVN_PATCH:-true}"
 SKIP_UI="${SKIP_UI:-false}"
 AGENT_NAMESPACES="${AGENT_NAMESPACES:-test-range}"
+EXTERNAL_OTEL_COLLECTOR="${EXTERNAL_OTEL_COLLECTOR:-}"
+PHASE5_INTEGRATION="${PHASE5_INTEGRATION:-false}"
 
 export PATH="/tools:${PATH}"
 
@@ -42,6 +44,10 @@ if [ "${SKIP_OVN}" = "true" ]; then
 fi
 if [ "${SKIP_UI}" = "true" ]; then
   SETUP_ARGS+=(--skip-ui)
+fi
+if [ "${PHASE5_INTEGRATION}" = "true" ] && [ -n "${EXTERNAL_OTEL_COLLECTOR}" ]; then
+  echo "Phase 5 integration: Kagenti will use shared OTEL collector at ${EXTERNAL_OTEL_COLLECTOR}"
+  export OTEL_EXPORTER_OTLP_ENDPOINT="${EXTERNAL_OTEL_COLLECTOR}"
 fi
 
 chmod +x "${WORKDIR}/scripts/ocp/setup-kagenti.sh"

@@ -1,0 +1,105 @@
+{{- if and .Values.enabled .Values.bootstrap.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-bootstrap
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-observability-bootstrap
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: observability-bootstrap
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: observability-bootstrap
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.bootstrap.job.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: observability-bootstrap
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: {{ .Values.bootstrap.job.image | quote }}
+          env:
+            - name: INTEGRATION_NS
+              value: {{ .Values.integrationConfigMap.namespace | quote }}
+            - name: INTEGRATION_CM
+              value: {{ .Values.integrationConfigMap.name | quote }}
+            - name: OTEL_GRPC
+              value: {{ include "observability.otelGrpcEndpoint" . | quote }}
+            - name: OTEL_HTTP
+              value: {{ include "observability.otelHttpEndpoint" . | quote }}
+            - name: MLFLOW_TRACES
+              value: {{ include "observability.mlflowTracesUrl" . | quote }}
+            - name: TEMPO_OTLP
+              value: {{ include "observability.tempoOtlpEndpoint" . | quote }}
+            - name: TEMPO_QUERY
+              value: {{ include "observability.tempoQueryFrontend" . | quote }}
+            - name: KAGENTI_NS
+              value: kagenti-system
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              echo "Waiting for OTEL collector deployment..."
+              oc rollout status deploy/{{ .Values.otelCollector.name }} -n {{ .Values.namespace }} --timeout=300s
+
+              APPS_DOMAIN="$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
+              GRAFANA_UWM=""
+              if [ -n "${APPS_DOMAIN}" ]; then
+                GRAFANA_UWM="https://grafana-openshift-user-workload-monitoring.apps.${APPS_DOMAIN}"
+              fi
+
+              oc create namespace "${INTEGRATION_NS}" --dry-run=client -o yaml | oc apply -f -
+              oc create configmap "${INTEGRATION_CM}" -n "${INTEGRATION_NS}" \
+                --from-literal=otelCollectorGrpcEndpoint="${OTEL_GRPC}" \
+                --from-literal=otelCollectorHttpEndpoint="${OTEL_HTTP}" \
+                --from-literal=mlflowTracesEndpoint="${MLFLOW_TRACES}" \
+                --from-literal=tempoOtlpEndpoint="${TEMPO_OTLP}" \
+                --from-literal=tempoQueryFrontend="${TEMPO_QUERY}" \
+                --from-literal=grafanaUserWorkloadUrl="${GRAFANA_UWM}" \
+                --from-literal=observabilityPhase=5 \
+                --dry-run=client -o yaml | oc apply -f -
+              echo "Wrote ${INTEGRATION_NS}/${INTEGRATION_CM}"
+
+              # Best-effort: point Kagenti OTEL collector at shared endpoint when Phase 4 is installed.
+              if oc get deploy otel-collector -n "${KAGENTI_NS}" >/dev/null 2>&1; then
+                echo "Kagenti otel-collector found — annotate for shared export (manual config merge may still be required)"
+                oc annotate deploy otel-collector -n "${KAGENTI_NS}" \
+                  acs-ai-overwatch.io/shared-otel-endpoint="${OTEL_GRPC}" --overwrite || true
+              fi
+{{- end }}

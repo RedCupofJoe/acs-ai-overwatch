@@ -1,0 +1,55 @@
+{{- if and .Values.enabled .Values.grafana.enabled }}
+{{- range .Values.grafana.dashboardNamespaces }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acs-agent-traces-dashboard
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" $ "wave" "configMaps") | nindent 2 }}
+  namespace: {{ . }}
+  labels:
+    {{- include "observability.labels" $ | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  acs-agent-traces.json: |
+    {
+      "title": "ACS AI Agents — Traces (Tempo)",
+      "uid": "acs-agent-traces",
+      "tags": ["acs-ai-overwatch", "agents", "tempo"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Trace search",
+          "type": "traces",
+          "gridPos": {"h": 16, "w": 24, "x": 0, "y": 0},
+          "datasource": {"type": "tempo", "uid": "tempo"},
+          "targets": [
+            {
+              "queryType": "traceqlSearch",
+              "refId": "A",
+              "limit": 20
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Trace rate",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum(rate(traces_spanmetrics_latency_count[5m]))",
+              "legendFormat": "spans/s",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+{{- end }}
+{{- end }}

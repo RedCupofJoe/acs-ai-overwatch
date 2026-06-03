@@ -1,0 +1,75 @@
+{{- if and .Values.enabled .Values.mlflow.enabled .Values.mlflow.enableInDataScienceCluster }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-mlflow-dsc
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-observability-mlflow-dsc
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: observability-mlflow-dsc
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: observability-mlflow-dsc
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        {{- include "observability.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: observability-mlflow-dsc
+      restartPolicy: OnFailure
+      containers:
+        - name: patch-dsc
+          image: {{ .Values.userWorkloadMonitoring.job.image | quote }}
+          env:
+            - name: DSC_NAME
+              value: {{ .Values.mlflow.datascienceCluster.name | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              if ! oc get dsc "${DSC_NAME}" >/dev/null 2>&1; then
+                echo "DataScienceCluster ${DSC_NAME} not found — enable RHOAI (Phase 0 main chart) first"
+                exit 1
+              fi
+              STATE="$(oc get dsc "${DSC_NAME}" -o jsonpath='{.spec.components.mlflowoperator.managementState}' 2>/dev/null || true)"
+              if [ "${STATE}" = "Managed" ]; then
+                echo "mlflowoperator already Managed on ${DSC_NAME}"
+                exit 0
+              fi
+              oc patch dsc "${DSC_NAME}" --type merge -p '{"spec":{"components":{"mlflowoperator":{"managementState":"Managed"}}}}'
+              echo "Patched ${DSC_NAME}: mlflowoperator.managementState=Managed"
+{{- end }}

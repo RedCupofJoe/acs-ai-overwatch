@@ -1,0 +1,75 @@
+{{- if and .Values.enabled .Values.userWorkloadMonitoring.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-monitoring-prep
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "monitoringPrep") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-observability-monitoring-prep
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "monitoringPrep") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: observability-monitoring-prep
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: observability-monitoring-prep
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "monitoringPrep") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.userWorkloadMonitoring.job.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: observability-monitoring-prep
+      restartPolicy: OnFailure
+      containers:
+        - name: prep
+          image: {{ .Values.userWorkloadMonitoring.job.image | quote }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              set -euo pipefail
+              CM=cluster-monitoring-config
+              NS=openshift-monitoring
+              if oc get cm "${CM}" -n "${NS}" -o jsonpath='{.data.config\.yaml}' 2>/dev/null | grep -q 'enableUserWorkload: true'; then
+                echo "User workload monitoring already enabled"
+              else
+                printf 'enableUserWorkload: true\n' > /tmp/cluster-monitoring-config.yaml
+                oc create cm "${CM}" -n "${NS}" \
+                  --from-file=config.yaml=/tmp/cluster-monitoring-config.yaml \
+                  --dry-run=client -o yaml | oc apply -f -
+                echo "Enabled user workload monitoring via ${NS}/${CM}"
+              fi
+              for ns in test-range kagenti-system {{ .Values.namespace }} {{ .Values.tempo.monolithic.namespace }}; do
+                oc label namespace "${ns}" openshift.io/cluster-monitoring=true --overwrite 2>/dev/null || true
+              done
+{{- end }}

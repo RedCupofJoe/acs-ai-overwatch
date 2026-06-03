@@ -1,0 +1,36 @@
+{{- if .Values.enabled }}
+{{- if not .Values.gitops.bootstrapNamespaces }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    argocd.argoproj.io/managed-by: openshift-gitops
+    openshift.io/cluster-monitoring: "true"
+{{- end }}
+{{- if and .Values.tempo.enabled (not .Values.gitops.bootstrapNamespaces) }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.tempo.monolithic.namespace }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    argocd.argoproj.io/managed-by: openshift-gitops
+    openshift.io/cluster-monitoring: "true"
+{{- end }}
+{{- if and .Values.tempo.enabled (not .Values.gitops.bootstrapNamespaces) }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.tempo.operator.namespace }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    argocd.argoproj.io/managed-by: openshift-gitops
+{{- end }}
+{{- end }}

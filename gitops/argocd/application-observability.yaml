@@ -1,14 +1,14 @@
-# Installs Kagenti platform (SPIRE, Keycloak, operator, API) before agent Deployments in acs-ai-overwatch.
-# Sync this Application after cluster-discovery and before (or in parallel with) acs-ai-overwatch.
+# Installs Phase 5 shared observability (OTEL → Tempo + MLflow, Grafana dashboards).
+# Sync after acs-ai-overwatch (and ideally after Phase 4 Kagenti for AuthBridge traces).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: acs-ai-overwatch-kagenti-platform
+  name: acs-ai-overwatch-observability
   namespace: openshift-gitops
   labels:
     app.kubernetes.io/part-of: acs-ai-overwatch
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -16,16 +16,17 @@ spec:
   source:
     repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
     targetRevision: main
-    path: gitops/helm/acs-ai-overwatch-kagenti-platform
+    path: gitops/helm/acs-ai-overwatch-observability
     helm:
       valueFiles:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: kagenti-system
+    namespace: acs-ai-overwatch-observability
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

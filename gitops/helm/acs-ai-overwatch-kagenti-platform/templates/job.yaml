@@ -62,6 +62,10 @@ spec:
               value: {{ .Values.kagenti.skipUi | quote }}
             - name: AGENT_NAMESPACES
               value: {{ join "," .Values.kagenti.agentNamespaces | quote }}
+            - name: EXTERNAL_OTEL_COLLECTOR
+              value: {{ .Values.phase5.integration.externalOtelCollector | quote }}
+            - name: PHASE5_INTEGRATION
+              value: {{ .Values.phase5.integration.enabled | quote }}
           command:
             - /bin/bash
             - /scripts/install-kagenti-poc.sh

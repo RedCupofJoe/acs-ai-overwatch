@@ -1,0 +1,114 @@
+{{- if and .Values.enabled .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.otelCollector.name }}-config
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ .Values.otelCollector.service.grpcPort }}
+          http:
+            endpoint: 0.0.0.0:{{ .Values.otelCollector.service.httpPort }}
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+    exporters:
+      otlp/tempo:
+        endpoint: {{ include "observability.tempoOtlpEndpoint" . }}
+        tls:
+          insecure: true
+      otlphttp/mlflow:
+        traces_endpoint: {{ include "observability.mlflowTracesUrl" . }}
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/tempo, otlphttp/mlflow]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.otelCollector.name }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.otelCollector.name }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  replicas: {{ .Values.otelCollector.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+        app.kubernetes.io/component: otel-collector
+        {{- include "observability.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.otelCollector.name }}
+      containers:
+        - name: otel-collector
+          image: {{ .Values.otelCollector.image | quote }}
+          args:
+            - --config=/conf/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ .Values.otelCollector.service.grpcPort }}
+            - name: otlp-http
+              containerPort: {{ .Values.otelCollector.service.httpPort }}
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.otelCollector.name }}-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.otelCollector.name }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.otelCollector.name }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.otelCollector.service.grpcPort }}
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: {{ .Values.otelCollector.service.httpPort }}
+      targetPort: otlp-http
+{{- end }}

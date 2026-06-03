@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Agent image based on NVIDIA OpenShell community sandbox (OpenShell ecosystem).
-# Runs a Kagenti A2A server with OpenTelemetry SDK baked in (exports when Phase 5 env is set).
+# Deliberately non-compliant agent (Helpful Hank image without telemetry label/env at deploy).
+# Used to demonstrate agentTelemetryPolicy NetworkPolicy + RHACS enforcement.
 FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
 
 USER root
@@ -10,22 +10,16 @@ ENV AGENT_HF_MODEL_ID=${AGENT_HF_MODEL_ID}
 ENV MODEL_LOCAL_DIR=/models/hf-model
 ENV HF_HOME=/models/hf-hub
 ENV OPENSHELL_SYSTEM_PROMPT_FILE=/etc/openshell/agent/system_prompt.txt
-ENV AGENT_OUTPUT_DIR=/agent-reference-information
-ENV AGENT_ENABLE_NETWORK_AUDIT=true
 ENV HOST=0.0.0.0
 ENV PORT=8000
 ENV PYTHONPATH=/opt/acs-agent
+ENV AGENT_ENABLE_NETWORK_AUDIT=false
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nmap \
-    iproute2 \
-  && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /models/hf-model /models/hf-hub /etc/openshell/agent /agent-reference-information /opt/acs-agent \
-  && chown -R sandbox:sandbox /models /etc/openshell/agent /agent-reference-information /opt/acs-agent
+RUN mkdir -p /models/hf-model /models/hf-hub /etc/openshell/agent /opt/acs-agent \
+  && chown -R sandbox:sandbox /models /etc/openshell/agent /opt/acs-agent
 
 COPY agents/common/acs_agent /opt/acs-agent/acs_agent
-COPY agents/rosey-regrets/system_prompt.txt /etc/openshell/agent/system_prompt.txt
+COPY agents/sneaky-sam/system_prompt.txt /etc/openshell/agent/system_prompt.txt
 COPY agents/scripts/pull-model.sh /usr/local/bin/pull-model
 COPY agents/scripts/install-agent-runtime.sh /usr/local/bin/install-agent-runtime
 COPY agents/scripts/agent-entrypoint.sh /usr/local/bin/agent-entrypoint
@@ -37,7 +31,7 @@ RUN install-agent-runtime /sandbox/.venv/bin/python \
        export HF_HUB_ENABLE_HF_TRANSFER=1 \
        && /sandbox/.venv/bin/python -c "from huggingface_hub import snapshot_download; import os; snapshot_download(repo_id=os.environ['AGENT_HF_MODEL_ID'], local_dir=os.environ['MODEL_LOCAL_DIR'], resume_download=True)"; \
      fi \
-  && chown -R sandbox:sandbox /models /sandbox/.venv /opt/acs-agent /agent-reference-information
+  && chown -R sandbox:sandbox /models /sandbox/.venv /opt/acs-agent
 
 USER sandbox
 ENTRYPOINT ["/usr/local/bin/agent-entrypoint"]

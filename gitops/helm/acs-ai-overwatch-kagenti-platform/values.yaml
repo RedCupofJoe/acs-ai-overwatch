@@ -31,3 +31,10 @@ kagenti:
   skipMlflow: true
   skipOvnPatch: true
   skipUi: false
+
+# When Phase 5 observability is enabled, keep skipMlflow true (shared collector exports to MLflow)
+# and set externalOtelCollector to the Phase 5 collector gRPC endpoint.
+phase5:
+  integration:
+    enabled: false
+    externalOtelCollector: acs-otel-collector.acs-ai-overwatch-observability.svc.cluster.local:4317

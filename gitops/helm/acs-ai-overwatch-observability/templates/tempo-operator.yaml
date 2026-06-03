@@ -1,0 +1,28 @@
+{{- if and .Values.enabled .Values.tempo.enabled }}
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: {{ .Values.tempo.operator.operatorGroupName }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tempo.operator.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  targetNamespaces:
+    - {{ .Values.tempo.operator.namespace }}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.tempo.operator.subscription.name }}
+  {{- include "observability.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tempo.operator.namespace }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.tempo.operator.subscription.channel }}
+  installPlanApproval: {{ .Values.tempo.operator.subscription.installPlanApproval }}
+  name: {{ .Values.tempo.operator.subscription.name }}
+  source: {{ .Values.tempo.operator.subscription.source }}
+  sourceNamespace: {{ .Values.tempo.operator.subscription.sourceNamespace }}
+{{- end }}

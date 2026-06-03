@@ -28,3 +28,6 @@ namespaces:
   - rhacs-operator
   - stackrox
   - kagenti-system
+  - openshift-tempo-operator
+  - tempo
+  - acs-ai-overwatch-observability

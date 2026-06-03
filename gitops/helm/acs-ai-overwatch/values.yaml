@@ -356,8 +356,46 @@ components:
     enabled: false
   agentsRoseyRegrets:
     enabled: false
+  agentsSneakySam:
+    enabled: false
   pipelines:
     enabled: false
+
+# Require Kagenti agents in test-range to carry acs-ai-overwatch.io/telemetry=enabled.
+# Non-compliant deploys: RHACS DEPLOY policy notifies Mattermost (Phase 3+); NetworkPolicy isolates if a pod still runs.
+agentTelemetryPolicy:
+  enabled: true
+  requiredLabel:
+    key: acs-ai-overwatch.io/telemetry
+    compliantValue: enabled
+    nonCompliantValue: disabled
+  networkPolicy:
+    enabled: true
+    name: agent-telemetry-block-noncompliant
+  rhacs:
+    enabled: true
+    configMapName: acs-policy-agent-telemetry
+    name: test-range-agent-telemetry-required
+    severity: HIGH_SEVERITY
+    # DEPLOY only — alert (and optionally block) when a non-compliant agent Deployment is applied.
+    # Does not use SCALE_TO_ZERO (no runtime scale-down notifications).
+    lifecycleStages:
+      - DEPLOY
+    # Block non-compliant agent Deployments at admission when SecuredCluster admissionControl is on.
+    # RHACS still fires the policy notifier on the violation (Mattermost → Town Square).
+    enforcementActions:
+      - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+      - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+
+# OPT-IN: Phase 5 agent OTEL instrumentation (requires acs-ai-overwatch-observability Application).
+# When enabled, agent Deployments read the shared collector endpoint from ConfigMap
+# acs-ai-overwatch-observability-config (written by the observability bootstrap Job).
+observability:
+  agentInstrumentation:
+    enabled: false
+  integrationConfigMap:
+    namespace: acs-ai-overwatch-system
+    name: acs-ai-overwatch-observability-config
 
 # PVC for rosey-regrets agent output (enable with components.agentsRoseyRegrets).
 agentsRoseyRegrets:
@@ -390,6 +428,7 @@ kagenti:
   images:
     helpfulHank: quay-quay-registry.quay.svc.cluster.local:443/acs-agents/helpful-hank:latest
     roseyRegrets: quay-quay-registry.quay.svc.cluster.local:443/acs-agents/rosey-regrets:latest
+    sneakySam: quay-quay-registry.quay.svc.cluster.local:443/acs-agents/sneaky-sam:latest
   serviceAccountName: openshell
   rosey:
     networkAuditCommand: "Network Audit"

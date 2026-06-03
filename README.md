@@ -19,7 +19,8 @@ The repository is designed to be deployed through **OpenShift GitOps (Argo CD)**
 **Optional (opt-in, disabled by default):**
 
 4. **`acs-ai-overwatch-kagenti-platform`** — installs the Kagenti control plane (Keycloak, SPIRE, operator, API). **Not** registered in `gitops/argocd/kustomization.yaml` until you enable Phase 4.
-5. **Full RHACS Central + SecuredCluster** — templates and bootstrap Job in the main chart, gated by `acs.central.enabled` / `acs.bootstrap.enabled` (**both `false` by default**).
+5. **`acs-ai-overwatch-observability`** — Phase 5 shared tracing (OTEL → Tempo + MLflow, Grafana dashboards). **Not** registered until you enable Phase 5.
+6. **Full RHACS Central + SecuredCluster** — templates and bootstrap Job in the main chart, gated by `acs.central.enabled` / `acs.bootstrap.enabled` (**both `false` by default**).
 
 See **[PoC deployment phases](#poc-deployment-phases)** for the recommended order and how to stay on the **baseline** (Mattermost + operators) if optional features fail.
 
@@ -223,10 +224,12 @@ acs-ai-overwatch/
 ├── README.md
 ├── Makefile                           # make cluster-values, make helm-template
 ├── agents/
+│   ├── common/acs_agent/              # Shared Kagenti A2A server + OTEL bootstrap
 │   ├── helpful-hank/                  # OpenShell + standard assistant
 │   ├── rosey-regrets/                 # OpenShell + nmap + rogue prompt + /agent-reference-information
+│   ├── sneaky-sam/                    # Telemetry guardrail demo (non-compliant deploy)
 │   ├── rosey-rogue/                   # Legacy placeholder
-│   └── scripts/pull-model.sh
+│   └── scripts/                       # pull-model, install-agent-runtime, agent-entrypoint
 ├── gitops/
 │   ├── argocd/
 │   │   ├── kustomization.yaml         # Both Argo CD Applications
@@ -435,7 +438,7 @@ See [OpenShift AI 3.4 — Kueue](https://docs.redhat.com/en/documentation/red_ha
 
 ## PoC deployment phases
 
-This repo is intentionally **layered**. The **baseline** (Phases 0–1) is what you need for Mattermost, cluster discovery, and platform operators. **Phases 2–4** add agents, full RHACS, and Kagenti — each is **opt-in** so a failure there does not block the baseline.
+This repo is intentionally **layered**. The **baseline** (Phases 0–1) is what you need for Mattermost, cluster discovery, and platform operators. **Phases 2–5** add agents, full RHACS, Kagenti, and observability — each is **opt-in** so a failure there does not block the baseline.
 
 ### What “baseline working” means
 
@@ -458,12 +461,14 @@ Login: `mattermost-admin` / password from `values.yaml` → `mattermost.bootstra
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ConfigMap `acs-ai-overwatch-cluster-config` |
 | 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, policy **ConfigMap**, etc. |
+| (opt-in 3) | `acs-ai-overwatch-kagenti-platform` | Kagenti control plane — see [Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default) |
+| (opt-in 4) | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow — see [Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
 
 ```bash
 oc apply -k gitops/argocd/
 ```
 
-**Not** applied by default: `application-kagenti-platform.yaml` (commented out in kustomization).
+**Not** applied by default: `application-kagenti-platform.yaml` and `application-observability.yaml` (commented out in kustomization).
 
 ### Phase 1 — Mattermost external URL (automatic)
 
@@ -491,9 +496,26 @@ Requires Quay (or another registry), Tekton pipeline, and enabling component fla
 components:
   kagenti:
     enabled: true      # agent Deployments only — not the Kagenti platform
+  agentsHelpfulHank:
+    enabled: true
   agentsRoseyRegrets:
     enabled: true
+  agentsSneakySam:
+    enabled: true      # demo: deliberately non-telemetry-compliant agent
 ```
+
+**Agent telemetry guardrails** (`agentTelemetryPolicy.enabled`, default `true`):
+
+| Layer | Mechanism | When it applies |
+|-------|-----------|-----------------|
+| **Kubernetes** | `NetworkPolicy` selects `kagenti.io/type=agent` pods **without** `acs-ai-overwatch.io/telemetry=enabled` and allows DNS egress only | Immediate on sync (no RHACS Central required) |
+| **RHACS (ACS)** | Policy ConfigMap `acs-policy-agent-telemetry` — DEPLOY-stage required label; Mattermost notifier on violation; optional admission **block** (not scale-to-zero) | Phase 3 bootstrap imports policy + configures notifier |
+
+Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** carries `telemetry: disabled`, omits OTEL env, and is isolated by the NetworkPolicy — demonstrating the guardrail.
+
+**RHACS telemetry policy (Phase 3) — deploy alert, not scale-down:** The policy uses lifecycle stage **DEPLOY** only (no `RUNTIME` / `SCALE_TO_ZERO`). When Sneaky Sam is synced, RHACS evaluates the Deployment, fires **`test-range-agent-telemetry-required`**, and the **Mattermost Notifier** posts to Town Square (human-in-the-loop user is on that channel). With admission enforcement enabled, the Deployment is **blocked** at create/update — the notification describes a **non-compliant deploy attempt**, not a pod being scaled down later.
+
+To notify without blocking admission, set `agentTelemetryPolicy.rhacs.enforcementActions: []` in values.
 
 See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](#ai-agents).
 
@@ -562,6 +584,89 @@ Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-
 oc delete application acs-ai-overwatch-kagenti-platform -n openshift-gitops --ignore-not-found
 ```
 
+### Phase 5 — Shared observability (Option C: OTEL → Tempo + MLflow + Grafana) (opt-in, **off by default**)
+
+**Architecture (Option C):**
+
+| Layer | Role |
+|-------|------|
+| **Agents / Kagenti** | Emit OTLP traces to a shared collector |
+| **Shared OTEL Collector** | Dual-export: Tempo (Grafana trace search) + MLflow (LLM trace detail) |
+| **Tempo** | Distributed tracing backend for Grafana user-workload dashboards |
+| **MLflow** | LLM/agent trace store (RHOAI `mlflowoperator` component) |
+| **Grafana (user workload)** | Shared dashboard for agent trace overview |
+
+**Prerequisites:** RHOAI operator + `default-dsc` from the main chart (Phase 0). For Kagenti AuthBridge traces, enable **Phase 4** before Phase 5.
+
+**Internal sync waves** (within the observability chart):
+
+| Wave | Step |
+|------|------|
+| 0 | Namespaces (`acs-ai-overwatch-observability`, `tempo`, `openshift-tempo-operator`) |
+| 5 | User workload monitoring prep (enable + namespace labels) |
+| 10 | Tempo Operator subscription |
+| 30 | TempoMonolithic CR; MLflow DSC patch Job (`mlflowoperator: Managed`) |
+| 50 | OTEL collector ConfigMap; Grafana dashboard ConfigMaps |
+| 60 | OTEL collector Deployment/Service |
+| 70 | Bootstrap Job → writes `acs-ai-overwatch-observability-config` |
+
+To enable Phase 5:
+
+1. Uncomment in `gitops/argocd/kustomization.yaml`:
+   ```yaml
+   - application-observability.yaml
+   ```
+2. Enable the chart in `gitops/helm/acs-ai-overwatch-observability/values.yaml` (or use `values-phase5.yaml`):
+   ```yaml
+   enabled: true
+   ```
+3. Commit, push, apply:
+   ```bash
+   oc apply -k gitops/argocd/
+   oc logs -n acs-ai-overwatch-observability job/observability-bootstrap -f
+   ```
+4. **Optional — agent OTLP env** (after bootstrap ConfigMap exists), in main chart values:
+   ```yaml
+   observability:
+     agentInstrumentation:
+       enabled: true
+   ```
+   Refresh the main Argo Application so Helm `lookup` reads the integration ConfigMap. Agent images already include the OTEL SDK — this step only injects the collector endpoint env vars.
+
+5. Rebuild agent images (Tekton pipeline or `docker build`) so pods run the `acs_agent.server` runtime with instrumentation baked in.
+
+6. **Optional — Kagenti + Phase 5** (when Phase 4 is also enabled):
+   ```yaml
+   # gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml
+   phase5:
+     integration:
+       enabled: true
+   ```
+
+**Verify:**
+
+```bash
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-observability-config
+oc get deploy -n acs-ai-overwatch-observability acs-otel-collector
+oc get tempomonolithic -n tempo
+oc get dsc default-dsc -o jsonpath='{.spec.components.mlflowoperator.managementState}{"\n"}'
+```
+
+Grafana user workload URL (after bootstrap):
+
+```bash
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-observability-config \
+  -o jsonpath='{.data.grafanaUserWorkloadUrl}{"\n"}'
+```
+
+**Rollback:** set `enabled: false`, remove the Application from kustomization, delete the Argo app:
+
+```bash
+oc delete application acs-ai-overwatch-observability -n openshift-gitops --ignore-not-found
+```
+
+Set `observability.agentInstrumentation.enabled: false` in the main chart to stop injecting OTEL env on agents.
+
 ### Recommended order summary
 
 ```text
@@ -569,6 +674,7 @@ Phase 0–1 (baseline)     → bootstrap → discovery → main chart  [DEFAULT]
 Phase 2 (agents)       → Tekton + enable components.kagenti / agentsRoseyRegrets
 Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled
 Phase 4 (Kagenti plat) → application-kagenti-platform + job.enabled
+Phase 5 (observability)→ application-observability + enabled: true (+ agentInstrumentation optional)
 Phase 2 demo trigger   → ./scripts/trigger-network-audit.sh (needs Phases 2–4)
 ```
 
@@ -786,7 +892,8 @@ Three Argo CD Applications (see `gitops/argocd/kustomization.yaml`), ordered by 
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Creates namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` so Argo can create ServiceAccounts |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ServiceAccount + script ConfigMap, then PostSync Job writes **`acs-ai-overwatch-cluster-config`** |
 | 2 | `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` + `serverDryRun` |
-| (opt-in) | `acs-ai-overwatch-kagenti-platform` | **Not in kustomization by default** — see [Phase 4 — Kagenti platform](#phase-4--kagenti-platform-opt-in-off-by-default) |
+| (opt-in 3) | `acs-ai-overwatch-kagenti-platform` | **Not in kustomization by default** — see [Phase 4 — Kagenti platform](#phase-4--kagenti-platform-opt-in-off-by-default) |
+| (opt-in 4) | `acs-ai-overwatch-observability` | **Not in kustomization by default** — see [Phase 5 — Shared observability](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
 
 **Workflow:**
 
@@ -1118,10 +1225,12 @@ components:
 | `components.gpuConfig` | `false` | Reserved |
 | `components.acsPolicies` | `false` | ACS operator, test-range namespace, policy ConfigMap, OpenShell SCC |
 | `components.kagenti` | `false` | Kagenti agent Deployments, Services, AppSource |
-| `components.agentsHelpfulHank` | `false` | Reserved (Hank deployed via Kagenti toggle) |
+| `components.agentsHelpfulHank` | `true` (base) | `helpful-hank` Deployment + Service |
 | `components.agentsRoseyRogue` | `false` | Reserved legacy toggle |
-| `components.agentsRoseyRegrets` | `false` | PVC `agent-reference-information` |
+| `components.agentsRoseyRegrets` | `false` | `rosey-regrets` Deployment + PVC |
+| `components.agentsSneakySam` | `false` | `sneaky-sam` demo agent (telemetry violator) |
 | `components.pipelines` | `false` | Reserved (Tekton YAML applied separately) |
+| `agentTelemetryPolicy.enabled` | `true` | NetworkPolicy + RHACS telemetry policy ConfigMap |
 
 ---
 
@@ -1248,11 +1357,15 @@ You must configure the RHACS notifier separately in the ACS console to POST to t
 
 ## AI Agents
 
-Both agents are container images built from the **NVIDIA OpenShell community sandbox**:
+Both agents are container images built from the **NVIDIA OpenShell community sandbox**, extended with a shared **Kagenti A2A server** and **OpenTelemetry SDK** (`agents/common/acs_agent/`):
 
 ```
 ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+  + kagenti-adk (A2A protocol on PORT 8000)
+  + opentelemetry SDK (exports when OTEL_EXPORTER_OTLP_ENDPOINT is set — Phase 5)
 ```
+
+Each image starts `/sandbox/.venv/bin/python -m acs_agent.server` and listens on `0.0.0.0:8000`.
 
 **Model reference:**
 
@@ -1270,6 +1383,7 @@ https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive
 | System prompt | `agents/helpful-hank/system_prompt.txt` |
 | Extra packages | None beyond OpenShell base |
 | Output directory | N/A |
+| Telemetry label | `acs-ai-overwatch.io/telemetry=enabled` |
 
 **Build from repository root:**
 
@@ -1294,11 +1408,30 @@ docker build -f agents/helpful-hank/Dockerfile \
 | Extra packages | `nmap`, `iproute2` |
 | Output directory | `/agent-reference-information` |
 | PVC | `agent-reference-information` in `test-range` |
+| Telemetry label | `acs-ai-overwatch.io/telemetry=enabled` |
 
 **Build from repository root:**
 
 ```bash
 docker build -f agents/rosey-regrets/Dockerfile .
+```
+
+### Sneaky Sam (telemetry guardrail demo)
+
+| Attribute | Value |
+|-----------|-------|
+| Path | `agents/sneaky-sam/` |
+| Personality | Hank-like assistant that **skips** telemetry compliance at deploy time |
+| System prompt | `agents/sneaky-sam/system_prompt.txt` |
+| Telemetry label | `acs-ai-overwatch.io/telemetry=disabled` (deliberate violator) |
+| OTEL env | **Not** injected — demonstrates ACS/NetworkPolicy blocking |
+
+Enable with `components.agentsSneakySam.enabled: true`. With **Phase 3 RHACS** and admission control, the telemetry policy should **reject** the Deployment (Argo may show sync failure) and post a **deploy-time violation** to Mattermost Town Square — not a runtime scale-down alert. If the pod still lands (e.g. admission off), the **NetworkPolicy** limits it to DNS egress only.
+
+**Build from repository root:**
+
+```bash
+docker build -f agents/sneaky-sam/Dockerfile .
 ```
 
 ### Shared Agent Environment Variables
@@ -1309,7 +1442,14 @@ docker build -f agents/rosey-regrets/Dockerfile .
 | `MODEL_LOCAL_DIR` | `/models/hf-model` |
 | `HF_HOME` | `/models/hf-hub` |
 | `OPENSHELL_SYSTEM_PROMPT_FILE` | `/etc/openshell/agent/system_prompt.txt` |
+| `HOST` | Bind address for A2A server (`0.0.0.0`) |
+| `PORT` | A2A server port (`8000`) |
 | `AGENT_OUTPUT_DIR` | Rosey only: `/agent-reference-information` |
+| `AGENT_ENABLE_NETWORK_AUDIT` | Rosey only: `true` enables `Network Audit` command handler |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Phase 5: shared collector gRPC endpoint (injected by GitOps when enabled) |
+| `OTEL_SERVICE_NAME` | Phase 5: trace service name (`helpful-hank` / `rosey-regrets`) |
+
+OpenTelemetry is **baked into the image** and activates automatically when Phase 5 injects the `OTEL_*` variables via `observability.agentInstrumentation.enabled`. Without those env vars, the SDK initializes as a no-op and baseline behavior is unchanged.
 
 ### Model Download Helper
 
@@ -1332,6 +1472,7 @@ For gated models, provide `HF_TOKEN` in the environment.
 |--------|----------|--------------|
 | **Kagenti platform** | `acs-ai-overwatch-kagenti-platform` Application + `job.enabled` | Installs Keycloak, SPIRE, operator, API ([Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default)) |
 | **Agent workloads** | `components.kagenti.enabled` in main chart | Deploys `helpful-hank` / `rosey-regrets` Deployments + AppSource |
+| **Observability** | `acs-ai-overwatch-observability` Application + `enabled: true` | Shared OTEL → Tempo + MLflow; optional `observability.agentInstrumentation` on agents ([Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default)) |
 
 Kagenti discovers agent workloads via standard Kubernetes Deployments labeled `kagenti.io/type: agent`.
 
@@ -1723,7 +1864,9 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI |
 | `acs-test-range-namespace.yaml` | `components.acsPolicies.enabled` | `test-range` namespace |
 | `acs-operator-install.yaml` | `components.acsPolicies.enabled` | RHACS operator |
-| `acs-policy-test-range.yaml` | `components.acsPolicies.enabled` | Policy ConfigMap |
+| `acs-policy-test-range.yaml` | `components.acsPolicies.enabled` | Runtime guardrails policy ConfigMap |
+| `acs-policy-agent-telemetry.yaml` | `acsPolicies` + `agentTelemetryPolicy` | Agent telemetry required-label policy |
+| `agent-telemetry-networkpolicy.yaml` | `kagenti` + `agentTelemetryPolicy` | DNS-only egress for non-compliant agents |
 | `acs-openshell-scc.yaml` | `components.acsPolicies.enabled` | SCC + ServiceAccount |
 | `agents-rosey-regrets-pvc.yaml` | `components.agentsRoseyRegrets.enabled` | PVC |
 | `kagenti-agent-deployments.yaml` | `components.kagenti.enabled` | Agent Deployments/Services |

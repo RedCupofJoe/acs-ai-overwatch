@@ -1,0 +1,6 @@
+apiVersion: v2
+name: acs-ai-overwatch-observability
+description: Phase 5 — shared agent/model observability (OTEL dual-export to Tempo + MLflow, Grafana dashboards).
+type: application
+version: 0.1.0
+appVersion: "1.0"

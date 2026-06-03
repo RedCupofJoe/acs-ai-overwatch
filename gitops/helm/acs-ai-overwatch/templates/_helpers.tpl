@@ -408,6 +408,8 @@ CLUSTER_NAME="{{ .Values.acs.securedCluster.clusterName }}"
 CENTRAL_ENDPOINT="{{ .Values.acs.securedCluster.centralEndpoint }}"
 POLICY_CM="{{ .Values.acs.policy.configMapName }}"
 POLICY_NS="{{ .Values.acs.testRange.namespace }}"
+TELEMETRY_POLICY_CM="{{ .Values.agentTelemetryPolicy.rhacs.configMapName }}"
+IMPORT_TELEMETRY_POLICY="{{ .Values.agentTelemetryPolicy.rhacs.enabled }}"
 IMPORT_POLICY="{{ .Values.acs.bootstrap.importPolicy }}"
 NOTIFIER_NAME="{{ .Values.acs.policy.notifierName }}"
 MATTERMOST_CM="{{ .Values.acs.bootstrap.mattermostIntegrationConfigMap }}"
@@ -484,6 +486,12 @@ if [ "${IMPORT_POLICY}" = "true" ]; then
   oc extract "configmap/${POLICY_CM}" -n "${POLICY_NS}" --keys=policy.yaml --to=- \
     | roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
       declarative-config create --file -
+  if [ "${IMPORT_TELEMETRY_POLICY}" = "true" ]; then
+    echo "Importing agent telemetry policy from ConfigMap ${POLICY_NS}/${TELEMETRY_POLICY_CM}..."
+    oc extract "configmap/${TELEMETRY_POLICY_CM}" -n "${POLICY_NS}" --keys=policy.yaml --to=- \
+      | roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
+        declarative-config create --file -
+  fi
 fi
 
 if oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" >/dev/null 2>&1; then
@@ -502,4 +510,52 @@ else
 fi
 
 echo "ACS bootstrap complete."
+{{- end }}
+
+{{/*
+  Phase 5 — optional OTEL env vars for agent Deployments when observability.agentInstrumentation.enabled.
+  Reads acs-ai-overwatch-observability-config written by the observability chart bootstrap Job.
+*/}}
+{{- define "acs-ai-overwatch.observabilityConfigReady" -}}
+{{- if not .Values.observability.agentInstrumentation.enabled -}}{{- end -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.observability.integrationConfigMap.namespace .Values.observability.integrationConfigMap.name -}}
+{{- if and $cm $cm.data.otelCollectorGrpcEndpoint -}}true{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.otelAgentEnv" -}}
+{{- $root := .root -}}
+{{- $serviceName := .serviceName -}}
+{{- if and $root.Values.observability.agentInstrumentation.enabled (include "acs-ai-overwatch.observabilityConfigReady" $root) -}}
+{{- $cm := lookup "v1" "ConfigMap" $root.Values.observability.integrationConfigMap.namespace $root.Values.observability.integrationConfigMap.name -}}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ $cm.data.otelCollectorGrpcEndpoint | quote }}
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: grpc
+- name: OTEL_TRACES_EXPORTER
+  value: otlp
+- name: OTEL_METRICS_EXPORTER
+  value: none
+- name: OTEL_LOGS_EXPORTER
+  value: none
+- name: OTEL_SERVICE_NAME
+  value: {{ $serviceName | quote }}
+- name: OTEL_RESOURCE_ATTRIBUTES
+  value: {{ printf "service.namespace=%s,deployment.environment=acs-ai-overwatch" $root.Values.kagenti.namespace | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+  Telemetry compliance label for Kagenti agent pods (RHACS + NetworkPolicy enforcement).
+  Usage: {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+*/}}
+{{- define "acs-ai-overwatch.agentTelemetryLabelKey" -}}
+{{- .Values.agentTelemetryPolicy.requiredLabel.key -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.agentTelemetryLabel" -}}
+{{- $root := .root -}}
+{{- $compliant := .compliant -}}
+{{- if $root.Values.agentTelemetryPolicy.enabled -}}
+{{ $root.Values.agentTelemetryPolicy.requiredLabel.key }}: {{ if $compliant }}{{ $root.Values.agentTelemetryPolicy.requiredLabel.compliantValue | quote }}{{ else }}{{ $root.Values.agentTelemetryPolicy.requiredLabel.nonCompliantValue | quote }}{{ end }}
+{{- end -}}
 {{- end }}
