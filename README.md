@@ -26,6 +26,8 @@ See **[PoC deployment phases](#poc-deployment-phases)** for the recommended orde
 
 ### Quick Start
 
+**When you need Pipelines:** GitOps-only deploy (operators, Quay, Mattermost) does **not** require Pipelines. Install Pipelines before step 7 below (building helpful-hank / rosey-regrets images). See [OpenShift Pipelines (Tekton) prerequisite](#openshift-pipelines-tekton-prerequisite).
+
 ```bash
 oc login   # cluster-admin
 
@@ -53,7 +55,8 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 #    oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config \
 #      -o jsonpath='{.data.mattermostSiteUrl}{"\n"}'
 
-# 7. Later — enable agents / full RHACS / Kagenti (Phases 2–4 below)
+# 7. Build agent images (requires OpenShift Pipelines — see note above)
+#    Then enable agents / full RHACS / Kagenti (Phases 2–4 below)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
