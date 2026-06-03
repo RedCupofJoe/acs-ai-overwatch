@@ -593,10 +593,11 @@ To install the **Kagenti platform** (Keycloak, SPIRE, operator, API):
 3. Commit, push, apply:
    ```bash
    oc apply -k gitops/argocd/
-   oc logs -n kagenti-system job/kagenti-platform-install -f
+   # Install Job runs async (15–30 min). Do not re-sync while it is running.
+   oc logs -n kagenti-system -l job-name=kagenti-platform-install -c install -f
    ```
 
-Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2).
+Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2). If a prior sync used a PostSync hook, Argo may show **SyncError / waiting for hook** until the Job pod finishes — that is expected; watch the pod logs above rather than triggering another sync.
 
 **Rollback:** set `job.enabled: false`, remove the Application from kustomization, delete the Argo app:
 
