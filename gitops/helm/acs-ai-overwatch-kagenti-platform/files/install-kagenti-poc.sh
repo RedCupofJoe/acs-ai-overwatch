@@ -85,6 +85,25 @@ PY
 }
 _patch_agent_namespaces "${WORKDIR}/charts/kagenti/values.yaml" "${NS_ARR[@]}"
 
+# Agent namespaces are pre-created by acs-ai-overwatch-gitops-bootstrap; adopt them
+# so `helm upgrade --install kagenti` can manage RBAC/network policies in Step 4.
+_adopt_agent_namespaces_for_helm() {
+  for ns in "$@"; do
+    ns="$(echo "${ns}" | xargs)"
+    [ -z "${ns}" ] && continue
+    if ! oc get namespace "${ns}" >/dev/null 2>&1; then
+      continue
+    fi
+    echo "Adopting existing namespace ${ns} for Helm release kagenti"
+    oc label namespace "${ns}" app.kubernetes.io/managed-by=Helm --overwrite
+    oc annotate namespace "${ns}" \
+      meta.helm.sh/release-name=kagenti \
+      meta.helm.sh/release-namespace="${KAGENTI_NS}" \
+      --overwrite
+  done
+}
+_adopt_agent_namespaces_for_helm "${NS_ARR[@]}"
+
 SETUP_ARGS=(--kagenti-repo "${WORKDIR}" --realm "${KC_REALM}" --keycloak-namespace "${KC_NAMESPACE}")
 if [ "${SKIP_MLFLOW}" = "true" ]; then
   SETUP_ARGS+=(--skip-mlflow)
