@@ -1,33 +1,46 @@
 # PoC cluster overlay — merge after values.yaml (see gitops/argocd/application.yaml).
 #
-# REQUIRED: set NVMe device paths for your workers before first sync.
-# Discover on a worker:
-#   oc debug node/<worker> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
+# Profile: AWS workers without spare NVMe/instance-store disks (ROSA / EBS-only).
+# Uses default CSI storage for Mattermost; defers Quay + Local Storage Operator until
+# dedicated volumes are attached (see README "PoC Cluster-Local Storage").
 #
-# Use two distinct disks: one for filesystem workloads (xfs), one for Quay object block store.
+# Confirm StorageClass name on cluster:
+#   oc get storageclass
 
+# Helm lookup on the GitOps repo-server often cannot see CRDs; operators are up on this cluster.
+platformResources:
+  waitForCrds: false
+
+# No raw local disks — skip LSO, LocalVolume, Quay operator/registry from this chart.
 quayStorage:
-  localVolume:
-    storageClassDevices:
-      - storageClassName: quay-local-xfs
-        volumeMode: Filesystem
-        fsType: xfs
-        devicePaths:
-          # Metadata + filesystem PVCs (Mattermost, Rosey, Quay Postgres/Clair)
-          - /dev/disk/by-id/nvme-Amazon_EC2_NVMe_Instance_Storage_AWS123D80A316DA8FE46
-      - storageClassName: quay-local-block
-        volumeMode: Block
-        devicePaths:
-          # Quay registry object storage only
-          - /dev/disk/by-id/nvme-Amazon_EC2_NVMe_Instance_Storage_AWS123D80A316DA8FE46_1
+  enabled: false
 
-# Optional: tighten nodeSelector if only specific workers have those NVMe devices.
+mattermost:
+  pvc:
+    # Default on many AWS/OpenShift clusters; change if `oc get storageclass` differs.
+    storageClassName: gp3-csi
+
+storage:
+  local:
+    filesystemStorageClass: gp3-csi
+    blockStorageClass: gp3-csi
+
+# Agent images in values.yaml point at in-cluster Quay; disable until Quay is deployed.
+components:
+  kagenti: false
+  agentsHelpfulHank: false
+
+# --- Full local-storage PoC (when workers have two empty NVMe/EBS devices) ---
 # quayStorage:
+#   enabled: true
 #   localVolume:
-#     nodeSelector:
-#       nodeSelectorTerms:
-#         - matchExpressions:
-#             - key: kubernetes.io/hostname
-#               operator: In
-#               values:
-#                 - worker-0.example.com
+#     storageClassDevices:
+#       - storageClassName: quay-local-xfs
+#         volumeMode: Filesystem
+#         fsType: xfs
+#         devicePaths:
+#           - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
+#       - storageClassName: quay-local-block
+#         volumeMode: Block
+#         devicePaths:
+#           - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
