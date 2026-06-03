@@ -32,6 +32,15 @@ components:
   agentsHelpfulHank:
     enabled: false
 
+# PoC does not schedule RHOAI workbench workloads — skip Kueue operator prerequisite.
+rhoai:
+  datascienceCluster:
+    components:
+      kueue:
+        managementState: Removed
+  hardwareProfile:
+    enabled: false
+
 # --- Full local-storage PoC (when workers have two empty NVMe/EBS devices) ---
 # quayStorage:
 #   enabled: true

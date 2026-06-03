@@ -37,6 +37,10 @@ argocd:
     workloads: "60"
     bootstrap: "70"
     agents: "80"
+    # Mattermost last — capstone before PoC execution (after platform, ACS, agents).
+    mattermostPrep: "85"
+    mattermostWorkloads: "90"
+    mattermostBootstrap: "95"
 
 # In-cluster discovery Job writes acs-ai-overwatch-cluster-config (see helm/acs-ai-overwatch-cluster-discovery).
 clusterDiscovery:

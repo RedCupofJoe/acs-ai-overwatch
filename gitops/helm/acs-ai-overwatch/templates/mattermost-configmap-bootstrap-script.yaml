@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: mattermost-bootstrap-script
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "mattermostPrep") | nindent 2 }}
   namespace: {{ .Values.mattermost.namespace }}
   labels:
     app.kubernetes.io/name: mattermost
