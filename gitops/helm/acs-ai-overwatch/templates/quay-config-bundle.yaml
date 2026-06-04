@@ -1,0 +1,32 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled .Values.quayStorage.quayRegistry.minio.enabled }}
+{{- $ns := .Values.quayStorage.quayRegistry.namespace }}
+{{- $minio := .Values.quayStorage.quayRegistry.minio.name }}
+{{- $bucket := .Values.quayStorage.quayRegistry.minio.bucketName }}
+{{- $credSecret := .Values.quayStorage.quayRegistry.minio.credentialsSecret.name }}
+{{- $bundle := .Values.quayStorage.quayRegistry.configBundleSecret.name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $bundle }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-config
+type: Opaque
+stringData:
+  config.yaml: |
+    DISTRIBUTED_STORAGE_CONFIG:
+      default:
+        - RadosGWStorage
+        - access_key: {{ .Values.quayStorage.quayRegistry.minio.credentialsSecret.accessKey }}
+          secret_key: {{ .Values.quayStorage.quayRegistry.minio.credentialsSecret.secretKey }}
+          hostname: {{ $minio }}.{{ $ns }}.svc.cluster.local
+          bucket_name: {{ $bucket }}
+          port: 9000
+          is_secure: false
+          storage_path: /datastorage/registry
+    DISTRIBUTED_STORAGE_DEFAULT_LOCATIONS: []
+    DISTRIBUTED_STORAGE_PREFERENCE:
+      - default
+{{- end }}

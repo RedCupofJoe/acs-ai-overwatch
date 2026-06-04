@@ -134,6 +134,31 @@ quayStorage:
     name: quay
     namespace: quay
     clusterMonitoringLabel: "true"
+    # Quay config bundle for unmanaged object storage (MinIO on gp3-csi).
+    configBundleSecret:
+      name: quay-config-bundle
+    minio:
+      enabled: true
+      name: quay-minio
+      image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+      mcImage: quay.io/minio/mc:RELEASE.2024-11-21T22-02-07Z
+      bucketName: quay
+      volumeSize: 500Gi
+      storageClassName: gp3-csi
+      credentialsSecret:
+        name: quay-minio-credentials
+        accessKey: quay-minio-access
+        secretKey: CHANGE_ME_MINIO_SECRET
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      bucketJob:
+        backoffLimit: 6
+        waitImage: docker.io/library/busybox:1.36
     components:
       postgres:
         storageClassName: gp3-csi
@@ -142,8 +167,8 @@ quayStorage:
         storageClassName: gp3-csi
         volumeSize: 50Gi
       objectstorage:
-        storageClassName: gp3-csi
-        volumeSize: 500Gi
+        # managed: false — EBS-only clusters lack objectbucket.io (ODF/NooBaa). Use MinIO below.
+        managed: false
       horizontalpodautoscaler:
         managed: false
       mirror:

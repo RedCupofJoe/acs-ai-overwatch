@@ -8,6 +8,9 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 spec:
+  {{- if .Values.quayStorage.quayRegistry.minio.enabled }}
+  configBundleSecret: {{ .Values.quayStorage.quayRegistry.configBundleSecret.name }}
+  {{- end }}
   components:
     - kind: postgres
       managed: true
@@ -20,10 +23,7 @@ spec:
         storageClassName: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
         volumeSize: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.volumeSize }}
     - kind: objectstorage
-      managed: true
-      overrides:
-        storageClassName: {{ .Values.quayStorage.quayRegistry.components.objectstorage.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
-        volumeSize: {{ .Values.quayStorage.quayRegistry.components.objectstorage.volumeSize }}
+      managed: {{ .Values.quayStorage.quayRegistry.components.objectstorage.managed }}
     - kind: quay
       managed: true
     - kind: clair

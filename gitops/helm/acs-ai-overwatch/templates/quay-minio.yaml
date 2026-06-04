@@ -1,0 +1,164 @@
+{{- if and .Values.quayStorage.enabled .Values.quayStorage.quayRegistry.enabled .Values.quayStorage.quayRegistry.minio.enabled }}
+{{- $ns := .Values.quayStorage.quayRegistry.namespace }}
+{{- $name := .Values.quayStorage.quayRegistry.minio.name }}
+{{- $sc := .Values.quayStorage.quayRegistry.minio.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
+{{- $credSecret := .Values.quayStorage.quayRegistry.minio.credentialsSecret.name }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $credSecret }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-minio
+type: Opaque
+stringData:
+  accessKey: {{ .Values.quayStorage.quayRegistry.minio.credentialsSecret.accessKey | quote }}
+  secretKey: {{ .Values.quayStorage.quayRegistry.minio.credentialsSecret.secretKey | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.quayStorage.quayRegistry.minio.volumeSize }}
+  storageClassName: {{ $sc }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-minio
+spec:
+  selector:
+    app.kubernetes.io/component: quay-minio
+    app.kubernetes.io/name: {{ include "acs-ai-overwatch.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: quay-minio
+      app.kubernetes.io/name: {{ include "acs-ai-overwatch.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
+        app.kubernetes.io/component: quay-minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.quayStorage.quayRegistry.minio.image | quote }}
+          args:
+            - server
+            - /data
+            - --console-address
+            - :9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $credSecret }}
+                  key: accessKey
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $credSecret }}
+                  key: secretKey
+          ports:
+            - containerPort: 9000
+              name: api
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.quayStorage.quayRegistry.minio.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-init-bucket
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: quay-minio
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.quayStorage.quayRegistry.minio.bucketJob.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
+        app.kubernetes.io/component: quay-minio
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-minio
+          image: {{ .Values.quayStorage.quayRegistry.minio.bucketJob.waitImage | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              until wget -q -O- "http://{{ $name }}:9000/minio/health/live"; do
+                echo "waiting for MinIO..."
+                sleep 5
+              done
+      containers:
+        - name: mc
+          image: {{ .Values.quayStorage.quayRegistry.minio.mcImage | quote }}
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $credSecret }}
+                  key: accessKey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $credSecret }}
+                  key: secretKey
+            - name: MINIO_BUCKET
+              value: {{ .Values.quayStorage.quayRegistry.minio.bucketName | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              mc alias set local "http://{{ $name }}:9000" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+              mc mb --ignore-existing "local/${MINIO_BUCKET}"
+{{- end }}

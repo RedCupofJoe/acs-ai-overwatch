@@ -1034,15 +1034,20 @@ Helm templates fall back to `storage.defaultStorageClass` for Mattermost, Quay, 
 | Workload | Values key | Default |
 |----------|------------|---------|
 | Mattermost data + Postgres | `mattermost.pvc.storageClassName`, `mattermost.postgres.pvc.storageClassName` | `gp3-csi` |
-| Quay Postgres / Clair / object storage | `quayStorage.quayRegistry.components.*.storageClassName` | `gp3-csi` |
+| Quay Postgres / Clair | `quayStorage.quayRegistry.components.postgres/clairpostgres.storageClassName` | `gp3-csi` |
+| Quay blob storage (MinIO) | `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` |
 | RHACS Central database | `acs.central.persistence.storageClassName` | `gp3-csi` |
 | Rosey Regrets output PVC | `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` |
 | Tempo trace storage (Phase 5) | `tempo.monolithic.storageClassName` (observability chart) | `gp3-csi` |
 | Tekton build workspace | `pipelines/tekton/agents-build-pipelinerun.example.yaml` | `gp3-csi` |
 
-### Quay on EBS
+### Quay on EBS (MinIO)
 
-Quay runs entirely on **`gp3-csi`** — no Local Storage Operator or NVMe device configuration. Default object storage is **500Gi**; adjust `quayStorage.quayRegistry.components.objectstorage.volumeSize` for your budget.
+Quay blob storage cannot use a block PVC directly. With `objectstorage.managed: true`, the operator requires the **`objectbucket.io`** API (OpenShift Data Foundation / NooBaa), which EBS-only clusters do not have.
+
+This chart deploys **MinIO on `gp3-csi`** and sets `objectstorage.managed: false` with a `configBundleSecret` pointing Quay at in-cluster S3. Default MinIO PVC is **500Gi** (`quayStorage.quayRegistry.minio.volumeSize`).
+
+Set `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` before production use (default placeholder in repo).
 
 Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to build agent images, or use an **external registry** and point `kagenti.images.*` / Tekton at that host instead.
 
@@ -1061,7 +1066,7 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Argo CD repo URL | `gitops/argocd/application*.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
-| Quay object storage size | `quayStorage.quayRegistry.components.objectstorage.volumeSize` | Default 500Gi on gp3-csi |
+| Quay object storage size | `quayStorage.quayRegistry.minio.volumeSize` | Default 500Gi MinIO PVC on gp3-csi |
 | Red Hat Kueue Operator | OperatorHub (manual) | Before `default-dsc`; see [Kueue prerequisite](#red-hat-kueue-operator-prerequisite) |
 | OpenShift Pipelines | OperatorHub / OLM Subscription | Required before `oc apply -f pipelines/tekton/`; see [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 
@@ -1238,7 +1243,7 @@ components:
 | `mattermost.postgres.pvc.storageClassName` | `gp3-csi` | Mattermost Postgres |
 | `quayStorage.quayRegistry.components.postgres.storageClassName` | `gp3-csi` | Quay Postgres |
 | `quayStorage.quayRegistry.components.clairpostgres.storageClassName` | `gp3-csi` | Quay Clair Postgres |
-| `quayStorage.quayRegistry.components.objectstorage.storageClassName` | `gp3-csi` | Quay blob storage |
+| `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` | MinIO blob storage PVC |
 | `acs.central.persistence.storageClassName` | `gp3-csi` | RHACS Central PVC |
 | `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` | Rosey output PVC |
 
@@ -1319,7 +1324,7 @@ Deploys on-cluster Quay on **`gp3-csi`** (same StorageClass as other workloads).
 **Stack:**
 
 1. Quay Operator subscription
-2. `QuayRegistry` CR — Postgres, Clair, and object storage on `gp3-csi`
+2. `QuayRegistry` CR — Postgres and Clair on `gp3-csi`; blob storage via MinIO (S3-compatible) on `gp3-csi`
 3. Pull credentials Secret in `ai-workbenches`
 
 Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to build agent images. Alternatively use an **external registry** and disable in-cluster Quay (see [Storage](#storage)).
