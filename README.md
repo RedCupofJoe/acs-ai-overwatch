@@ -795,6 +795,8 @@ Phase 5 (observability)→ application-observability + enabled: true (+ agentIns
 Phase 2 demos          → Sneaky Sam telemetry guardrail OR trigger-network-audit.sh (needs Phases 2–4)
 ```
 
+**After the PoC:** run [`scripts/cleanup-poc-repo.sh`](#scriptscleanup-poc-reposh) to reset GitOps overlays and remove local cluster-specific files before the next sandbox or fork handoff.
+
 ---
 
 ## Cluster admin: pre-GitOps setup
@@ -1080,6 +1082,7 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 |--------|---------|
 | `cluster-admin-pre-gitops` | Runs `scripts/cluster-admin/install-pre-gitops.sh` (before Argo CD) |
 | `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
+| `cleanup-poc-repo` | Runs `scripts/cleanup-poc-repo.sh` → baseline GitOps (after PoC) |
 | `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
 | `helm-template-discovery` | Renders `acs-ai-overwatch-cluster-discovery` chart |
 
@@ -2005,6 +2008,30 @@ Prints Kagenti UI / API / Keycloak URLs and demo login credentials from cluster 
 ```
 
 See [KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md) for the full verification checklist and troubleshooting.
+
+### `scripts/cleanup-poc-repo.sh` (after PoC)
+
+Resets the **local Git repo** to the portable baseline — no cluster-specific settings. Does **not** delete OpenShift resources; tear down the cluster or Argo Applications separately if needed.
+
+| Action | Target |
+|--------|--------|
+| Restore baseline overlay | `gitops/helm/acs-ai-overwatch/values-poc.yaml` (Quay, RHACS Central, agents **off**) |
+| Disable opt-in Argo apps | `gitops/argocd/kustomization.yaml` (Phase 4/5 Applications commented out) |
+| Disable Kagenti install Job | `gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml` → `job.enabled: false` |
+| Ensure Phase 5 off | `gitops/helm/acs-ai-overwatch-observability/values.yaml` → `enabled: false` if set |
+| Remove local discovery output | `gitops/helm/acs-ai-overwatch/values-cluster.yaml` (gitignored) |
+| Clear scratch workspace | `scratch/` (gitignored) |
+
+Baseline copies live in [`scripts/baseline/`](scripts/baseline/) — update those files when the default PoC posture changes.
+
+```bash
+./scripts/cleanup-poc-repo.sh --dry-run          # preview
+./scripts/cleanup-poc-repo.sh                    # apply
+./scripts/cleanup-poc-repo.sh --reset-repo-urls  # also set Argo repoURL from git remote / GIT_REPO_URL
+git status && git diff                           # review, then commit or discard
+```
+
+Or: `make cleanup-poc-repo`
 
 ### `scripts/trigger-network-audit.sh`
 

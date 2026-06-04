@@ -1,0 +1,32 @@
+# PoC cluster overlay — merged after values.yaml (see gitops/argocd/application.yaml).
+#
+# All PVCs use gp3-csi from values.yaml. Override storage.defaultStorageClass here
+# if `oc get storageclass` shows a different name.
+
+platformResources:
+  waitForCrds: false
+
+# Disable Quay until you are ready to build/push agent images (uses gp3-csi when enabled).
+quayStorage:
+  enabled: false
+
+mattermost:
+  automaticPrepackagedPlugins: false
+
+# Phase 2+ opt-in — see README "PoC deployment phases".
+components:
+  kagenti:
+    enabled: false
+  agentsHelpfulHank:
+    enabled: false
+  agentsRoseyRegrets:
+    enabled: false
+  agentsSneakySam:
+    enabled: false
+
+# Phase 3 opt-in — baseline is RHACS operator + SecurityPolicy CRs only (no Central).
+acs:
+  central:
+    enabled: false
+  bootstrap:
+    enabled: false

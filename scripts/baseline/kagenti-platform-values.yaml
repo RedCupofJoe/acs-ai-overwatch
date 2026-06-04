@@ -1,0 +1,47 @@
+global:
+  partOf: acs-ai-overwatch
+
+argocd:
+  syncWaves:
+    enabled: true
+    rbac: "0"
+    configMap: "1"
+    job: "2"
+  # PostSync install Job can run 15–30+ minutes; match Job activeDeadlineSeconds.
+  hookTimeoutSeconds: 3600
+
+# Target namespace for the install Job and Kagenti control plane.
+# Namespace is pre-created by acs-ai-overwatch-gitops-bootstrap (avoid duplicate Argo ownership).
+namespace: kagenti-system
+
+job:
+  # OPT-IN: set true and register gitops/argocd/application-kagenti-platform.yaml — see README "Phase 4 — Kagenti platform".
+  enabled: false
+  restartPolicy: OnFailure
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  # Kept for documentation; Job spec uses argocd.hookTimeoutSeconds.
+  activeDeadlineSeconds: 3600
+  image: registry.redhat.io/openshift4/ose-cli:latest
+  toolsInitImage: registry.redhat.io/ubi9/ubi:latest
+  helmVersion: "3.14.4"
+
+# Upstream Kagenti repository (cloned by the install Job).
+kagenti:
+  gitUrl: https://github.com/kagenti/kagenti.git
+  gitRef: main
+  keycloakNamespace: keycloak
+  keycloakRealm: kagenti
+  # Namespaces where agent Deployments run (must include test-range for this PoC).
+  agentNamespaces:
+    - test-range
+  skipMlflow: true
+  skipOvnPatch: true
+  skipUi: false
+
+# When Phase 5 observability is enabled, keep skipMlflow true (shared collector exports to MLflow)
+# and set externalOtelCollector to the Phase 5 collector gRPC endpoint.
+phase5:
+  integration:
+    enabled: false
+    externalOtelCollector: acs-otel-collector.acs-ai-overwatch-observability.svc.cluster.local:4317

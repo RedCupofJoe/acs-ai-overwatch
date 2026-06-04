@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Optional fallback if managed-by namespaces are insufficient:
+#   oc apply -f gitops/argocd/bootstrap/openshift-gitops-controller-rbac.yaml
+resources:
+  - appproject-acs-ai-overwatch.yaml
+  - application-gitops-bootstrap.yaml
+  - application-cluster-discovery.yaml
+  # OPT-IN — Phase 4 Kagenti platform (not part of baseline PoC sync):
+  # - application-kagenti-platform.yaml
+  # OPT-IN — Phase 5 observability (OTEL dual-export, Tempo, MLflow, Grafana):
+  # - application-observability.yaml
+  - application.yaml

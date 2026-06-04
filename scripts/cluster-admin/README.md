@@ -95,3 +95,4 @@ These scripts automate the **pre-GitOps bootstrap**. Other manual work is groupe
 | Phase 3 — Full RHACS | [README — Phase 3](../README.md#phase-3--full-rhacs-central--securedcluster-opt-in-off-by-default) |
 | Phase 4 — Kagenti | [README — Phase 4](../README.md#phase-4--kagenti-platform-opt-in-off-by-default) and [KEYCLOAK.md — manual steps](../gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md#manual-steps-if-necessary) |
 | Phase 5 — Observability | [README — Phase 5](../README.md#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
+| After PoC (repo reset) | [cleanup-poc-repo.sh](../scripts/cleanup-poc-repo.sh) — baseline GitOps, no cluster changes |
