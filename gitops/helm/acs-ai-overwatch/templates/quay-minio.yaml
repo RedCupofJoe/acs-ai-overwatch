@@ -143,6 +143,8 @@ spec:
         - name: mc
           image: {{ .Values.quayStorage.quayRegistry.minio.mcImage | quote }}
           env:
+            - name: MC_CONFIG_DIR
+              value: /tmp/.mc
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:

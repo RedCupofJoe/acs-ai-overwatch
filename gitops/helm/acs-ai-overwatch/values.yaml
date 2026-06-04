@@ -141,7 +141,7 @@ quayStorage:
       enabled: true
       name: quay-minio
       image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-      mcImage: quay.io/minio/mc:RELEASE.2024-11-21T22-02-07Z
+      mcImage: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
       bucketName: quay
       volumeSize: 500Gi
       storageClassName: gp3-csi
