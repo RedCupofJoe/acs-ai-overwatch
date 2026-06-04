@@ -20,9 +20,7 @@ spec:
     persistence:
       persistentVolumeClaim:
         claimName: {{ .Values.acs.central.persistence.claimName }}
-        {{- if .Values.acs.central.persistence.storageClassName }}
-        storageClassName: {{ .Values.acs.central.persistence.storageClassName }}
-        {{- end }}
+        storageClassName: {{ .Values.acs.central.persistence.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
   egress:
     connectivityPolicy: {{ .Values.acs.central.egress.connectivityPolicy }}
   scanner:

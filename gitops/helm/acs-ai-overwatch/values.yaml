@@ -1,8 +1,9 @@
 # Cluster-specific configuration — override via Argo CD, CI, or:
 #   helm upgrade -i acs-ai-overwatch . -f values-poc.yaml -n openshift-gitops
 #
-# PoC storage: on-cluster only via OpenShift Local Storage Operator (see quayStorage.localVolume).
-# Set NVMe devicePaths in values-poc.yaml (or here) before sync.
+# Storage: all PVCs (including Quay) use gp3-csi (EBS) by default.
+# Override storage.defaultStorageClass when your cluster differs (oc get sc).
+# Alternative: external registry — set quayStorage.enabled false and point agent images elsewhere.
 
 global:
   partOf: acs-ai-overwatch
@@ -19,7 +20,6 @@ platformResources:
     dataScienceCluster: datascienceclusters.datasciencecluster.opendatahub.io
     hardwareProfile: hardwareprofiles.infrastructure.opendatahub.io
     clusterPolicy: clusterpolicies.nvidia.com
-    localVolume: localvolumes.local.storage.openshift.io
     quayRegistry: quayregistries.quay.redhat.com
     central: centrals.platform.stackrox.io
     securedCluster: securedclusters.platform.stackrox.io
@@ -67,11 +67,9 @@ clusterMetadata:
   enabled: true
   namespace: acs-ai-overwatch-system
 
-# On-cluster local storage for the PoC (StorageClasses from LSO LocalVolume quay-local-storage).
+# Default StorageClass for all PVCs (Mattermost, Quay, RHACS, Rosey, Tekton, Tempo).
 storage:
-  local:
-    filesystemStorageClass: quay-local-xfs
-    blockStorageClass: quay-local-block
+  defaultStorageClass: gp3-csi
 
 mattermost:
   enabled: true
@@ -82,7 +80,7 @@ mattermost:
     repository: mattermost/mattermost-team-edition
     tag: "10.11.15"
   pvc:
-    storageClassName: quay-local-xfs
+    storageClassName: gp3-csi
     size: 10Gi
   # External browser URL and Route host are discovered at runtime into ConfigMap
   # acs-ai-overwatch-cluster-config (mattermostSiteUrl / mattermostRouteHost).
@@ -116,45 +114,10 @@ mattermost:
     password: mattermost-db-password
     pvc:
       size: 5Gi
-      storageClassName: ""
+      storageClassName: gp3-csi
 
 quayStorage:
   enabled: true
-  localStorageOperator:
-    enabled: true
-    namespace: openshift-local-storage
-    clusterMonitoringLabel: "true"
-    podSecurityEnforce: privileged
-    operatorGroup:
-      name: openshift-local-storage
-    subscription:
-      name: local-storage-operator
-      channel: stable
-      installPlanApproval: Automatic
-      source: redhat-operators
-      sourceNamespace: openshift-marketplace
-  localVolume:
-    enabled: true
-    name: quay-local-storage
-    namespace: openshift-local-storage
-    logLevel: Normal
-    managementState: Managed
-    nodeSelector:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: node-role.kubernetes.io/worker
-              operator: Exists
-    # Replace devicePaths in values-poc.yaml with your worker NVMe by-id symlinks (see README).
-    storageClassDevices:
-      - storageClassName: quay-local-xfs
-        volumeMode: Filesystem
-        fsType: xfs
-        devicePaths:
-          - /dev/disk/by-id/nvme-REPLACE_METADATA_DISK
-      - storageClassName: quay-local-block
-        volumeMode: Block
-        devicePaths:
-          - /dev/disk/by-id/nvme-REPLACE_OBJECT_DISK
   quayOperator:
     enabled: true
     subscription:
@@ -171,13 +134,13 @@ quayStorage:
     clusterMonitoringLabel: "true"
     components:
       postgres:
-        storageClassName: quay-local-xfs
+        storageClassName: gp3-csi
         volumeSize: 50Gi
       clairpostgres:
-        storageClassName: quay-local-xfs
+        storageClassName: gp3-csi
         volumeSize: 50Gi
       objectstorage:
-        storageClassName: quay-local-block
+        storageClassName: gp3-csi
         volumeSize: 500Gi
       horizontalpodautoscaler:
         managed: false
@@ -402,7 +365,7 @@ agentsRoseyRegrets:
   namespace: test-range
   pvc:
     name: agent-reference-information
-    storageClassName: quay-local-xfs
+    storageClassName: gp3-csi
     size: 20Gi
 
 # Tekton/OpenShift Pipelines defaults (see pipelines/tekton/agents-build-pipeline.yaml).
@@ -458,7 +421,7 @@ acs:
       enabled: true
     persistence:
       claimName: stackrox-db
-      storageClassName: ""
+      storageClassName: gp3-csi
     egress:
       connectivityPolicy: Online
     scanner:

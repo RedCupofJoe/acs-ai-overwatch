@@ -55,7 +55,7 @@ tempo:
     namespace: tempo
     name: acs-tempo
     storageSize: 10Gi
-    storageClassName: ""
+    storageClassName: gp3-csi
     tenantName: acs
     tenantId: acs-tenant
 

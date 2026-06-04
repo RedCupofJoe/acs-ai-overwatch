@@ -84,39 +84,12 @@ mkdir -p "$(dirname "${OUTPUT}")"
     "${PASSWORD_LINE}"
 } >"${OUTPUT}"
 
-POC_FILE="${REPO_ROOT}/gitops/helm/acs-ai-overwatch/values-poc.yaml"
-NVME_SUGGEST_METADATA=""
-NVME_SUGGEST_OBJECT=""
-WORKER="$(oc get nodes -l 'node-role.kubernetes.io/worker=' -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-if [[ -n "${WORKER}" ]]; then
-  NVME_LIST="$(oc debug "node/${WORKER}" --quiet -- chroot /host bash -c 'ls -1 /dev/disk/by-id/nvme-* 2>/dev/null | grep -v part | head -4' 2>/dev/null || true)"
-  NVME_SUGGEST_METADATA="$(printf '%s\n' "${NVME_LIST}" | sed -n '1p')"
-  NVME_SUGGEST_OBJECT="$(printf '%s\n' "${NVME_LIST}" | sed -n '2p')"
-fi
-
-if [[ -n "${NVME_SUGGEST_METADATA}" && -n "${NVME_SUGGEST_OBJECT}" && -f "${POC_FILE}" ]]; then
-  if grep -q 'REPLACE_METADATA_DISK' "${POC_FILE}"; then
-    if [[ "$(uname)" == "Darwin" ]]; then
-      sed -i '' "s|/dev/disk/by-id/nvme-REPLACE_METADATA_DISK|${NVME_SUGGEST_METADATA}|g" "${POC_FILE}"
-      sed -i '' "s|/dev/disk/by-id/nvme-REPLACE_OBJECT_DISK|${NVME_SUGGEST_OBJECT}|g" "${POC_FILE}"
-    else
-      sed -i "s|/dev/disk/by-id/nvme-REPLACE_METADATA_DISK|${NVME_SUGGEST_METADATA}|g" "${POC_FILE}"
-      sed -i "s|/dev/disk/by-id/nvme-REPLACE_OBJECT_DISK|${NVME_SUGGEST_OBJECT}|g" "${POC_FILE}"
-    fi
-  fi
-fi
-
 echo "Wrote ${OUTPUT}"
 echo "  cluster.appsDomain: ${APPS_DOMAIN}"
 echo "  cluster.name:         ${CLUSTER_NAME}"
 echo "  quay server:          ${QUAY_REGISTRY_SERVER}"
 echo "  kagenti.api.baseUrl:  ${KAGENTI_API_BASE_URL}"
 echo "  kagenti.appSource.repoUrl: ${GIT_REPO_URL}"
-if [[ -n "${NVME_SUGGEST_METADATA}" ]]; then
-  echo "  suggested metadata disk: ${NVME_SUGGEST_METADATA}"
-  echo "  suggested object disk:   ${NVME_SUGGEST_OBJECT}"
-  echo "  (updated values-poc.yaml devicePaths when placeholders were present)"
-fi
 if [[ "${APPLY_CONFIGMAP}" == true ]]; then
   chmod +x "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"
   exec "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"

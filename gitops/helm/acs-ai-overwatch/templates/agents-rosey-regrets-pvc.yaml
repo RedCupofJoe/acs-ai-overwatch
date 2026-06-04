@@ -11,9 +11,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- if .Values.agentsRoseyRegrets.pvc.storageClassName }}
-  storageClassName: {{ .Values.agentsRoseyRegrets.pvc.storageClassName }}
-  {{- end }}
+  storageClassName: {{ .Values.agentsRoseyRegrets.pvc.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
   resources:
     requests:
       storage: {{ .Values.agentsRoseyRegrets.pvc.size }}

@@ -11,10 +11,8 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  {{- $sc := .Values.mattermost.postgres.pvc.storageClassName | default .Values.mattermost.pvc.storageClassName }}
-  {{- if $sc }}
+  {{- $sc := .Values.mattermost.postgres.pvc.storageClassName | default .Values.mattermost.pvc.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
   storageClassName: {{ $sc }}
-  {{- end }}
   resources:
     requests:
       storage: {{ .Values.mattermost.postgres.pvc.size }}

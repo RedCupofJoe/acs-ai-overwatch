@@ -29,7 +29,7 @@ spec:
         spec:
           accessModes:
             - ReadWriteOnce
-          storageClassName: quay-local-xfs
+          storageClassName: gp3-csi
           resources:
             requests:
               storage: 10Gi

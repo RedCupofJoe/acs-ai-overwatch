@@ -37,8 +37,8 @@ make cluster-admin-pre-gitops
 
 # 1b. Install Red Hat Kueue Operator manually (before default-dsc) — see Prerequisites
 
-# 2. Review / edit NVMe device paths for your workers
-#    gitops/helm/acs-ai-overwatch/values-poc.yaml
+# 2. Confirm StorageClass matches values.yaml (default gp3-csi)
+#    oc get storageclass
 
 # 3. Register Argo CD Applications (set repoURL in YAML to your fork if needed)
 oc apply -k gitops/argocd/
@@ -83,7 +83,7 @@ export KAGENTI_API_TOKEN="<token>"
 7. [Fresh cluster deployment (OpenShift AI 3.4)](#fresh-cluster-deployment-rhoai-34)
 8. [Helm Values File Layering](#helm-values-file-layering)
 9. [Cluster-Aware Configuration](#cluster-aware-configuration)
-10. [PoC Cluster-Local Storage](#poc-cluster-local-storage)
+10. [Storage](#storage)
 11. [Configuration Checklist](#configuration-checklist)
 12. [Deployment Methods](#deployment-methods)
 13. [Helm Chart Reference](#helm-chart-reference)
@@ -154,10 +154,8 @@ flowchart TB
   subgraph Infra["Infrastructure Layer"]
     NFD["Node Feature Discovery"]
     GPUOp["NVIDIA GPU Operator<br/>time-slicing"]
-    LSO["Local Storage Operator"]
-    Quay["Quay Registry"]
+    Quay["Quay Registry<br/>gp3-csi"]
     NFD --> GPUOp
-    LSO --> Quay
   end
 
   subgraph AI["OpenShift AI"]
@@ -261,7 +259,7 @@ acs-ai-overwatch/
 │       └── acs-ai-overwatch/
 │           ├── Chart.yaml             # v0.4.0
 │           ├── values.yaml            # Base defaults + clusterDiscovery + toggles
-│           ├── values-poc.yaml        # PoC storage: NVMe paths, local SCs
+│           ├── values-poc.yaml        # PoC overlay (component toggles)
 │           ├── values-cluster.yaml.example
 │           └── templates/           # 35+ OpenShift / K8s manifests
 ├── pipelines/tekton/                  # Build helpful-hank, rosey-regrets, sneaky-sam → Quay
@@ -295,7 +293,7 @@ acs-ai-overwatch/
 | **OpenShift Pipelines** | Required before applying `pipelines/tekton/` (not installed by this repo’s GitOps chart). See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 | **Red Hat build of Kueue Operator** | Required before `default-dsc` on OpenShift AI **3.4** — **manual install only** (OperatorHub; not in GitOps). See [Kueue Operator prerequisite](#red-hat-kueue-operator-prerequisite) |
 | **Worker nodes with NVIDIA L4 GPUs** | Default values assume 3× L4 with time-slicing |
-| **Dedicated NVMe devices** | Required for Quay local storage (`quayStorage.localVolume`) when using GitOps Quay path; use `quayStorage.enabled: false` in `values-poc.yaml` on EBS-only clusters |
+| **Dynamic block storage (`gp3-csi`)** | All PVCs including Quay, Mattermost, RHACS, Rosey — override `storage.defaultStorageClass` if needed |
 | **Operator catalogs** | `redhat-operators`, `certified-operators` |
 
 ### External Dependencies
@@ -550,7 +548,7 @@ acs:
   central:
     enabled: true
     persistence:
-      storageClassName: gp3-csi   # PoC overlay example
+      storageClassName: gp3-csi
   bootstrap:
     enabled: true
     importPolicy: true
@@ -814,7 +812,7 @@ make cluster-admin-pre-gitops
 
 ### 2. Configure storage for this cluster
 
-Edit NVMe paths in `gitops/helm/acs-ai-overwatch/values-poc.yaml` (see [PoC Cluster-Local Storage](#poc-cluster-local-storage)).
+Confirm `storage.defaultStorageClass` matches your cluster before enabling Quay (see [Storage](#storage)).
 
 Optional: `make cluster-values` or `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` for `values-cluster.yaml`.
 
@@ -890,7 +888,7 @@ Configuration is merged in this order (Argo CD main Application and `make helm-t
 | Source | Purpose | Edit by |
 |--------|---------|---------|
 | `values.yaml` | Base defaults, `clusterDiscovery.*`, operator subscriptions, component toggles | Hand (repo) |
-| `values-poc.yaml` | PoC NVMe `devicePaths` for Local Storage Operator | Hand (per cluster hardware) |
+| `values-poc.yaml` | PoC component toggles | Hand (per cluster) |
 | **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl` | **`scripts/cluster-admin/03-apply-cluster-configmap.sh`** or discovery Job |
 | `values-cluster.yaml` (optional) | Same fields as ConfigMap | `make cluster-values` (local/CI override) |
 
@@ -972,7 +970,7 @@ make cluster-values
 # or: ./scripts/discover-cluster-values.sh
 ```
 
-This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with the same fields as the in-cluster ConfigMap (`appsDomain`, `clusterName`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`), plus optional NVMe hints patched into `values-poc.yaml`.
+This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with cluster settings from the in-cluster ConfigMap (`appsDomain`, `clusterName`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`).
 
 | Discovered value | Source |
 |------------------|--------|
@@ -983,7 +981,7 @@ This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with the same
 | `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.<domain>` |
 | `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else default hostname pattern |
 | `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
-| NVMe `devicePaths` in `values-poc.yaml` | First worker `by-id` NVMe devices (verify before sync) |
+| `storage.defaultStorageClass` | `values.yaml` | Default `gp3-csi`; change if `oc get sc` differs |
 
 Commit this file only if you want Argo CD to use Git-stored overrides instead of (or in addition to) the ConfigMap.
 
@@ -993,7 +991,6 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 |---------|--------|
 | `quayStorage.registryCredentials.password` | Set via `QUAY_REGISTRY_PASSWORD` when running the script, or edit values |
 | Mattermost bootstrap passwords | `mattermost.bootstrap.*` in `values.yaml` |
-| NVMe disks | Script suggests paths; confirm two distinct devices |
 | `pipelines.imageRegistry.host` | In-cluster DNS (usually no apps domain needed) |
 
 ### Makefile targets
@@ -1007,40 +1004,41 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 
 ---
 
-## PoC Cluster-Local Storage
+## Storage
 
-This PoC uses **on-cluster storage only** (no cloud volumes). All filesystem PVCs share the StorageClass created by the Local Storage Operator.
+All persistent volumes use **`gp3-csi`** (AWS EBS / dynamic provisioning on ROSA). One default keeps GitOps and troubleshooting simple.
 
-| StorageClass | Mode | Used by |
-|--------------|------|---------|
-| `quay-local-xfs` | Filesystem (xfs) | Quay Postgres/Clair, Mattermost PVC, Rosey `agent-reference-information`, Tekton workspace |
-| `quay-local-block` | Block | Quay object storage only |
+**Confirm on your cluster:**
 
-**Provisioning flow:**
+```bash
+oc get storageclass
+```
 
-1. LSO installs and creates `LocalVolume` `quay-local-storage` (device paths in `values-poc.yaml`)
-2. StorageClasses `quay-local-xfs` and `quay-local-block` become available
-3. Quay registry consumes most capacity; other workloads use `quay-local-xfs`
-
-**Helm defaults (already set in `values.yaml`):**
+If your class has a different name (`gp2-csi`, `standard`, etc.), set it in `values.yaml`:
 
 ```yaml
 storage:
-  local:
-    filesystemStorageClass: quay-local-xfs
-    blockStorageClass: quay-local-block
-
-mattermost:
-  pvc:
-    storageClassName: quay-local-xfs
-
-agentsRoseyRegrets:
-  pvc:
-    name: agent-reference-information
-    storageClassName: quay-local-xfs
+  defaultStorageClass: your-storage-class
 ```
 
-Run `make cluster-values` to auto-fill NVMe paths in `values-poc.yaml` when placeholders are still present; **always verify** two distinct disks before sync.
+Helm templates fall back to `storage.defaultStorageClass` for Mattermost, Quay, RHACS Central, and Rosey PVC when a component value is empty.
+
+### What uses storage
+
+| Workload | Values key | Default |
+|----------|------------|---------|
+| Mattermost data + Postgres | `mattermost.pvc.storageClassName`, `mattermost.postgres.pvc.storageClassName` | `gp3-csi` |
+| Quay Postgres / Clair / object storage | `quayStorage.quayRegistry.components.*.storageClassName` | `gp3-csi` |
+| RHACS Central database | `acs.central.persistence.storageClassName` | `gp3-csi` |
+| Rosey Regrets output PVC | `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` |
+| Tempo trace storage (Phase 5) | `tempo.monolithic.storageClassName` (observability chart) | `gp3-csi` |
+| Tekton build workspace | `pipelines/tekton/agents-build-pipelinerun.example.yaml` | `gp3-csi` |
+
+### Quay on EBS
+
+Quay runs entirely on **`gp3-csi`** — no Local Storage Operator or NVMe device configuration. Default object storage is **500Gi**; adjust `quayStorage.quayRegistry.components.objectstorage.volumeSize` for your budget.
+
+Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to build agent images, or use an **external registry** and point `kagenti.images.*` / Tekton at that host instead.
 
 ---
 
@@ -1057,7 +1055,7 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Argo CD repo URL | `gitops/argocd/application*.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials |
-| NVMe disk paths | `values-poc.yaml` | Auto-suggested locally; verify before sync |
+| Quay object storage size | `quayStorage.quayRegistry.components.objectstorage.volumeSize` | Default 500Gi on gp3-csi |
 | Red Hat Kueue Operator | OperatorHub (manual) | Before `default-dsc`; see [Kueue prerequisite](#red-hat-kueue-operator-prerequisite) |
 | OpenShift Pipelines | OperatorHub / OLM Subscription | Required before `oc apply -f pipelines/tekton/`; see [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
 
@@ -1086,7 +1084,7 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 ### Method 1: OpenShift GitOps (Recommended)
 
-1. Clone/fork the repository, log in, and edit `values-poc.yaml` NVMe paths for your workers.
+1. Clone/fork the repository, log in, and confirm `storage.defaultStorageClass` matches your cluster (`oc get storageclass`).
 
 2. Set `spec.source.repoURL` in `gitops/argocd/application.yaml` and `application-cluster-discovery.yaml` to your Git remote (if different from the default fork).
 
@@ -1134,9 +1132,9 @@ The umbrella Helm chart (`gitops/helm/acs-ai-overwatch`) is deployed by a single
 
 | Wave | Key | Examples |
 |------|-----|----------|
-| 0 | `namespace` | `mattermost`, `quay`, `openshift-local-storage`, `redhat-ods-applications`, `stackrox`, `test-range`, `cluster-metadata` |
-| 10 | `operators` | OLM `Subscription` / `OperatorGroup` (RHACS, RHOAI, GPU, NFD, Quay, LSO) |
-| 20 | `storage` | `LocalVolume`, GPU time-slicing `ConfigMap` |
+| 0 | `namespace` | `mattermost`, `quay`, `redhat-ods-applications`, `stackrox`, `test-range`, `cluster-metadata` |
+| 10 | `operators` | OLM `Subscription` / `OperatorGroup` (RHACS, RHOAI, GPU, NFD, Quay) |
+| 20 | `storage` | GPU time-slicing `ConfigMap` |
 | 30 | `platformCRs` | `QuayRegistry`, `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy` |
 | 40 | `secrets` | Quay pull secrets, Mattermost bootstrap secrets |
 | 45 | `pvcs` | Mattermost DB, Rosey `agent-reference-information` |
@@ -1192,7 +1190,7 @@ components:
 | `argocd.syncWaves.enabled` | `true` | Emit `argocd.argoproj.io/sync-wave` on chart resources |
 | `argocd.syncWaves.namespace` | `"0"` | Wave for namespaces |
 | `argocd.syncWaves.operators` | `"10"` | Wave for OLM subscriptions / operator groups |
-| `argocd.syncWaves.storage` | `"20"` | Wave for LSO / storage config |
+| `argocd.syncWaves.storage` | `"20"` | Reserved (platform CRs wave) |
 | `argocd.syncWaves.platformCRs` | `"30"` | Wave for operator-owned CRs |
 | `argocd.syncWaves.secrets` | `"40"` | Wave for secrets |
 | `argocd.syncWaves.pvcs` | `"45"` | Wave for PVCs |
@@ -1225,12 +1223,18 @@ components:
 | `cluster.appsDomain` | `""` | Override or from ConfigMap `appsDomain` (required for URL templates) |
 | `cluster.topology` | `3x3` | Documented layout (informational) |
 
-### Storage (`storage.local`)
+### Storage
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `storage.local.filesystemStorageClass` | `quay-local-xfs` | Mattermost, Rosey PVC, Tekton workspace |
-| `storage.local.blockStorageClass` | `quay-local-block` | Quay object storage |
+| `storage.defaultStorageClass` | `gp3-csi` | All PVCs; templates fall back here |
+| `mattermost.pvc.storageClassName` | `gp3-csi` | Mattermost file data |
+| `mattermost.postgres.pvc.storageClassName` | `gp3-csi` | Mattermost Postgres |
+| `quayStorage.quayRegistry.components.postgres.storageClassName` | `gp3-csi` | Quay Postgres |
+| `quayStorage.quayRegistry.components.clairpostgres.storageClassName` | `gp3-csi` | Quay Clair Postgres |
+| `quayStorage.quayRegistry.components.objectstorage.storageClassName` | `gp3-csi` | Quay blob storage |
+| `acs.central.persistence.storageClassName` | `gp3-csi` | RHACS Central PVC |
+| `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` | Rosey output PVC |
 
 ### Rosey Regrets PVC (`agentsRoseyRegrets`)
 
@@ -1238,7 +1242,7 @@ components:
 |-----|---------|-------------|
 | `agentsRoseyRegrets.namespace` | `test-range` | PVC namespace |
 | `agentsRoseyRegrets.pvc.name` | `agent-reference-information` | PVC name (referenced by Kagenti deployment) |
-| `agentsRoseyRegrets.pvc.storageClassName` | `quay-local-xfs` | On-cluster filesystem storage |
+| `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` | Persistent volume StorageClass |
 | `agentsRoseyRegrets.pvc.size` | `20Gi` | Requested capacity |
 
 ### Kagenti (`kagenti`)
@@ -1304,38 +1308,15 @@ The GPU Operator ClusterPolicy references ConfigMap `time-slicing-config` with k
 
 ### 2. Quay Registry (`quayStorage`)
 
-Deploys a full on-cluster Quay instance backed by **OpenShift Local Storage Operator** and raw NVMe devices when `quayStorage.enabled: true`. On EBS-only clusters, set `quayStorage.enabled: false` in `values-poc.yaml` (see profile in that file).
+Deploys on-cluster Quay on **`gp3-csi`** (same StorageClass as other workloads).
 
 **Stack:**
 
-1. Local Storage Operator subscription
-2. `LocalVolume` CR mapping NVMe devices to storage classes:
-   - `quay-local-xfs` — filesystem metadata (Postgres, Clair Postgres)
-   - `quay-local-block` — block object storage
-3. Quay Operator subscription
-4. `QuayRegistry` CR with managed Postgres, Clair, Redis, monitoring, TLS, Route
-5. Pull credentials Secret in `ai-workbenches` for workbench/agent image pulls
+1. Quay Operator subscription
+2. `QuayRegistry` CR — Postgres, Clair, and object storage on `gp3-csi`
+3. Pull credentials Secret in `ai-workbenches`
 
-**NVMe device paths** live in `values-poc.yaml` (not `values.yaml`). Run `make cluster-values` to auto-suggest paths, then verify:
-
-```yaml
-# values-poc.yaml
-quayStorage:
-  localVolume:
-    storageClassDevices:
-      - storageClassName: quay-local-xfs
-        devicePaths:
-          - /dev/disk/by-id/nvme-<your-metadata-disk>
-      - storageClassName: quay-local-block
-        devicePaths:
-          - /dev/disk/by-id/nvme-<your-object-disk>
-```
-
-Manual discovery:
-
-```bash
-oc debug node/<worker-node> -- chroot /host ls -l /dev/disk/by-id/ | grep nvme
-```
+Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to build agent images. Alternatively use an **external registry** and disable in-cluster Quay (see [Storage](#storage)).
 
 ### 3. OpenShift AI (`rhoai`) — target **3.4**
 
@@ -1374,7 +1355,7 @@ Deploys Mattermost Team Edition as the **Slack-compatible notification sink** fo
 | Resource | Description |
 |----------|-------------|
 | Deployment | Mattermost server |
-| PVC | 10Gi on `quay-local-xfs` |
+| PVC | 10Gi on `gp3-csi` |
 | Route | Edge TLS; host derived from `cluster.appsDomain` |
 | Bootstrap Job | Creates admin, HITL user, incoming webhook |
 | ConfigMap | Stores `ACS_INCOMING_WEBHOOK_URL` after bootstrap |
@@ -1766,7 +1747,7 @@ tkn pipelinerun logs -f -n acs-ai-overwatch-system -l app.kubernetes.io/part-of=
 - Uses `vfs` storage driver (common pattern on OpenShift)
 - Default `push-tls-verify: false` for internal Quay with self-signed certs
 
-The example PipelineRun (`agents-build-pipelinerun.example.yaml`) uses **`storageClassName: quay-local-xfs`** for the shared source workspace PVC.
+The example PipelineRun (`agents-build-pipelinerun.example.yaml`) uses **`storageClassName: gp3-csi`** for the shared source workspace PVC.
 
 ---
 
@@ -1778,7 +1759,7 @@ Two demonstrations: **Demo A** (Sneaky Sam telemetry guardrail) and **Demo B** (
 
 ```bash
 oc login
-# Edit values-poc.yaml NVMe paths if needed
+# Confirm StorageClass (default gp3-csi in values.yaml)
 oc apply -k gitops/argocd/
 # Optional: make cluster-values && git add values-cluster.yaml for Git-stored overrides
 git add gitops/helm/acs-ai-overwatch/values-poc.yaml
@@ -1789,7 +1770,7 @@ git commit -m "PoC storage paths" && git push
 
 1. Wait for `acs-ai-overwatch-cluster-discovery`, then refresh and sync `acs-ai-overwatch`
 2. Wait for operators: NFD, GPU Operator, Local Storage, Quay, RHOAI, RHACS
-3. Confirm StorageClasses: `oc get sc | grep quay-local`
+3. Confirm storage: `oc get storageclass` (expect `gp3-csi` on ROSA/AWS)
 3. Confirm Quay route is reachable and org/repos exist
 4. Confirm Mattermost bootstrap Job completed:
 
@@ -1920,7 +1901,6 @@ Uses `scripts/lib/openshift-cluster-discovery.sh` to generate optional `values-c
 | Quay hostname | Route in `quay` or `quay-quay.<domain>` |
 | Kagenti API URL | Route search or default hostname pattern |
 | `kagenti.appSource.repoUrl` | `git remote origin` |
-| NVMe paths | Optional patch to `values-poc.yaml` |
 
 ```bash
 ./scripts/discover-cluster-values.sh
@@ -1966,7 +1946,6 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `openshift-gitops` | Argo CD Application |
 | `acs-ai-overwatch-system` | Cluster metadata ConfigMap; Tekton pipeline namespace |
 | `monitoring` | Mattermost server, bootstrap Job, ACS webhook ConfigMap |
-| `openshift-local-storage` | Local Storage Operator, LocalVolume for Quay disks |
 | `quay` | QuayRegistry instance |
 | `ai-workbenches` | Quay pull Secrets for workbenches |
 | `openshift-nfd` | Node Feature Discovery |
@@ -1985,7 +1964,7 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 |----------|-----------|---------|
 | `cluster-metadata.yaml` | `clusterMetadata.enabled` | Namespace + ConfigMap |
 | `mattermost-*.yaml` | `mattermost.enabled` | Mattermost stack |
-| `quay-*.yaml` | `quayStorage.enabled` | Quay + local storage |
+| `quay-*.yaml` | `quayStorage.enabled` | Quay operator + registry |
 | `accelerators-*.yaml` | `accelerators.enabled` | NFD + GPU Operator |
 | `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI |
 | `acs-test-range-namespace.yaml` | `components.acsPolicies.enabled` | `test-range` namespace |
@@ -2149,7 +2128,7 @@ ResolutionFailed: True
 
    Expect `rhods-operator.3.4.*` with phase **Succeeded** before syncing `default-dsc`.
 
-**Chart behavior (current):** `platformResources.waitForCrds: true` (default) omits `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy`, `LocalVolume`, and `QuayRegistry` from the manifest until Helm `lookup` sees each CRD on the cluster. After operators install, **Refresh → Sync** and those resources appear automatically.
+**Chart behavior (current):** `platformResources.waitForCrds: true` (default) omits `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy`, and `QuayRegistry` from the manifest until Helm `lookup` sees each CRD on the cluster. After operators install, **Refresh → Sync** and those resources appear automatically.
 
 **On the cluster:**
 
@@ -2174,7 +2153,7 @@ platformResources:
 
 Commit/push and sync again.
 
-Sync wave order: namespaces → Subscriptions (`10`) → LocalVolume (`20`) → platform CRs (`30`) → workloads later.
+Sync wave order: namespaces → Subscriptions (`10`) → platform CRs (`30`) → workloads later.
 
 ### Argo CD Application OutOfSync
 
@@ -2183,7 +2162,7 @@ oc get application acs-ai-overwatch -n openshift-gitops -o yaml
 oc describe application acs-ai-overwatch -n openshift-gitops
 ```
 
-Common causes: invalid Helm values, missing CRDs, operator subscriptions pending install plans, or NVMe paths in `values-poc.yaml` pointing at wrong devices.
+Common causes: invalid Helm values, missing CRDs, operator subscriptions pending install plans, or wrong StorageClass name for your cluster.
 
 ### Argo CD sync forbidden: cannot create ServiceAccounts (OpenShift GitOps RBAC)
 
@@ -2300,15 +2279,11 @@ oc get configmap time-slicing-config -n nvidia-gpu-operator -o yaml
 oc describe node <gpu-worker> | grep nvidia.com/gpu
 ```
 
-### Quay LocalVolume Not Provisioning
+### Quay PVCs stuck Pending
 
-- Verify NVMe `devicePaths` match actual hardware IDs
-- Confirm Local Storage Operator is Running
-- Check LocalVolume status:
-
-  ```bash
-  oc get localvolume -n openshift-local-storage
-  ```
+- Verify `storage.defaultStorageClass` matches `oc get storageclass` (default `gp3-csi`)
+- Check Quay component PVCs: `oc get pvc -n quay`
+- Confirm Quay operator and `QuayRegistry` CR are reconciling: `oc get quayregistry -n quay`
 
 ### Mattermost Bootstrap Job Failed
 

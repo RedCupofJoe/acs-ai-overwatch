@@ -16,6 +16,11 @@ app.kubernetes.io/part-of: {{ .Values.global.partOf }}
 {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end }}
 
+{{/* Default StorageClass for PVCs (override via storage.defaultStorageClass). */}}
+{{- define "acs-ai-overwatch.storageClassName" -}}
+{{- .Values.storage.defaultStorageClass | default "gp3-csi" -}}
+{{- end }}
+
 {{/*
   Argo CD sync-wave annotation. Usage:
     metadata:

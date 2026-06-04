@@ -12,17 +12,17 @@ spec:
     - kind: postgres
       managed: true
       overrides:
-        storageClassName: {{ .Values.quayStorage.quayRegistry.components.postgres.storageClassName }}
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.postgres.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
         volumeSize: {{ .Values.quayStorage.quayRegistry.components.postgres.volumeSize }}
     - kind: clairpostgres
       managed: true
       overrides:
-        storageClassName: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.storageClassName }}
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
         volumeSize: {{ .Values.quayStorage.quayRegistry.components.clairpostgres.volumeSize }}
     - kind: objectstorage
       managed: true
       overrides:
-        storageClassName: {{ .Values.quayStorage.quayRegistry.components.objectstorage.storageClassName }}
+        storageClassName: {{ .Values.quayStorage.quayRegistry.components.objectstorage.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
         volumeSize: {{ .Values.quayStorage.quayRegistry.components.objectstorage.volumeSize }}
     - kind: quay
       managed: true

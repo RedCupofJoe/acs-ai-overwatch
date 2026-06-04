@@ -88,7 +88,7 @@ cat <<EOF
 Pre-GitOps bootstrap complete.
 
 Next:
-  1. Edit gitops/helm/acs-ai-overwatch/values-poc.yaml (NVMe paths) if needed
+  1. Confirm StorageClass: oc get storageclass (default gp3-csi in values.yaml)
   2. Set repoURL in gitops/argocd/application*.yaml to your fork
   3. oc apply -k gitops/argocd/
   4. Sync Applications in order (or wait for sync-waves 0→1→2):

@@ -16,7 +16,6 @@ argocd:
 namespaces:
   - acs-ai-overwatch-system
   - monitoring
-  - openshift-local-storage
   - openshift-operators
   - quay
   - ai-workbenches

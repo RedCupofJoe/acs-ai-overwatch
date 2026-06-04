@@ -1,32 +1,18 @@
-# PoC cluster overlay — merge after values.yaml (see gitops/argocd/application.yaml).
+# PoC cluster overlay — merged after values.yaml (see gitops/argocd/application.yaml).
 #
-# Profile: AWS workers without spare NVMe/instance-store disks (ROSA / EBS-only).
-# Uses default CSI storage for Mattermost; defers Quay + Local Storage Operator until
-# dedicated volumes are attached (see README "PoC Cluster-Local Storage").
-#
-# Confirm StorageClass name on cluster:
-#   oc get storageclass
+# All PVCs use gp3-csi from values.yaml. Override storage.defaultStorageClass here
+# if `oc get storageclass` shows a different name.
 
-# Helm lookup on the GitOps repo-server often cannot see CRDs; operators are up on this cluster.
 platformResources:
   waitForCrds: false
 
-# No raw local disks — skip LSO / LocalVolume / QuayRegistry from GitOps on this profile.
+# Disable Quay until you are ready to build/push agent images (uses gp3-csi when enabled).
 quayStorage:
   enabled: false
 
 mattermost:
   automaticPrepackagedPlugins: false
-  pvc:
-    # Default on many AWS/OpenShift clusters; change if `oc get storageclass` differs.
-    storageClassName: gp3-csi
 
-storage:
-  local:
-    filesystemStorageClass: gp3-csi
-    blockStorageClass: gp3-csi
-
-# Agent images in values.yaml point at in-cluster Quay; disable until Quay is deployed.
 components:
   kagenti:
     enabled: false
@@ -36,12 +22,9 @@ components:
 acs:
   central:
     enabled: false
-    persistence:
-      storageClassName: gp3-csi
   bootstrap:
     enabled: false
 
-# PoC does not schedule RHOAI workbench workloads — skip Kueue operator prerequisite.
 rhoai:
   datascienceCluster:
     components:
@@ -49,18 +32,3 @@ rhoai:
         managementState: Removed
   hardwareProfile:
     enabled: false
-
-# --- Full local-storage PoC (when workers have two empty NVMe/EBS devices) ---
-# quayStorage:
-#   enabled: true
-#   localVolume:
-#     storageClassDevices:
-#       - storageClassName: quay-local-xfs
-#         volumeMode: Filesystem
-#         fsType: xfs
-#         devicePaths:
-#           - /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0ce53a7bbd0e9cedb
-#       - storageClassName: quay-local-block
-#         volumeMode: Block
-#         devicePaths:
-#           - /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0ce53a7bbd0e9cedb_1
