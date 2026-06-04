@@ -8,7 +8,7 @@ platformResources:
 
 # Disable Quay until you are ready to build/push agent images (uses gp3-csi when enabled).
 quayStorage:
-  enabled: false
+  enabled: true
 
 mattermost:
   automaticPrepackagedPlugins: false
@@ -21,9 +21,9 @@ components:
 
 acs:
   central:
-    enabled: false
+    enabled: true
   bootstrap:
-    enabled: false
+    enabled: true
 
 rhoai:
   datascienceCluster:
