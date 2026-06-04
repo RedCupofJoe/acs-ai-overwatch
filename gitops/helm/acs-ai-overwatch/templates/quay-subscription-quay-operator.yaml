@@ -6,7 +6,7 @@ metadata:
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.quayStorage.quayOperator.subscription.namespace }}
 spec:
-  channel: {{ .Values.quayStorage.quayOperator.subscription.channel }}
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "quayOperatorChannel" "default" .Values.quayStorage.quayOperator.subscription.channel) }}
   installPlanApproval: {{ .Values.quayStorage.quayOperator.subscription.installPlanApproval }}
   name: {{ .Values.quayStorage.quayOperator.subscription.name }}
   source: {{ .Values.quayStorage.quayOperator.subscription.source }}

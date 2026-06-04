@@ -24,7 +24,7 @@ metadata:
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.rhoai.operator.namespace }}
 spec:
-  channel: {{ .Values.rhoai.operator.subscription.channel }}
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "rhoaiOperatorChannel" "default" .Values.rhoai.operator.subscription.channel) }}
   installPlanApproval: {{ .Values.rhoai.operator.subscription.installPlanApproval }}
   name: {{ .Values.rhoai.operator.subscription.name }}
   source: {{ .Values.rhoai.operator.subscription.source }}

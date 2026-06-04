@@ -26,7 +26,7 @@ metadata:
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.accelerators.nfd.namespace }}
 spec:
-  channel: {{ .Values.accelerators.nfd.subscription.channel }}
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "nfdOperatorChannel" "default" .Values.accelerators.nfd.subscription.channel) }}
   installPlanApproval: {{ .Values.accelerators.nfd.subscription.installPlanApproval }}
   name: {{ .Values.accelerators.nfd.subscription.name }}
   source: {{ .Values.accelerators.nfd.subscription.source }}

@@ -16,9 +16,39 @@ app.kubernetes.io/part-of: {{ .Values.global.partOf }}
 {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end }}
 
-{{/* Default StorageClass for PVCs (override via storage.defaultStorageClass). */}}
+{{/* Default StorageClass for PVCs (discovery ConfigMap overrides values.yaml). */}}
 {{- define "acs-ai-overwatch.storageClassName" -}}
-{{- .Values.storage.defaultStorageClass | default "gp3-csi" -}}
+{{- $valuesDefault := .Values.storage.defaultStorageClass | default "gp3-csi" -}}
+{{- if .Values.clusterDiscovery.enabled -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data.defaultStorageClass -}}
+{{- $cm.data.defaultStorageClass -}}
+{{- else -}}
+{{- $valuesDefault -}}
+{{- end -}}
+{{- else -}}
+{{- $valuesDefault -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+  OLM Subscription channel: prefer cluster-discovery ConfigMap, else values.yaml default.
+  Usage: include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "quayOperatorChannel" "default" .Values.quayStorage.quayOperator.subscription.channel)
+*/}}
+{{- define "acs-ai-overwatch.operatorChannel" -}}
+{{- $root := .root -}}
+{{- $key := .key -}}
+{{- $default := .default -}}
+{{- if and $root.Values.clusterDiscovery.enabled $key -}}
+{{- $cm := lookup "v1" "ConfigMap" $root.Values.clusterDiscovery.namespace $root.Values.clusterDiscovery.configMapName -}}
+{{- if and $cm $cm.data (index $cm.data $key) -}}
+{{- index $cm.data $key -}}
+{{- else -}}
+{{- $default -}}
+{{- end -}}
+{{- else -}}
+{{- $default -}}
+{{- end -}}
 {{- end }}
 
 {{/*

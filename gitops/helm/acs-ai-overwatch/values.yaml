@@ -3,6 +3,8 @@
 #
 # Storage: all PVCs (including Quay) use gp3-csi (EBS) by default.
 # Override storage.defaultStorageClass when your cluster differs (oc get sc).
+# Discovery (discover-cluster-values.sh / cluster-discovery Job) writes defaultStorageClass
+# and OLM operator channels to acs-ai-overwatch-cluster-config; Helm prefers those at render time.
 # Alternative: external registry — set quayStorage.enabled false and point agent images elsewhere.
 
 global:
@@ -123,7 +125,7 @@ quayStorage:
     subscription:
       namespace: openshift-operators
       name: quay-operator
-      channel: stable-3.15
+      channel: stable-3.15  # fallback; discovery picks latest stable-3.* from catalog
       installPlanApproval: Automatic
       source: redhat-operators
       sourceNamespace: openshift-marketplace
@@ -223,7 +225,7 @@ accelerators:
 
 # Red Hat OpenShift AI (RHOAI) 3.4 — operator, DataScienceCluster v2, HardwareProfile.
 # Requires a NEW cluster with no prior 2.25 install (no supported in-place 2.25→3.4 upgrade).
-# Verify channel: oc get packagemanifest rhods-operator -n openshift-marketplace -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
+# Discovery picks stable-3.4 / fast-3.4 / eus-3.4 from catalog (RHOAI_TARGET_VERSION, default 3.4).
 rhoai:
   enabled: true
   targetVersion: "3.4"

@@ -3,6 +3,7 @@
 # GitOps does NOT need this file in Git. The in-cluster discovery Job writes
 # acs-ai-overwatch-system/acs-ai-overwatch-cluster-config, including:
 #   mattermostSiteUrl, mattermostRouteHost (external browser URL)
+#   defaultStorageClass, *OperatorChannel (OLM channels from packagemanifest)
 #
 # Use this file only for local `helm template` / debugging with `oc login`.
 
@@ -10,9 +11,33 @@ cluster:
   name: my-openshift-cluster
   appsDomain: apps.cluster.example.com
 
+storage:
+  defaultStorageClass: gp3-csi
+
 quayStorage:
+  quayOperator:
+    subscription:
+      channel: stable-3.15
   registryCredentials:
     server: quay-quay.apps.cluster.example.com
+
+rhoai:
+  operator:
+    subscription:
+      channel: stable-3.4
+
+acs:
+  operator:
+    subscription:
+      channel: stable
+
+accelerators:
+  nfd:
+    subscription:
+      channel: stable
+  gpuOperator:
+    subscription:
+      channel: stable
 
 kagenti:
   api:

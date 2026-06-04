@@ -26,7 +26,7 @@ metadata:
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.accelerators.gpuOperator.namespace }}
 spec:
-  channel: {{ .Values.accelerators.gpuOperator.subscription.channel }}
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "gpuOperatorChannel" "default" .Values.accelerators.gpuOperator.subscription.channel) }}
   installPlanApproval: {{ .Values.accelerators.gpuOperator.subscription.installPlanApproval }}
   name: {{ .Values.accelerators.gpuOperator.subscription.name }}
   source: {{ .Values.accelerators.gpuOperator.subscription.source }}

@@ -889,7 +889,7 @@ Configuration is merged in this order (Argo CD main Application and `make helm-t
 |--------|---------|---------|
 | `values.yaml` | Base defaults, `clusterDiscovery.*`, operator subscriptions, component toggles | Hand (repo) |
 | `values-poc.yaml` | PoC component toggles | Hand (per cluster) |
-| **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl` | **`scripts/cluster-admin/03-apply-cluster-configmap.sh`** or discovery Job |
+| **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, Kagenti URL, git `repoUrl`, **default StorageClass**, **OLM operator channels** | **`scripts/cluster-admin/03-apply-cluster-configmap.sh`** or discovery Job |
 | `values-cluster.yaml` (optional) | Same fields as ConfigMap | `make cluster-values` (local/CI override) |
 
 Argo CD registers three Applications via `oc apply -k gitops/argocd/` (see [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [Cluster-Aware Configuration](#cluster-aware-configuration)).
@@ -970,7 +970,7 @@ make cluster-values
 # or: ./scripts/discover-cluster-values.sh
 ```
 
-This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with cluster settings from the in-cluster ConfigMap (`appsDomain`, `clusterName`, `quayRegistryServer`, `kagentiApiBaseUrl`, `gitRepoUrl`).
+This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with cluster settings from your `oc login` session (same fields as the in-cluster ConfigMap).
 
 | Discovered value | Source |
 |------------------|--------|
@@ -978,10 +978,16 @@ This writes **`gitops/helm/acs-ai-overwatch/values-cluster.yaml`** with cluster 
 | `mattermostSiteUrl` | `https://mattermost-<ns>.<appsDomain>` (or live Route if present) |
 | `mattermostRouteHost` | Same host without scheme |
 | `cluster.name` | `Infrastructure` CR or current context |
+| `storage.defaultStorageClass` | Cluster default StorageClass annotation, else `gp3-csi` / `gp3` |
+| `quayStorage.quayOperator.subscription.channel` | Latest `stable-3.*` from `packagemanifest quay-operator` |
+| `rhoai.operator.subscription.channel` | `stable-3.4` / `fast-3.4` / `eus-3.4` (override minor with `RHOAI_TARGET_VERSION`) |
+| `acs.operator.subscription.channel` | `packagemanifest rhacs-operator` default channel |
+| `accelerators.nfd/gpuOperator.subscription.channel` | `packagemanifest` default channel for `nfd` / `gpu-operator-certified` |
 | `quayStorage.registryCredentials.server` | Quay `Route` in `quay` (if present), else `quay-quay.<domain>` |
 | `kagenti.api.baseUrl` | Kagenti `Route` (best effort), else default hostname pattern |
 | `kagenti.appSource.repoUrl` | `git remote origin` (HTTPS normalized) |
-| `storage.defaultStorageClass` | `values.yaml` | Default `gp3-csi`; change if `oc get sc` differs |
+
+At Helm render time (Argo CD with `serverDryRun`), Subscription templates and PVC StorageClasses **prefer these ConfigMap keys** when present, falling back to `values.yaml`.
 
 Commit this file only if you want Argo CD to use Git-stored overrides instead of (or in addition to) the ConfigMap.
 

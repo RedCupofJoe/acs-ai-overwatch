@@ -28,7 +28,7 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 spec:
-  channel: {{ .Values.acs.operator.subscription.channel }}
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "rhacsOperatorChannel" "default" .Values.acs.operator.subscription.channel) }}
   installPlanApproval: {{ .Values.acs.operator.subscription.installPlanApproval }}
   name: rhacs-operator
   source: {{ .Values.acs.operator.subscription.source }}

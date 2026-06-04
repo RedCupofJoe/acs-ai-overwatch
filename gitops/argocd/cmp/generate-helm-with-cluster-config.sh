@@ -24,17 +24,43 @@ if command -v kubectl >/dev/null 2>&1 && kubectl get configmap -n "${CM_NS}" "${
   gitUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.gitRepoUrl}')"
   mattermostRouteHost="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostRouteHost}')"
   mattermostSiteUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostSiteUrl}')"
+  defaultStorageClass="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.defaultStorageClass}')"
+  quayOperatorChannel="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.quayOperatorChannel}')"
+  rhoaiOperatorChannel="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.rhoaiOperatorChannel}')"
+  rhacsOperatorChannel="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.rhacsOperatorChannel}')"
+  nfdOperatorChannel="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.nfdOperatorChannel}')"
+  gpuOperatorChannel="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.gpuOperatorChannel}')"
   cat >"${VALUES_FROM_CM}" <<EOF
 cluster:
   name: ${clusterName}
   appsDomain: ${appsDomain}
+storage:
+  defaultStorageClass: ${defaultStorageClass}
 mattermost:
   siteUrl: ${mattermostSiteUrl}
   route:
     host: ${mattermostRouteHost}
 quayStorage:
+  quayOperator:
+    subscription:
+      channel: ${quayOperatorChannel}
   registryCredentials:
     server: ${quayServer}
+rhoai:
+  operator:
+    subscription:
+      channel: ${rhoaiOperatorChannel}
+acs:
+  operator:
+    subscription:
+      channel: ${rhacsOperatorChannel}
+accelerators:
+  nfd:
+    subscription:
+      channel: ${nfdOperatorChannel}
+  gpuOperator:
+    subscription:
+      channel: ${gpuOperatorChannel}
 kagenti:
   api:
     baseUrl: ${kagentiBase}
