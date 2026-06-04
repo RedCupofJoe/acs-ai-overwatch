@@ -26,8 +26,23 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+# Istio ambient on kagenti-system breaks kubelet HTTP liveness/readiness probes
+# (1s timeout) for backend, UI, and operator — exclude control-plane Deployments.
+_exclude_control_plane_from_ambient() {
+  local dep
+  for dep in kagenti-backend kagenti-ui kagenti-controller-manager; do
+    if ! oc get deployment "${dep}" -n "${KAGENTI_NS}" >/dev/null 2>&1; then
+      continue
+    fi
+    echo "Excluding ${dep} from Istio ambient mesh (probe compatibility)"
+    oc patch deployment "${dep}" -n "${KAGENTI_NS}" --type merge -p \
+      '{"spec":{"template":{"metadata":{"labels":{"istio.io/dataplane-mode":"none"}}}}}'
+  done
+}
+
 if helm status kagenti -n "${KAGENTI_NS}" >/dev/null 2>&1; then
-  echo "Helm release kagenti already installed in ${KAGENTI_NS} — skipping"
+  echo "Helm release kagenti already installed in ${KAGENTI_NS} — skipping platform install"
+  _exclude_control_plane_from_ambient
   exit 0
 fi
 
@@ -121,5 +136,7 @@ fi
 
 chmod +x "${WORKDIR}/scripts/ocp/setup-kagenti.sh"
 "${WORKDIR}/scripts/ocp/setup-kagenti.sh" "${SETUP_ARGS[@]}"
+
+_exclude_control_plane_from_ambient
 
 echo "Kagenti platform install complete."
