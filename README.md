@@ -613,6 +613,21 @@ oc rollout restart deployment openshift-gitops-controller -n openshift-gitops
 oc delete application acs-ai-overwatch-kagenti-platform -n openshift-gitops --ignore-not-found
 ```
 
+#### Keycloak and UI authentication
+
+The install Job **provisions Keycloak (RHBK), imports realm `kagenti`, and configures OIDC for the Kagenti UI**. Manual Keycloak setup is not required for the default PoC.
+
+| Step | Action |
+|------|--------|
+| 1 | Wait for Phase 4 install to finish (`helm list -n kagenti-system` shows `kagenti` + `kagenti-deps`) |
+| 2 | Verify Keycloak: `oc get pods -n keycloak` ( `keycloak-0` Running, realm import Job Complete ) |
+| 3 | Print URLs and demo credentials: `./scripts/kagenti-auth-info.sh` |
+| 4 | Open the **Kagenti UI** route → sign in at Keycloak with user **`admin`** (password from script) |
+
+**Docs:** [gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md) — verification checklist, demo users, Keycloak admin console, troubleshooting.
+
+**GitOps values** (only if you need non-default names): `kagenti.keycloakNamespace`, `kagenti.keycloakRealm` in `gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml`.
+
 ### Phase 5 — Shared observability (Option C: OTEL → Tempo + MLflow + Grafana) (opt-in, **off by default**)
 
 **Architecture (Option C):**
@@ -1914,6 +1929,16 @@ export QUAY_REGISTRY_PASSWORD='...'   # optional: written into values-cluster.ya
 ```
 
 See [Cluster-Aware Configuration](#cluster-aware-configuration) and [Makefile](#makefile-targets) (`make cluster-values`).
+
+### `scripts/kagenti-auth-info.sh` (after Phase 4)
+
+Prints Kagenti UI / API / Keycloak URLs and demo login credentials from cluster Secrets. Requires `oc login` and a completed Phase 4 install.
+
+```bash
+./scripts/kagenti-auth-info.sh
+```
+
+See [KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md) for the full verification checklist and troubleshooting.
 
 ### `scripts/trigger-network-audit.sh`
 
