@@ -28,7 +28,9 @@ spec:
             - sh
             - -c
             - |
-              cp /usr/local/bin/roxctl /tools/roxctl 2>/dev/null || cp /usr/bin/roxctl /tools/roxctl
+              cp {{ .Values.acs.bootstrap.job.roxctlPath | quote }} /tools/roxctl 2>/dev/null \
+                || cp /usr/local/bin/roxctl /tools/roxctl 2>/dev/null \
+                || cp /usr/bin/roxctl /tools/roxctl
               chmod +x /tools/roxctl
           volumeMounts:
             - name: tools

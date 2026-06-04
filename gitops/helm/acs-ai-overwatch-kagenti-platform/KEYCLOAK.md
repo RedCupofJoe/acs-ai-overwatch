@@ -2,6 +2,22 @@
 
 The Phase 4 install Job (`setup-kagenti.sh` via `kagenti-deps` + `kagenti` Helm charts) **provisions Keycloak and wires OIDC for the Kagenti UI**. You do not install or configure Keycloak manually unless you need custom users, realms, or clients.
 
+**Related docs:** [README — Phase 4 (Kagenti platform)](../../../README.md#phase-4--kagenti-platform-opt-in-off-by-default) · [cluster-admin README](../../../scripts/cluster-admin/README.md)
+
+## Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Default PoC | **None** — RHBK, realm `kagenti`, OAuth client, and UI redirect are installed by the Phase 4 Job |
+| After install | Run `./scripts/kagenti-auth-info.sh`; open Kagenti UI route; sign in as **`admin`** (password from `kagenti-test-user` secret) |
+| Argo sync times out | Install Job runs 15–30+ min — see [Phase 4 timeout patch](../../../README.md#phase-4--kagenti-platform-opt-in-off-by-default); avoid re-sync until Job completes |
+| Custom users (no Git change) | Keycloak admin console → realm **`kagenti`** → Users — see [Keycloak admin console](#keycloak-admin-console-optional) below |
+| Custom realm / client / OIDC | Change `kagenti.keycloakRealm` or related values, re-run Phase 4 install — see [Optional customization](#optional-customization) |
+| Redirect URI mismatch | Patch OAuth secret or re-run UI OAuth job — see [Troubleshooting](#troubleshooting) |
+| Agent workloads | UI login is separate from agent SPIFFE/AuthBridge — enable `components.kagenti` in the main chart after Phase 4 is healthy |
+
+Everything in [What is configured automatically](#what-is-configured-automatically) is GitOps/Job-driven for the default PoC path.
+
 ## What is configured automatically
 
 | Component | Namespace | Purpose |

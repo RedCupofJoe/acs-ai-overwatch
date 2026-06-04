@@ -472,11 +472,29 @@ ADMIN_PASSWORD="$(oc get secret central-htpasswd -n "${ACS_NS}" -o jsonpath='{.d
 
 if ! oc get secret sensor-tls -n "${ACS_NS}" >/dev/null 2>&1; then
   echo "Generating SecuredCluster init bundle..."
-  roxctl central init-bundles generate "${CLUSTER_NAME}" \
+  if ! roxctl central init-bundles generate "${CLUSTER_NAME}" \
     -e "${CENTRAL_ENDPOINT}" \
     -p "${ADMIN_PASSWORD}" \
     --insecure-skip-tls-verify \
-    --output-secrets > /tmp/acs-init-bundle.yaml
+    --output-secrets - > /tmp/acs-init-bundle.yaml 2>/tmp/roxctl-gen.err; then
+    if grep -q AlreadyExists /tmp/roxctl-gen.err; then
+      echo "Init bundle ${CLUSTER_NAME} already exists in Central — revoking stale bundle and retrying..."
+      BUNDLE_ID="$(roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure-skip-tls-verify \
+        central init-bundles list -o csv 2>/dev/null | awk -F',' -v name="${CLUSTER_NAME}" '$1==name {gsub(/"/,"",$5); print $5}' | head -1)"
+      if [ -n "${BUNDLE_ID}" ]; then
+        roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure-skip-tls-verify \
+          central init-bundles revoke "${BUNDLE_ID}"
+      fi
+      roxctl central init-bundles generate "${CLUSTER_NAME}" \
+        -e "${CENTRAL_ENDPOINT}" \
+        -p "${ADMIN_PASSWORD}" \
+        --insecure-skip-tls-verify \
+        --output-secrets - > /tmp/acs-init-bundle.yaml
+    else
+      cat /tmp/roxctl-gen.err >&2
+      exit 1
+    fi
+  fi
   oc apply -f /tmp/acs-init-bundle.yaml
 else
   echo "Init bundle secrets already present — skipping generation"
@@ -517,23 +535,14 @@ echo "Waiting for sensor deployment..."
 wait_for oc get deployment sensor -n "${ACS_NS}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null | grep -q '^1$'
 
 if [ "${IMPORT_POLICY}" = "true" ]; then
-  echo "Importing runtime policy from ConfigMap ${POLICY_NS}/${POLICY_CM}..."
-  oc extract "configmap/${POLICY_CM}" -n "${POLICY_NS}" --keys=policy.yaml --to=- \
-    | roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
-      declarative-config create --file -
-  if [ "${IMPORT_TELEMETRY_POLICY}" = "true" ]; then
-    echo "Importing agent telemetry policy from ConfigMap ${POLICY_NS}/${TELEMETRY_POLICY_CM}..."
-    oc extract "configmap/${TELEMETRY_POLICY_CM}" -n "${POLICY_NS}" --keys=policy.yaml --to=- \
-      | roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
-        declarative-config create --file -
-  fi
+  echo "WARN: acs.bootstrap.importPolicy is deprecated — apply SecurityPolicy CRs via GitOps instead."
 fi
 
 if oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" >/dev/null 2>&1; then
   WEBHOOK_URL="$(oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" -o jsonpath='{.data.ACS_INCOMING_WEBHOOK_URL}')"
   if [ -n "${WEBHOOK_URL}" ]; then
     echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> Mattermost webhook..."
-    roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure \
+    roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure-skip-tls-verify \
       central notifiers upsert mattermost \
       --name "${NOTIFIER_NAME}" \
       --mattermost-url "${WEBHOOK_URL}" \

@@ -478,7 +478,7 @@ Login: `mattermost-admin` / password from `values.yaml` → `mattermost.bootstra
 |------|-------------|----------|
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ConfigMap `acs-ai-overwatch-cluster-config` |
-| 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, policy **ConfigMap**, etc. |
+| 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, `SecurityPolicy` CRs, etc. |
 | (opt-in 3) | `acs-ai-overwatch-kagenti-platform` | Kagenti control plane — see [Phase 4](#phase-4--kagenti-platform-opt-in-off-by-default) |
 | (opt-in 4) | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow — see [Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
 
@@ -487,6 +487,21 @@ oc apply -k gitops/argocd/
 ```
 
 **Not** applied by default: `application-kagenti-platform.yaml` and `application-observability.yaml` (commented out in kustomization).
+
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Before first Argo sync | Run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops-setup) (`make cluster-admin-pre-gitops`) — details in [`scripts/cluster-admin/README.md`](scripts/cluster-admin/README.md) |
+| Before `default-dsc` syncs | Install [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite) from OperatorHub (not in GitOps) |
+| Using a fork | Set `spec.source.repoURL` in each `gitops/argocd/application*.yaml` |
+| Storage class differs from `gp3-csi` | Set `storage.defaultStorageClass` in `values.yaml` (see [Storage](#storage)) |
+| Enabling Quay | Set `quayStorage.registryCredentials.password` and review MinIO credentials before production |
+| Mattermost bootstrap | Set `mattermost.bootstrap.*` passwords in `values.yaml` (not auto-generated) |
+| Quay operator `ResolutionFailed` | Delete orphaned CSV in `quay` namespace, approve InstallPlan, re-sync |
+| Helm `lookup` empty on repo-server | Optional CMP in `gitops/argocd/cmp/` (see [Cluster-Aware Configuration](#cluster-aware-configuration)) |
+
+Everything else in Phase 0 (namespaces, discovery Job, operator Subscriptions, Mattermost deploy) is GitOps-driven once the above prerequisites are met.
 
 ### Phase 1 — Mattermost external URL (automatic)
 
@@ -505,6 +520,16 @@ oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/
 ```
 
 **Webhook vs browser URL:** RHACS/agents use the **internal** webhook URL in `monitoring/mattermost-acs-integration`. Humans use **`mattermostSiteUrl`** from the ConfigMap.
+
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| New sandbox / cluster recreate | Re-sync `acs-ai-overwatch-cluster-discovery`, then hard-refresh the main app: `oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite` |
+| First login | Open `mattermostSiteUrl` from the ConfigMap; sign in as `mattermost-admin` with password from `values.yaml` → `mattermost.bootstrap.adminPassword` |
+| Local overrides only | `make cluster-values` writes `values-cluster.yaml` — **do not commit** sandbox hostnames (they go stale on recreate) |
+
+Phase 1 does not require editing Route hostnames or Mattermost URLs by hand when discovery and Helm `lookup` are working.
 
 ### Phase 2 — Agents (opt-in)
 
@@ -527,7 +552,7 @@ components:
 | Layer | Mechanism | When it applies |
 |-------|-----------|-----------------|
 | **Kubernetes** | `NetworkPolicy` selects `kagenti.io/type=agent` pods **without** `acs-ai-overwatch.io/telemetry=enabled` and allows DNS egress only | Immediate on sync (no RHACS Central required) |
-| **RHACS (ACS)** | Policy ConfigMap `acs-policy-agent-telemetry` — DEPLOY-stage required label; Mattermost notifier on violation; optional admission **block** (not scale-to-zero) | Phase 3 bootstrap imports policy + configures notifier |
+| **RHACS (ACS)** | `SecurityPolicy` CRs — DEPLOY-stage telemetry label policy; Mattermost notifier on violation; optional admission **block** (not scale-to-zero) | Phase 3 bootstrap configures SecuredCluster + notifier; policies sync as CRs |
 
 Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** carries `telemetry: disabled`, omits OTEL env, and is isolated by the NetworkPolicy — demonstrating the guardrail.
 
@@ -537,9 +562,22 @@ To notify without blocking admission, set `agentTelemetryPolicy.rhacs.enforcemen
 
 See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](#ai-agents).
 
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Before Tekton builds | Install [OpenShift Pipelines](#openshift-pipelines-tekton-prerequisite) (OperatorHub — not deployed by this repo) |
+| Using in-cluster Quay | Enable `quayStorage.enabled: true`, set registry password, wait for QuayRegistry Ready |
+| Building images | Apply pipeline manifests and create a PipelineRun (not in default GitOps): `oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml` |
+| Before agent pods start | Build and push images to Quay (Tekton or `docker build`); enable `components.kagenti` and per-agent flags only after images exist |
+| Rosey “Network Audit” demo | Requires Phase 4 — obtain Kagenti API token, run `./scripts/trigger-network-audit.sh` |
+| Sneaky Sam telemetry demo | Enable `agentsSneakySam.enabled: true`; Mattermost alert needs Phase 3 SecuredCluster + notifier |
+
+Agent Deployments and NetworkPolicy sync via GitOps; image builds and operator prerequisites do not.
+
 ### Phase 3 — Full RHACS Central + SecuredCluster (opt-in, **off by default**)
 
-**Baseline:** `components.acsPolicies.enabled: true` installs the RHACS **operator**, `test-range` namespace, runtime policy **ConfigMap**, and OpenShell SCC — **not** Central or sensors.
+**Baseline:** `components.acsPolicies.enabled: true` installs the RHACS **operator**, `test-range` namespace, **`SecurityPolicy` CRs**, and OpenShell SCC — **not** Central or sensors.
 
 **Full stack (opt-in):** set in `values.yaml` or `values-poc.yaml`:
 
@@ -551,15 +589,17 @@ acs:
       storageClassName: gp3-csi
   bootstrap:
     enabled: true
-    importPolicy: true
 ```
+
+Policies (`test-range-runtime-guardrails`, `test-range-agent-telemetry-required`) sync as **`SecurityPolicy` CRs** via GitOps — not via the bootstrap Job (RHACS 4.10 removed `roxctl declarative-config create --file` for policies).
 
 This adds (when RHACS CRDs exist):
 
 | Resource | Purpose |
 |----------|---------|
 | `Central` CR (`stackrox`) | RHACS UI/API |
-| Job `acs-platform-bootstrap` | Init bundle, `SecuredCluster`, import **runtime + telemetry** policies, Mattermost notifier upsert (best-effort) |
+| Job `acs-platform-bootstrap` | Init bundle, `SecuredCluster`, Mattermost notifier upsert (best-effort) |
+| `SecurityPolicy` CRs | Runtime + telemetry policies (sync-wave with main chart) |
 
 **Rollback to baseline** (disable full RHACS without removing operator):
 
@@ -572,6 +612,18 @@ acs:
 ```
 
 Commit, push, sync. Existing Central resources may need manual cleanup in `stackrox` if you previously enabled Phase 3.
+
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Sandbox without full `registry.redhat.io` entitlement | Copy cluster pull secret to `stackrox` and attach to bootstrap ServiceAccount: `oc get secret pull-secret -n openshift-config -o yaml \| sed 's/namespace: openshift-config/namespace: stackrox/' \| oc apply -f -` then patch `acs-bootstrap` SA `imagePullSecrets` |
+| Bootstrap Job warns on notifier upsert | RHACS 4.10 `roxctl` may reject `--name` — configure **Mattermost Notifier** manually in ACS UI using webhook URL from ConfigMap `mattermost-acs-integration` |
+| Alerts not reaching Mattermost | Verify notifier in ACS console → Integration → Notifiers; URL must match `mattermost-acs-integration` |
+| Stale init bundle (secrets missing) | Bootstrap Job revokes and retries automatically; if stuck, revoke bundle in Central UI and re-run Job |
+| Rollback from full RHACS | Delete `Central` / `SecuredCluster` and related secrets in `stackrox` if GitOps prune does not remove them |
+
+Central install, SecuredCluster registration, and policy CRs are GitOps-driven once pull secrets and Central CRDs are healthy.
 
 ### Phase 4 — Kagenti platform (opt-in, **off by default**)
 
@@ -596,6 +648,16 @@ To install the **Kagenti platform** (Keycloak, SPIRE, operator, API):
    ```
 
 Install can take **15–30 minutes**. Requires cluster-admin (Job uses `cluster-admin` RBAC — PoC only). Argo Application sync-wave is **3** (after main chart at wave 2). While the install Job runs, Argo shows **Running / waiting for hook** — that is normal, not a failed install. Avoid re-syncing until the Job completes or you will recreate the hook.
+
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Argo sync times out during install | Raise controller sync timeout (see optional patch below) — install Job can run 15–30+ min |
+| After install completes | Run `./scripts/kagenti-auth-info.sh` for Kagenti UI URL and Keycloak demo credentials |
+| First UI login | Open Kagenti route → sign in at Keycloak as user **`admin`** (password from script) |
+| Custom realms / users / OIDC clients | See [KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md#manual-steps-if-necessary) — default PoC needs no manual Keycloak setup |
+| Rollback | Set `job.enabled: false`, remove Application from kustomization, delete Argo app (commands below) |
 
 **Optional (cluster-admin):** if sync still times out, raise the global Argo CD controller limit (OpenShift GitOps default is unlimited, but some clusters override it):
 
@@ -622,7 +684,7 @@ The install Job **provisions Keycloak (RHBK), imports realm `kagenti`, and confi
 | 3 | Print URLs and demo credentials: `./scripts/kagenti-auth-info.sh` |
 | 4 | Open the **Kagenti UI** route → sign in at Keycloak with user **`admin`** (password from script) |
 
-**Docs:** [gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md) — verification checklist, demo users, Keycloak admin console, troubleshooting.
+**Docs:** [gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md) — verification checklist, demo users, [manual steps](gitops/helm/acs-ai-overwatch-kagenti-platform/KEYCLOAK.md#manual-steps-if-necessary), Keycloak admin console, troubleshooting.
 
 **GitOps values** (only if you need non-default names): `kagenti.keycloakNamespace`, `kagenti.keycloakRealm` in `gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml`.
 
@@ -709,12 +771,25 @@ oc delete application acs-ai-overwatch-observability -n openshift-gitops --ignor
 
 Set `observability.agentInstrumentation.enabled: false` in the main chart to stop injecting OTEL env on agents.
 
+#### Manual steps (if necessary)
+
+| When | Action |
+|------|--------|
+| Kagenti AuthBridge traces | Enable **Phase 4** before Phase 5 |
+| Agent OTLP env injection | After observability bootstrap ConfigMap exists, set `observability.agentInstrumentation.enabled: true` and **hard-refresh** main Argo app (Helm `lookup`) |
+| Traces from running agents | Rebuild agent images (Tekton) — instrumentation env is injected at deploy time; images must include OTEL SDK |
+| Kagenti + shared collector | Set `phase5.integration.enabled: true` in kagenti-platform values; Kagenti collector config merge may still need a manual step (bootstrap Job logs a hint) |
+| Viewing traces | Open Grafana user-workload URL from ConfigMap `acs-ai-overwatch-observability-config` (written by bootstrap Job) |
+| Rollback | Disable chart, remove Application from kustomization, set `agentInstrumentation.enabled: false` on main chart |
+
+Tempo, MLflow, OTEL collector, and dashboard ConfigMaps deploy via GitOps; image rebuilds and cross-app refresh are the usual manual follow-ups.
+
 ### Recommended order summary
 
 ```text
 Phase 0–1 (baseline)     → bootstrap → discovery → main chart  [DEFAULT]
 Phase 2 (agents)       → Tekton + components.kagenti + per-agent flags + agentTelemetryPolicy
-Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (imports both ACS policies)
+Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (+ SecurityPolicy CRs via GitOps)
 Phase 4 (Kagenti plat) → application-kagenti-platform + job.enabled
 Phase 5 (observability)→ application-observability + enabled: true (+ agentInstrumentation optional)
 Phase 2 demos          → Sneaky Sam telemetry guardrail OR trigger-network-audit.sh (needs Phases 2–4)
@@ -726,7 +801,7 @@ Phase 2 demos          → Sneaky Sam telemetry guardrail OR trigger-network-aud
 
 Run these steps **locally as cluster-admin** after `oc login` and **before** `oc apply -k gitops/argocd/`. They create the objects Argo CD needs so the first sync does not fail on RBAC or missing cluster settings.
 
-Scripts live under [`scripts/cluster-admin/`](scripts/cluster-admin/README.md).
+Scripts live under [`scripts/cluster-admin/`](scripts/cluster-admin/README.md) (includes [manual steps by phase](scripts/cluster-admin/README.md#manual-steps-if-necessary)).
 
 ### One command
 
@@ -1587,14 +1662,14 @@ Build and push images with Tekton before enabling Kagenti, or pods will fail ima
 
 ## ACS / RHACS Security
 
-Enable baseline ACS artifacts with `components.acsPolicies.enabled: true` (operator, `test-range`, policy ConfigMap, SCC).
+Enable baseline ACS artifacts with `components.acsPolicies.enabled: true` (operator, `test-range`, `SecurityPolicy` CRs, SCC).
 
 ### Baseline vs full RHACS (Phase 3)
 
 | Mode | Flags | What gets deployed |
 |------|-------|-------------------|
-| **Baseline (default)** | `acs.central.enabled: false`, `acs.bootstrap.enabled: false` | RHACS operator Subscription, `test-range` NS, policy ConfigMap, OpenShell SCC |
-| **Full stack (opt-in)** | both `true` | Above + `Central` CR, bootstrap Job (init bundle, `SecuredCluster`, policy import, Mattermost notifier) |
+| **Baseline (default)** | `acs.central.enabled: false`, `acs.bootstrap.enabled: false` | RHACS operator Subscription, `test-range` NS, `SecurityPolicy` CRs, OpenShell SCC |
+| **Full stack (opt-in)** | both `true` | Above + `Central` CR, bootstrap Job (init bundle, `SecuredCluster`, Mattermost notifier) |
 
 See [Phase 3 — Full RHACS](#phase-3--full-rhacs-central--securedcluster-opt-in-off-by-default).
 
@@ -1606,7 +1681,7 @@ See [Phase 3 — Full RHACS](#phase-3--full-rhacs-central--securedcluster-opt-in
 | OperatorGroup | `rhacs-operator` |
 | Subscription | `rhacs-operator` (stable, redhat-operators) |
 
-When **`acs.central.enabled: true`**, the chart also renders a `Central` CR in namespace `stackrox`. When **`acs.bootstrap.enabled: true`**, Job `acs-platform-bootstrap` completes init bundle + SecuredCluster + policy import.
+When **`acs.central.enabled: true`**, the chart also renders a `Central` CR in namespace `stackrox`. When **`acs.bootstrap.enabled: true`**, Job `acs-platform-bootstrap` completes init bundle + SecuredCluster + Mattermost notifier (best-effort).
 
 If Phase 3 is **disabled** (default), deploy Central/SCS manually per [Red Hat documentation](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.10/html/installing/installing-rhacs-on-red-hat-openshift), or enable Phase 3 in values.
 
@@ -1616,12 +1691,13 @@ Creates isolated namespace `test-range` for agent workloads and ACS policy scope
 
 ### Runtime Policy
 
-Policy payload is rendered into ConfigMap `acs-policy-test-range-runtime-guardrails` in `test-range`. Import into RHACS:
+Policies are **`SecurityPolicy` CRs** (`config.stackrox.io/v1alpha1`) applied by GitOps when the RHACS operator CRD is present:
 
 ```bash
-oc extract cm/acs-policy-test-range-runtime-guardrails -n test-range --keys=policy.yaml --to=- \
-  | roxctl declarative-config create --file -
+oc get securitypolicy test-range-runtime-guardrails test-range-agent-telemetry-required
 ```
+
+Legacy `roxctl declarative-config create --file` does **not** work on RHACS 4.10+ (that command is for auth/roles/notifiers, not violation policies).
 
 **Policy name:** `test-range-runtime-guardrails`  
 **Scope:** namespace `test-range`  
@@ -1642,7 +1718,7 @@ oc extract cm/acs-policy-test-range-runtime-guardrails -n test-range --keys=poli
 
 ### Agent telemetry policy (DEPLOY)
 
-Separate policy ConfigMap `acs-policy-agent-telemetry` in `test-range` (rendered when `agentTelemetryPolicy.enabled` and `components.acsPolicies.enabled`).
+Separate **`SecurityPolicy`** `test-range-agent-telemetry-required` (when `agentTelemetryPolicy.enabled` and `components.acsPolicies.enabled`).
 
 **Policy name:** `test-range-agent-telemetry-required`  
 **Scope:** namespace `test-range`, workloads labeled `kagenti.io/type=agent`  
@@ -1651,14 +1727,14 @@ Separate policy ConfigMap `acs-policy-agent-telemetry` in `test-range` (rendered
 **Enforcement (default):** `FAIL_DEPLOYMENT_CREATE_ENFORCEMENT`, `FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT`  
 **Required label:** `acs-ai-overwatch.io/telemetry=enabled`
 
-Import manually:
+Import manually (deprecated — use GitOps `SecurityPolicy` CRs instead):
 
 ```bash
-oc extract cm/acs-policy-agent-telemetry -n test-range --keys=policy.yaml --to=- \
-  | roxctl declarative-config create --file -
+# Policies are SecurityPolicy CRs — oc apply -f or sync Argo CD
+oc get securitypolicy
 ```
 
-When Phase 3 bootstrap runs with `acs.bootstrap.importPolicy: true`, this policy is imported **after** the runtime guardrails policy. Violations notify **`Mattermost Notifier`** → Town Square (human-in-the-loop user is a team member).
+When Phase 3 bootstrap runs, policies are already applied as `SecurityPolicy` CRs (sync wave `70`). Configure **`Mattermost Notifier`** in the ACS console if alerts do not arrive (bootstrap notifier upsert is best-effort on RHACS 4.10).
 
 To alert without blocking admission:
 
@@ -1798,18 +1874,17 @@ git commit -m "PoC storage paths" && git push
        enabled: true
      bootstrap:
        enabled: true
-       importPolicy: true
    ```
 
 6. After bootstrap Job completes, verify policies and notifier:
 
    ```bash
    oc logs -n stackrox job/acs-platform-bootstrap
-   # RHACS UI → Violation Policy → test-range-runtime-guardrails
-   # RHACS UI → Violation Policy → test-range-agent-telemetry-required
+   oc get securitypolicy test-range-runtime-guardrails test-range-agent-telemetry-required
+   # RHACS UI → Integration → Notifiers → Mattermost Notifier
    ```
 
-   Bootstrap imports **both** policy ConfigMaps and upserts **`Mattermost Notifier`**. If alerts fail, confirm notifier in ACS console points at `mattermost-acs-integration` webhook URL.
+   Policies sync as **`SecurityPolicy` CRs** via GitOps. Bootstrap upserts **`Mattermost Notifier`** (best-effort). If alerts fail, configure the notifier manually in ACS console using the webhook URL from `mattermost-acs-integration`.
 
 ### Phase 2 — Build and Deploy Agents
 
@@ -1980,7 +2055,7 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI |
 | `acs-test-range-namespace.yaml` | `components.acsPolicies.enabled` | `test-range` namespace |
 | `acs-operator-install.yaml` | `components.acsPolicies.enabled` | RHACS operator |
-| `acs-policy-test-range.yaml` | `components.acsPolicies.enabled` | Runtime guardrails policy ConfigMap |
+| `acs-securitypolicy-*.yaml` | `components.acsPolicies.enabled` | Runtime + telemetry `SecurityPolicy` CRs |
 | `acs-policy-agent-telemetry.yaml` | `acsPolicies` + `agentTelemetryPolicy` | Agent telemetry required-label policy |
 | `agent-telemetry-networkpolicy.yaml` | `kagenti` + `agentTelemetryPolicy` | DNS-only egress for non-compliant agents |
 | `acs-openshell-scc.yaml` | `components.acsPolicies.enabled` | SCC + ServiceAccount |

@@ -25,6 +25,7 @@ platformResources:
     quayRegistry: quayregistries.quay.redhat.com
     central: centrals.platform.stackrox.io
     securedCluster: securedclusters.platform.stackrox.io
+    securityPolicy: securitypolicies.config.stackrox.io
 
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
@@ -463,11 +464,14 @@ acs:
     centralEndpoint: central.stackrox.svc:443
   bootstrap:
     enabled: false
-    importPolicy: true
+    # Policies are SecurityPolicy CRs (GitOps). Bootstrap only configures SecuredCluster + Mattermost notifier.
+    importPolicy: false
     mattermostIntegrationConfigMap: mattermost-acs-integration
     job:
       image: registry.redhat.io/openshift4/ose-cli:latest
-      roxctlImage: registry.redhat.io/advanced-cluster-security/roxctl-rhel8:4.10.3
+      # rhacs-main-rhel8 includes /stackrox/roxctl; standalone roxctl-rhel8 often lacks pull entitlement on sandbox clusters.
+      roxctlImage: registry.redhat.io/advanced-cluster-security/rhacs-main-rhel8:4.10.3
+      roxctlPath: /stackrox/roxctl
       backoffLimit: 6
   policy:
     configMapName: acs-policy-test-range-runtime-guardrails
