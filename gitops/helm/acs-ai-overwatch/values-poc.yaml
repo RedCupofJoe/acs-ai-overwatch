@@ -15,9 +15,13 @@ mattermost:
 
 components:
   kagenti:
-    enabled: false
+    enabled: true
   agentsHelpfulHank:
-    enabled: false
+    enabled: true
+  agentsRoseyRegrets:
+    enabled: true
+  agentsSneakySam:
+    enabled: true
 
 acs:
   central:

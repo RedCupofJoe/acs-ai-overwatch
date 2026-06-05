@@ -1,0 +1,41 @@
+# Cluster PipelineRun — uses gitRepoUrl from cluster ConfigMap revision on main.
+# Requires: pipelines/tekton/agents-build-pipeline.yaml applied, Secret quay-build-robot in acs-ai-overwatch-system.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: agents-build-
+  namespace: acs-ai-overwatch-system
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+spec:
+  pipelineRef:
+    name: build-helpful-hank-and-rosey-regrets
+  params:
+    - name: git-url
+      value: https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    - name: git-revision
+      value: main
+    - name: image-registry
+      value: quay-quay-registry.quay.svc.cluster.local:443
+    - name: image-org
+      value: acs-agents
+    - name: image-tag
+      value: latest
+    - name: push-tls-verify
+      value: "false"
+  workspaces:
+    - name: shared-source
+      volumeClaimTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: acs-ai-overwatch
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: gp3-csi
+          resources:
+            requests:
+              storage: 10Gi
+    - name: registry-credentials
+      secret:
+        secretName: quay-build-robot
