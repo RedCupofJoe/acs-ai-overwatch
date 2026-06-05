@@ -135,6 +135,14 @@ quayStorage:
     name: quay
     namespace: quay
     clusterMonitoringLabel: "true"
+    # Reference Secret for Quay UI superuser credentials (not wired into Quay operator).
+    # Use username/password when completing the Quay setup wizard or creating the admin user in the UI.
+    adminAccount:
+      enabled: true
+      secretName: admin-account
+      username: quayadmin
+      password: CHANGE_ME_QUAY_ADMIN_PASSWORD
+      email: quay-admin@cluster.local
     # Quay config bundle for unmanaged object storage (MinIO on gp3-csi).
     configBundleSecret:
       name: quay-config-bundle
