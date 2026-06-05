@@ -16,7 +16,7 @@ spec:
     - name: git-revision
       value: main
     - name: image-registry
-      value: quay-quay-app.quay.svc.cluster.local:443
+      value: quay-quay-app.quay.svc.cluster.local:80
     - name: image-org
       value: acs-agents
     - name: image-tag

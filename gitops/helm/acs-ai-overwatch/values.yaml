@@ -409,7 +409,7 @@ pipelines:
   namespace: acs-ai-overwatch-system
   imageRegistry:
     # Internal Quay registry service DNS (adjust to match your QuayRegistry route/service).
-    host: quay-quay-app.quay.svc.cluster.local:443
+    host: quay-quay-app.quay.svc.cluster.local:80
     organization: acs-agents
 
 # Kagenti workloads + source registration for Hank and Rosey.
@@ -425,9 +425,9 @@ kagenti:
     revision: main
     path: gitops/helm/acs-ai-overwatch
   images:
-    helpfulHank: quay-quay-app.quay.svc.cluster.local:443/acs-agents/helpful-hank:latest
-    roseyRegrets: quay-quay-app.quay.svc.cluster.local:443/acs-agents/rosey-regrets:latest
-    sneakySam: quay-quay-app.quay.svc.cluster.local:443/acs-agents/sneaky-sam:latest
+    helpfulHank: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank:latest
+    roseyRegrets: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets:latest
+    sneakySam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam:latest
   serviceAccountName: openshell
   rosey:
     networkAuditCommand: "Network Audit"

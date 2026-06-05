@@ -91,8 +91,8 @@ spec:
       default: main
     - name: image-registry
       type: string
-      description: "Quay registry host:port (no scheme), e.g. quay-quay-app.quay.svc.cluster.local:443"
-      default: quay-quay-app.quay.svc.cluster.local:443
+      description: "Quay registry host:port (no scheme), e.g. quay-quay-app.quay.svc.cluster.local:80"
+      default: quay-quay-app.quay.svc.cluster.local:80
     - name: image-org
       type: string
       default: acs-agents
