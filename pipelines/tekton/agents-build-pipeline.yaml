@@ -26,10 +26,9 @@ spec:
     - name: output
   steps:
     - name: clone
-      image: registry.redhat.io/ubi9/ubi-minimal:latest
+      image: docker.io/alpine/git:latest
       script: |
         set -euo pipefail
-        microdnf install -y git ca-certificates >/dev/null
         dest="$(workspaces.output.path)"
         cd "${dest}"
         find "${dest}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true

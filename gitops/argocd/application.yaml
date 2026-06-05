@@ -22,6 +22,7 @@ spec:
       valueFiles:
         - values.yaml
         - values-poc.yaml
+        - values-cluster.yaml
       # Mattermost URL and cluster.appsDomain come from in-cluster ConfigMap
       # acs-ai-overwatch-cluster-config (written by acs-ai-overwatch-cluster-discovery).
       # serverDryRun lets Helm lookup read that ConfigMap at render time.
