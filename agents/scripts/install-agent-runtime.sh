@@ -6,7 +6,7 @@ PYTHON="${1:-/sandbox/.venv/bin/python}"
 
 "${PYTHON}" -m ensurepip --upgrade >/dev/null 2>&1 || true
 
-uv pip install --python "${PYTHON}" \
+uv pip install --python "${PYTHON}" --prerelease=allow \
   "kagenti-adk==0.8.1" \
   "opentelemetry-exporter-otlp-proto-grpc>=1.35.0" \
   "opentelemetry-distro>=0.56b0" \
