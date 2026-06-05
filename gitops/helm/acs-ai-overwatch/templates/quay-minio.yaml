@@ -42,10 +42,10 @@ metadata:
   namespace: {{ $ns }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
-    app.kubernetes.io/component: quay-minio
+    app.kubernetes.io/component: quay-minio-server
 spec:
   selector:
-    app.kubernetes.io/component: quay-minio
+    app.kubernetes.io/component: quay-minio-server
     app.kubernetes.io/name: {{ include "acs-ai-overwatch.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
@@ -61,19 +61,19 @@ metadata:
   namespace: {{ $ns }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
-    app.kubernetes.io/component: quay-minio
+    app.kubernetes.io/component: quay-minio-server
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/component: quay-minio
+      app.kubernetes.io/component: quay-minio-server
       app.kubernetes.io/name: {{ include "acs-ai-overwatch.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
         {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
-        app.kubernetes.io/component: quay-minio
+        app.kubernetes.io/component: quay-minio-server
     spec:
       containers:
         - name: minio
@@ -115,7 +115,7 @@ metadata:
   namespace: {{ $ns }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
-    app.kubernetes.io/component: quay-minio
+    app.kubernetes.io/component: quay-minio-init
   annotations:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
@@ -125,7 +125,7 @@ spec:
     metadata:
       labels:
         {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
-        app.kubernetes.io/component: quay-minio
+        app.kubernetes.io/component: quay-minio-init
     spec:
       restartPolicy: OnFailure
       initContainers:
