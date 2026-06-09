@@ -49,12 +49,14 @@ spec:
           args:
             - --model
             - {{ .Values.slm.vllm.model | quote }}
+            - --served-model-name
+            - {{ .Values.slm.vllm.servedModelName | quote }}
             - --max-model-len
             - {{ .Values.slm.vllm.maxModelLen | quote }}
             - --trust-remote-code
             - --enforce-eager
             - --gpu-memory-utilization
-            - "0.85"
+            - {{ .Values.slm.vllm.gpuMemoryUtilization | quote }}
             - --host
             - "0.0.0.0"
             - --port
@@ -69,7 +71,13 @@ spec:
               value: /model-cache
             - name: TRANSFORMERS_CACHE
               value: /model-cache
+            {{- if not .Values.slm.vllm.vllmUseV1 }}
             - name: VLLM_USE_V1
+              value: "0"
+            {{- end }}
+            - name: HF_HUB_OFFLINE
+              value: "0"
+            - name: TRANSFORMERS_OFFLINE
               value: "0"
           resources:
             requests:
@@ -77,22 +85,28 @@ spec:
             limits:
               nvidia.com/gpu: {{ .Values.slm.vllm.gpuCount | quote }}
           readinessProbe:
-            tcpSocket:
-              port: http
-            initialDelaySeconds: 120
+            exec:
+              command:
+                - curl
+                - -sf
+                - http://127.0.0.1:{{ .Values.slm.vllm.servicePort }}/v1/models
+            initialDelaySeconds: 90
             periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 10
+            timeoutSeconds: 15
+            failureThreshold: 6
           livenessProbe:
-            tcpSocket:
-              port: http
-            initialDelaySeconds: 180
+            exec:
+              command:
+                - curl
+                - -sf
+                - http://127.0.0.1:{{ .Values.slm.vllm.servicePort }}/v1/models
+            initialDelaySeconds: 120
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 15
             failureThreshold: 6
           volumeMounts:
             - name: model-cache
-              mountPath: /root/.cache/huggingface
+              mountPath: /model-cache
       volumes:
         - name: model-cache
           emptyDir: {}

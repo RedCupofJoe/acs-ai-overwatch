@@ -221,6 +221,8 @@ http://{{ .Values.slm.rhoai.inferenceServiceName }}-predictor.{{ .Values.kagenti
 {{- define "acs-ai-overwatch.slmLlmModel" -}}
 {{- if eq .Values.slm.backend "rhoai" -}}
 {{- .Values.slm.rhoai.servedModelName -}}
+{{- else if .Values.slm.vllm.servedModelName -}}
+{{- .Values.slm.vllm.servedModelName -}}
 {{- else -}}
 {{- .Values.slm.vllm.model -}}
 {{- end -}}

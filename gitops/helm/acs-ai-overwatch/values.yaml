@@ -420,30 +420,33 @@ agentsRoseyRegretsSlm:
     size: 20Gi
 
 # Shared inference + SLM agent variants (opt-in via components.*Slm).
-# backend: standalone (custom vLLM Deployment) or rhoai (OpenShift AI catalog ModelCar + KServe).
+# backend: standalone (vLLM Deployment + HuggingFace model) or rhoai (KServe ModelCar).
 slm:
-  backend: rhoai
+  backend: standalone
   vllm:
-    name: smollm2-vllm
-    image: docker.io/vllm/vllm-openai:v0.10.2
+    name: qwen3-vllm
+    image: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:ad06abf3bb5235ebb5b2df84cd1b9fd09e823f0ff2eebfc82bb4590275ccfe0b
     imagePullPolicy: IfNotPresent
-    model: HuggingFaceTB/SmolLM2-1.7B-Instruct
-    maxModelLen: 2048
+    model: Qwen/Qwen3-0.6B
+    servedModelName: qwen3-0-6b
+    maxModelLen: 4096
+    gpuMemoryUtilization: 0.85
     gpuCount: 1
     servicePort: 8000
+    vllmUseV1: false
+    enforceEager: true
     nodeSelector: {}
     tolerations: []
   rhoai:
-    inferenceServiceName: granite-tiny
-    # OpenShift AI catalog ModelCar (validated on RHOAI 3.4).
-    modelcarImage: registry.redhat.io/rhai/modelcar-granite-4-0-h-tiny:3.0
-    servedModelName: granite-tiny
-    # Red Hat vLLM CUDA runtime from odh-model-controller-parameters (vllm-cuda-image).
+    inferenceServiceName: qwen3-0-6b
+    # Optional KServe path when a ModelCar exists; Qwen3-0.6B uses hf:// via standalone vLLM.
+    modelUri: hf://Qwen/Qwen3-0.6B
+    servedModelName: qwen3-0-6b
     vllmCudaImage: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:ad06abf3bb5235ebb5b2df84cd1b9fd09e823f0ff2eebfc82bb4590275ccfe0b
     maxModelLen: 4096
+    gpuMemoryUtilization: 0.85
     gpuCount: 1
     servicePort: 8080
-    # T4 (compute 7.5) needs legacy vLLM engine + capped context length.
     vllmUseV1: false
     enforceEager: true
   rosey:
