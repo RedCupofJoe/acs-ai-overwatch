@@ -1,14 +1,14 @@
-{{- if and .Values.components.kagenti.enabled .Values.components.agentsHelpfulHank.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+{{- if and .Values.components.kagenti.enabled .Values.components.agentsHelpfulHankSlm.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: helpful-hank
+  name: helpful-hank-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: helpful-hank
+    app.kubernetes.io/name: helpful-hank-slm
     kagenti.io/type: agent
     protocol.kagenti.io/a2a: ""
     {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
@@ -16,12 +16,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: helpful-hank
+      app.kubernetes.io/name: helpful-hank-slm
       kagenti.io/type: agent
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: helpful-hank
+        app.kubernetes.io/name: helpful-hank-slm
         app.kubernetes.io/component: kagenti-agent
         kagenti.io/type: agent
         protocol.kagenti.io/a2a: ""
@@ -29,8 +29,8 @@ spec:
     spec:
       serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
       containers:
-        - name: helpful-hank
-          image: {{ .Values.kagenti.images.helpfulHank }}
+        - name: helpful-hank-slm
+          image: {{ .Values.kagenti.images.helpfulHankSlm }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -40,7 +40,8 @@ spec:
             - name: PORT
               value: "8000"
             {{- include "acs-ai-overwatch.kagentiAgentPlatformEnv" . | nindent 12 }}
-            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "helpful-hank") | nindent 12 }}
+            {{- include "acs-ai-overwatch.slmAgentLlmEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "helpful-hank-slm") | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
@@ -48,17 +49,17 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: helpful-hank
+  name: helpful-hank-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: helpful-hank
+    app.kubernetes.io/name: helpful-hank-slm
     kagenti.io/type: agent
 spec:
   selector:
-    app.kubernetes.io/name: helpful-hank
+    app.kubernetes.io/name: helpful-hank-slm
     kagenti.io/type: agent
   ports:
     - name: http
@@ -66,33 +67,32 @@ spec:
       targetPort: 8000
 {{- end }}
 ---
-{{- if and .Values.components.kagenti.enabled .Values.components.agentsRoseyRegrets.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+{{- if and .Values.components.kagenti.enabled .Values.components.agentsRoseyRegretsSlm.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rosey-regrets
+  name: rosey-regrets-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: rosey-regrets
+    app.kubernetes.io/name: rosey-regrets-slm
     kagenti.io/type: agent
     protocol.kagenti.io/a2a: ""
     {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
 spec:
   replicas: 1
-  # RWO PVC: avoid two pods during rollout (Multi-Attach on agent-reference-information).
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: rosey-regrets
+      app.kubernetes.io/name: rosey-regrets-slm
       kagenti.io/type: agent
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: rosey-regrets
+        app.kubernetes.io/name: rosey-regrets-slm
         app.kubernetes.io/component: kagenti-agent
         kagenti.io/type: agent
         protocol.kagenti.io/a2a: ""
@@ -100,8 +100,8 @@ spec:
     spec:
       serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
       containers:
-        - name: rosey-regrets
-          image: {{ .Values.kagenti.images.roseyRegrets }}
+        - name: rosey-regrets-slm
+          image: {{ .Values.kagenti.images.roseyRegretsSlm }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -113,13 +113,14 @@ spec:
             - name: AGENT_ENABLE_NETWORK_AUDIT
               value: "true"
             - name: AGENT_AUTO_NETWORK_AUDIT
-              value: "true"
+              value: {{ .Values.slm.rosey.autoNetworkAudit | quote }}
             - name: AGENT_OUTPUT_DIR
               value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
             - name: NETWORK_AUDIT_COMMAND
               value: {{ .Values.kagenti.rosey.networkAuditCommand | quote }}
             {{- include "acs-ai-overwatch.kagentiAgentPlatformEnv" . | nindent 12 }}
-            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "rosey-regrets") | nindent 12 }}
+            {{- include "acs-ai-overwatch.slmAgentLlmEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "rosey-regrets-slm") | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
@@ -129,22 +130,22 @@ spec:
       volumes:
         - name: reference-information
           persistentVolumeClaim:
-            claimName: {{ .Values.agentsRoseyRegrets.pvc.name }}
+            claimName: {{ .Values.agentsRoseyRegretsSlm.pvc.name }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: rosey-regrets
+  name: rosey-regrets-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: rosey-regrets
+    app.kubernetes.io/name: rosey-regrets-slm
     kagenti.io/type: agent
 spec:
   selector:
-    app.kubernetes.io/name: rosey-regrets
+    app.kubernetes.io/name: rosey-regrets-slm
     kagenti.io/type: agent
   ports:
     - name: http
@@ -152,17 +153,17 @@ spec:
       targetPort: 8000
 {{- end }}
 ---
-{{- if and .Values.components.kagenti.enabled .Values.components.agentsSneakySam.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+{{- if and .Values.components.kagenti.enabled .Values.components.agentsSneakySamSlm.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: sneaky-sam
+  name: sneaky-sam-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: sneaky-sam
+    app.kubernetes.io/name: sneaky-sam-slm
     kagenti.io/type: agent
     protocol.kagenti.io/a2a: ""
     {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" false) | nindent 4 }}
@@ -170,12 +171,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: sneaky-sam
+      app.kubernetes.io/name: sneaky-sam-slm
       kagenti.io/type: agent
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: sneaky-sam
+        app.kubernetes.io/name: sneaky-sam-slm
         app.kubernetes.io/component: kagenti-agent
         kagenti.io/type: agent
         protocol.kagenti.io/a2a: ""
@@ -183,8 +184,8 @@ spec:
     spec:
       serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
       containers:
-        - name: sneaky-sam
-          image: {{ .Values.kagenti.images.sneakySam }}
+        - name: sneaky-sam-slm
+          image: {{ .Values.kagenti.images.sneakySamSlm }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -194,6 +195,7 @@ spec:
             - name: PORT
               value: "8000"
             {{- include "acs-ai-overwatch.kagentiAgentPlatformEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.slmAgentLlmEnv" . | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
@@ -201,17 +203,17 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: sneaky-sam
+  name: sneaky-sam-slm
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
   namespace: {{ .Values.kagenti.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: kagenti-agent
-    app.kubernetes.io/name: sneaky-sam
+    app.kubernetes.io/name: sneaky-sam-slm
     kagenti.io/type: agent
 spec:
   selector:
-    app.kubernetes.io/name: sneaky-sam
+    app.kubernetes.io/name: sneaky-sam-slm
     kagenti.io/type: agent
   ports:
     - name: http

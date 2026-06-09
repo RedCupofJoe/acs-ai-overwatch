@@ -22,6 +22,14 @@ components:
     enabled: true
   agentsSneakySam:
     enabled: true
+  slmVllm:
+    enabled: true
+  agentsHelpfulHankSlm:
+    enabled: true
+  agentsRoseyRegretsSlm:
+    enabled: true
+  agentsSneakySamSlm:
+    enabled: true
 
 acs:
   central:

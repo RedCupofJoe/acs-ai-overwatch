@@ -10,6 +10,7 @@ uv pip install --python "${PYTHON}" --prerelease=allow \
   "kagenti-adk==0.8.1" \
   "opentelemetry-exporter-otlp-proto-grpc>=1.35.0" \
   "opentelemetry-distro>=0.56b0" \
+  httpx \
   huggingface_hub hf_transfer
 
 # Register common auto-instrumentations used by the A2A server.

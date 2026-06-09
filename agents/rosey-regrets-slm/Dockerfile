@@ -1,0 +1,33 @@
+# SLM variant: Rosey persona with shared vLLM inference (LLM_API_BASE env).
+FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+
+USER root
+
+ENV OPENSHELL_SYSTEM_PROMPT_FILE=/etc/openshell/agent/system_prompt.txt
+ENV AGENT_OUTPUT_DIR=/agent-reference-information
+ENV AGENT_ENABLE_NETWORK_AUDIT=true
+ENV AGENT_AUTO_NETWORK_AUDIT=false
+ENV HOST=0.0.0.0
+ENV PORT=8000
+ENV PYTHONPATH=/opt/acs-agent
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nmap \
+    iproute2 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/openshell/agent /agent-reference-information /opt/acs-agent \
+  && chown -R sandbox:sandbox /etc/openshell/agent /agent-reference-information /opt/acs-agent
+
+COPY agents/common/acs_agent /opt/acs-agent/acs_agent
+COPY agents/rosey-regrets-slm/system_prompt.txt /etc/openshell/agent/system_prompt.txt
+COPY agents/scripts/install-agent-runtime.sh /usr/local/bin/install-agent-runtime
+COPY agents/scripts/agent-entrypoint.sh /usr/local/bin/agent-entrypoint
+RUN chmod 0755 /usr/local/bin/install-agent-runtime /usr/local/bin/agent-entrypoint
+
+RUN install-agent-runtime /sandbox/.venv/bin/python \
+  && chown -R sandbox:sandbox /sandbox/.venv /opt/acs-agent /agent-reference-information
+
+USER sandbox
+ENTRYPOINT ["/usr/local/bin/agent-entrypoint"]
+CMD ["/sandbox/.venv/bin/python", "-m", "acs_agent.server"]

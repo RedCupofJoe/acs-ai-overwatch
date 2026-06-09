@@ -189,6 +189,50 @@ annotations:
 {{- end -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.kagentiPlatformUrl" -}}
+{{- if .Values.kagenti.platformUrl -}}
+{{- .Values.kagenti.platformUrl -}}
+{{- else -}}
+http://kagenti-backend.kagenti-system.svc.cluster.local:8000
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.kagentiAgentPlatformEnv" -}}
+- name: PLATFORM_URL
+  value: {{ include "acs-ai-overwatch.kagentiPlatformUrl" . | quote }}
+{{- end }}
+
+{{- define "acs-ai-overwatch.slmVllmServiceUrl" -}}
+http://{{ .Values.slm.vllm.name }}.{{ .Values.kagenti.namespace }}.svc.cluster.local:{{ .Values.slm.vllm.servicePort }}/v1
+{{- end }}
+
+{{- define "acs-ai-overwatch.slmRhoaiServiceUrl" -}}
+http://{{ .Values.slm.rhoai.inferenceServiceName }}-predictor.{{ .Values.kagenti.namespace }}.svc.cluster.local/v1
+{{- end }}
+
+{{- define "acs-ai-overwatch.slmLlmApiBase" -}}
+{{- if eq .Values.slm.backend "rhoai" -}}
+{{- include "acs-ai-overwatch.slmRhoaiServiceUrl" . -}}
+{{- else -}}
+{{- include "acs-ai-overwatch.slmVllmServiceUrl" . -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.slmLlmModel" -}}
+{{- if eq .Values.slm.backend "rhoai" -}}
+{{- .Values.slm.rhoai.servedModelName -}}
+{{- else -}}
+{{- .Values.slm.vllm.model -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.slmAgentLlmEnv" -}}
+- name: LLM_API_BASE
+  value: {{ include "acs-ai-overwatch.slmLlmApiBase" . | quote }}
+- name: LLM_MODEL
+  value: {{ include "acs-ai-overwatch.slmLlmModel" . | quote }}
+{{- end }}
+
 {{- define "acs-ai-overwatch.kagentiApiBaseUrl" -}}
 {{- if .Values.kagenti.api.baseUrl -}}
 {{- .Values.kagenti.api.baseUrl -}}

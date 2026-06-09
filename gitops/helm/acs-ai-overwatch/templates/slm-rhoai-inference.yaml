@@ -1,0 +1,77 @@
+{{- if and .Values.components.kagenti.enabled .Values.components.slmVllm.enabled (eq .Values.slm.backend "rhoai") (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-runtime
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.kagenti.namespace }}
+  annotations:
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    openshift.io/display-name: vLLM ServingRuntime for KServe
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    opendatahub.io/dashboard: "true"
+spec:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: {{ .Values.slm.rhoai.servicePort | quote }}
+  containers:
+    - name: kserve-container
+      image: {{ .Values.slm.rhoai.vllmCudaImage }}
+      command:
+        - python
+        - -m
+        - vllm.entrypoints.openai.api_server
+      args:
+        - --port={{ .Values.slm.rhoai.servicePort }}
+        - --model=/mnt/models
+        - --served-model-name={{ "{{.Name}}" }}
+        - --max-model-len={{ .Values.slm.rhoai.maxModelLen }}
+        {{- if .Values.slm.rhoai.enforceEager }}
+        - --enforce-eager
+        {{- end }}
+        - --gpu-memory-utilization=0.90
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+        {{- if not .Values.slm.rhoai.vllmUseV1 }}
+        - name: VLLM_USE_V1
+          value: "0"
+        {{- end }}
+      ports:
+        - containerPort: {{ .Values.slm.rhoai.servicePort }}
+          protocol: TCP
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: {{ .Values.slm.rhoai.inferenceServiceName }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.kagenti.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+  annotations:
+    openshift.io/display-name: {{ .Values.slm.rhoai.servedModelName }} (OpenShift AI catalog)
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: vllm-runtime
+      storageUri: oci://{{ .Values.slm.rhoai.modelcarImage }}
+      resources:
+        requests:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: {{ .Values.slm.rhoai.gpuCount | quote }}
+        limits:
+          cpu: "4"
+          memory: 16Gi
+          nvidia.com/gpu: {{ .Values.slm.rhoai.gpuCount | quote }}
+{{- end }}

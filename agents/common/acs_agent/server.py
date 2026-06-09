@@ -14,9 +14,12 @@ from kagenti_adk.a2a.types import AgentMessage
 from kagenti_adk.server import Server
 from kagenti_adk.server.context import RunContext
 
+from acs_agent.kagenti_compat import patch_kagenti_adk_create_app
+from acs_agent.llm import chat_completion
 from acs_agent.otel import configure_otel
 
 configure_otel()
+patch_kagenti_adk_create_app()
 
 server = Server()
 _tracer = None
@@ -143,6 +146,20 @@ async def acs_agent(input: Message, context: RunContext):
                 return
 
         system_prompt = _load_system_prompt()
+        llm_api_base = os.getenv("LLM_API_BASE", "").strip()
+        if llm_api_base:
+            if span is not None:
+                span.set_attribute("agent.llm.enabled", True)
+                span.set_attribute("agent.llm.api_base", llm_api_base)
+            try:
+                llm_reply = await chat_completion(system_prompt, user_text)
+                if audit_summary:
+                    llm_reply = f"{audit_summary}\n\n{llm_reply}"
+                yield AgentMessage(text=llm_reply)
+            except Exception as exc:
+                yield AgentMessage(text=f"LLM request failed: {exc}")
+            return
+
         persona_line = system_prompt.splitlines()[0] if system_prompt else "ACS agent"
         reply_parts = [persona_line, ""]
         if audit_summary:

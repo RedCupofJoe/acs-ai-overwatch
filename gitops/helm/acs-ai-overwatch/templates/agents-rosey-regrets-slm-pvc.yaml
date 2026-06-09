@@ -1,0 +1,22 @@
+{{- if .Values.components.agentsRoseyRegretsSlm.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.agentsRoseyRegretsSlm.pvc.name }}
+  annotations:
+    {{- if .Values.argocd.syncWaves.enabled }}
+    argocd.argoproj.io/sync-wave: {{ index .Values.argocd.syncWaves "pvcs" | quote }}
+    {{- end }}
+    argocd.argoproj.io/sync-options: SkipHealthCheck=true
+  namespace: {{ .Values.agentsRoseyRegretsSlm.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.agentsRoseyRegretsSlm.pvc.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
+  resources:
+    requests:
+      storage: {{ .Values.agentsRoseyRegretsSlm.pvc.size }}
+{{- end }}

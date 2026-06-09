@@ -357,6 +357,14 @@ components:
     enabled: false
   agentsSneakySam:
     enabled: false
+  slmVllm:
+    enabled: false
+  agentsHelpfulHankSlm:
+    enabled: false
+  agentsRoseyRegretsSlm:
+    enabled: false
+  agentsSneakySamSlm:
+    enabled: false
   pipelines:
     enabled: false
 
@@ -404,6 +412,43 @@ agentsRoseyRegrets:
     storageClassName: gp3-csi
     size: 20Gi
 
+agentsRoseyRegretsSlm:
+  namespace: test-range
+  pvc:
+    name: agent-reference-information-slm
+    storageClassName: gp3-csi
+    size: 20Gi
+
+# Shared inference + SLM agent variants (opt-in via components.*Slm).
+# backend: standalone (custom vLLM Deployment) or rhoai (OpenShift AI catalog ModelCar + KServe).
+slm:
+  backend: rhoai
+  vllm:
+    name: smollm2-vllm
+    image: docker.io/vllm/vllm-openai:v0.10.2
+    imagePullPolicy: IfNotPresent
+    model: HuggingFaceTB/SmolLM2-1.7B-Instruct
+    maxModelLen: 2048
+    gpuCount: 1
+    servicePort: 8000
+    nodeSelector: {}
+    tolerations: []
+  rhoai:
+    inferenceServiceName: granite-tiny
+    # OpenShift AI catalog ModelCar (validated on RHOAI 3.4).
+    modelcarImage: registry.redhat.io/rhai/modelcar-granite-4-0-h-tiny:3.0
+    servedModelName: granite-tiny
+    # Red Hat vLLM CUDA runtime from odh-model-controller-parameters (vllm-cuda-image).
+    vllmCudaImage: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:ad06abf3bb5235ebb5b2df84cd1b9fd09e823f0ff2eebfc82bb4590275ccfe0b
+    maxModelLen: 4096
+    gpuCount: 1
+    servicePort: 8080
+    # T4 (compute 7.5) needs legacy vLLM engine + capped context length.
+    vllmUseV1: false
+    enforceEager: true
+  rosey:
+    autoNetworkAudit: false
+
 # Tekton/OpenShift Pipelines defaults (see pipelines/tekton/agents-build-pipeline.yaml).
 pipelines:
   namespace: acs-ai-overwatch-system
@@ -415,6 +460,8 @@ pipelines:
 # Kagenti workloads + source registration for Hank and Rosey.
 kagenti:
   namespace: test-range
+  # kagenti-adk auto-registration target (defaults to in-cluster Kagenti backend).
+  platformUrl: ""
   api:
     # External base URL for Kagenti API; derived from cluster.appsDomain when empty.
     baseUrl: ""
@@ -428,6 +475,9 @@ kagenti:
     helpfulHank: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank:latest
     roseyRegrets: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets:latest
     sneakySam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam:latest
+    helpfulHankSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank-slm:latest
+    roseyRegretsSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets-slm:latest
+    sneakySamSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam-slm:latest
   serviceAccountName: openshell
   rosey:
     networkAuditCommand: "Network Audit"
