@@ -110,14 +110,10 @@ spec:
               value: /etc/openshell/agent/system_prompt.txt
             - name: PORT
               value: "8000"
-            - name: AGENT_ENABLE_NETWORK_AUDIT
-              value: "true"
-            - name: AGENT_AUTO_NETWORK_AUDIT
-              value: "true"
-            - name: AGENT_OUTPUT_DIR
-              value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
-            - name: NETWORK_AUDIT_COMMAND
-              value: {{ .Values.kagenti.rosey.networkAuditCommand | quote }}
+            {{- include "acs-ai-overwatch.roseyNetworkAuditEnv" . | nindent 12 }}
+            {{- if .Values.components.slmVllm.enabled }}
+            {{- include "acs-ai-overwatch.slmAgentLlmEnv" . | nindent 12 }}
+            {{- end }}
             {{- include "acs-ai-overwatch.kagentiAgentPlatformEnv" . | nindent 12 }}
             {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "rosey-regrets") | nindent 12 }}
           ports:

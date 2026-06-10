@@ -1,0 +1,174 @@
+{{- if and .Values.mattermost.enabled .Values.mattermost.webhookBridge.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acs-mattermost-bridge
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsBootstrap") | nindent 2 }}
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: acs-mattermost-bridge
+data:
+  bridge.py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+    import ssl
+    import urllib.error
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    MATTERMOST_URL = os.environ["MATTERMOST_WEBHOOK_URL"]
+    PORT = int(os.environ.get("PORT", "8080"))
+
+    def format_alert(payload):
+        alert = payload.get("alert", payload)
+        policy = alert.get("policy", {})
+        policy_name = policy.get("name") or policy.get("policyName") or "unknown policy"
+        severity = policy.get("severity", "")
+        lines = [f"**RHACS Alert: {policy_name}**"]
+        if severity:
+            lines.append(f"Severity: {severity}")
+        violations = alert.get("violations") or []
+        for violation in violations[:5]:
+            message = violation.get("message") or violation.get("msg") or ""
+            if message:
+                lines.append(message)
+            process = violation.get("process") or {}
+            if process:
+                process_name = process.get("name", {})
+                if isinstance(process_name, dict):
+                    process_name = process_name.get("name", "")
+                if process_name:
+                    lines.append(f"Process: {process_name}")
+        if len(lines) == 1:
+            lines.append("Policy violation detected — see RHACS Central for details.")
+        return "\n".join(lines)
+
+    def post_mattermost(text):
+        body = json.dumps({"text": text, "username": "acs"}).encode()
+        request = urllib.request.Request(
+            MATTERMOST_URL,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(request, context=context) as response:
+            return response.status
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(raw.decode() or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            try:
+                post_mattermost(format_alert(payload))
+                self.send_response(204)
+            except urllib.error.HTTPError as exc:
+                print(f"mattermost returned HTTP {exc.code}: {exc.read()}", flush=True)
+                self.send_response(502)
+            except Exception as exc:
+                print(f"forward failed: {exc}", flush=True)
+                self.send_response(502)
+            self.end_headers()
+
+        def do_GET(self):
+            if self.path in ("/", "/healthz"):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, fmt, *args):
+            print(fmt % args, flush=True)
+
+    if __name__ == "__main__":
+        HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: acs-mattermost-bridge
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsBootstrap") | nindent 2 }}
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: acs-mattermost-bridge
+spec:
+  selector:
+    app.kubernetes.io/name: acs-mattermost-bridge
+  ports:
+    - name: http
+      port: {{ .Values.mattermost.webhookBridge.servicePort }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acs-mattermost-bridge
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsBootstrap") | nindent 2 }}
+  namespace: {{ .Values.mattermost.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: acs-mattermost-bridge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: acs-mattermost-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: acs-mattermost-bridge
+    spec:
+      containers:
+        - name: bridge
+          image: {{ printf "%s:%s" .Values.mattermost.webhookBridge.image.repository .Values.mattermost.webhookBridge.image.tag }}
+          command: ["python", "/app/bridge.py"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mattermost.webhookBridge.servicePort }}
+          env:
+            - name: MATTERMOST_WEBHOOK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.acs.bootstrap.mattermostIntegrationConfigMap }}
+                  key: ACS_INCOMING_WEBHOOK_URL
+            - name: PORT
+              value: {{ .Values.mattermost.webhookBridge.servicePort | quote }}
+          volumeMounts:
+            - name: script
+              mountPath: /app
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: script
+          configMap:
+            name: acs-mattermost-bridge
+            defaultMode: 0555
+{{- end }}

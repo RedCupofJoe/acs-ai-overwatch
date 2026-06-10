@@ -1,6 +1,6 @@
 {{- if and .Values.components.acsPolicies.enabled .Values.acs.central.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
-{{- $webhook := include "acs-ai-overwatch.mattermostWebhookUrl" . }}
-{{- if $webhook }}
+{{- $endpoint := include "acs-ai-overwatch.acsNotifierEndpoint" . }}
+{{- if $endpoint }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,7 +14,7 @@ data:
   {{ .Values.acs.central.declarativeNotifier.configMapKey }}: |
     name: {{ .Values.acs.policy.notifierName }}
     generic:
-      endpoint: {{ $webhook }}
+      endpoint: {{ $endpoint }}
       skipTLSVerify: true
 {{- end }}
 {{- end }}

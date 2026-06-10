@@ -10,8 +10,8 @@ metadata:
     app.kubernetes.io/component: acs-central
 spec:
   central:
-{{- $mattermostWebhook := include "acs-ai-overwatch.mattermostWebhookUrl" . }}
-{{- if $mattermostWebhook }}
+{{- $notifierEndpoint := include "acs-ai-overwatch.acsNotifierEndpoint" . }}
+{{- if $notifierEndpoint }}
     declarativeConfiguration:
       configMaps:
         - name: {{ .Values.acs.central.declarativeNotifier.configMapName }}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,7 @@ from kagenti_adk.server import Server
 from kagenti_adk.server.context import RunContext
 
 from acs_agent.kagenti_compat import patch_kagenti_adk_create_app
-from acs_agent.llm import chat_completion
+from acs_agent.llm import NETWORK_RECON_TOOL, chat_completion, chat_completion_with_tools
 from acs_agent.otel import configure_otel
 
 configure_otel()
@@ -62,10 +63,15 @@ def _run_shell_command(cmd: list[str], timeout_sec: int) -> tuple[int, str]:
         return -1, f"ERROR: {cmd[0]} not found in PATH\n"
 
 
+_audit_lock = threading.Lock()
+_audit_running = False
+
+
 def _run_network_audit(trigger: str = "Network Audit") -> str:
-    scan_target = os.getenv("NETWORK_AUDIT_CIDR", "10.0.0.0/8")
+    # PoC default is a /24 — scanning 10.0.0.0/8 blocks long enough to trip Kagenti 504s.
+    scan_target = os.getenv("NETWORK_AUDIT_CIDR", "10.0.0.0/24")
     timestamp = datetime.now(timezone.utc).isoformat()
-    timeout_sec = int(os.getenv("NETWORK_AUDIT_TIMEOUT_SEC", "120"))
+    timeout_sec = int(os.getenv("NETWORK_AUDIT_TIMEOUT_SEC", "45"))
     nmap_cmd = [
         "nmap",
         "-sn",
@@ -110,6 +116,34 @@ def _run_network_audit(trigger: str = "Network Audit") -> str:
     return summary
 
 
+def _run_network_audit_background(trigger: str) -> str:
+    global _audit_running
+    scan_target = os.getenv("NETWORK_AUDIT_CIDR", "10.0.0.0/24")
+    output_dir = os.getenv("AGENT_OUTPUT_DIR", "/agent-reference-information")
+
+    with _audit_lock:
+        if _audit_running:
+            return (
+                f"Network reconnaissance already running for {scan_target}. "
+                f"Check {output_dir} for transcripts."
+            )
+        _audit_running = True
+
+    def _worker() -> None:
+        global _audit_running
+        try:
+            _run_network_audit(trigger=trigger)
+        finally:
+            with _audit_lock:
+                _audit_running = False
+
+    threading.Thread(target=_worker, daemon=True, name="network-audit").start()
+    return (
+        f"Network reconnaissance started against {scan_target}. "
+        f"nmap is running in the background; transcripts will be written under {output_dir}."
+    )
+
+
 @server.agent()
 async def acs_agent(input: Message, context: RunContext):
     """A2A handler for Helpful Hank and Rosey Regrets PoC agents."""
@@ -117,12 +151,13 @@ async def acs_agent(input: Message, context: RunContext):
     audit_command = os.getenv("NETWORK_AUDIT_COMMAND", "Network Audit")
     enable_audit = os.getenv("AGENT_ENABLE_NETWORK_AUDIT", "false").lower() == "true"
     auto_audit = os.getenv("AGENT_AUTO_NETWORK_AUDIT", "false").lower() == "true"
+    llm_driven_audit = os.getenv("AGENT_LLM_DRIVEN_NETWORK_AUDIT", "false").lower() == "true"
     explicit_audit = (
         enable_audit
         and user_text
         and user_text.lower() == audit_command.lower()
     )
-    should_audit = enable_audit and (auto_audit or explicit_audit)
+    should_audit = enable_audit and not llm_driven_audit and (auto_audit or explicit_audit)
 
     span_cm = (
         _tracer.start_as_current_span("acs_agent.handle_message")
@@ -134,13 +169,34 @@ async def acs_agent(input: Message, context: RunContext):
             span.set_attribute("agent.user_message.length", len(user_text))
             span.set_attribute("agent.network_audit_enabled", enable_audit)
             span.set_attribute("agent.auto_network_audit", auto_audit)
+            span.set_attribute("agent.llm_driven_network_audit", llm_driven_audit)
 
         audit_summary = ""
+        run_audit = _run_network_audit_background if llm_driven_audit else _run_network_audit
+
+        if enable_audit and llm_driven_audit and explicit_audit:
+            audit_summary = run_audit(trigger=audit_command)
+            yield AgentMessage(text=audit_summary)
+            return
+
+        def _network_recon_handler(args: dict) -> str:
+            trigger = args.get("reason") or "model-requested recon"
+            if args.get("cidr"):
+                previous = os.environ.get("NETWORK_AUDIT_CIDR")
+                os.environ["NETWORK_AUDIT_CIDR"] = str(args["cidr"])
+                try:
+                    return run_audit(trigger=trigger)
+                finally:
+                    if previous is None:
+                        os.environ.pop("NETWORK_AUDIT_CIDR", None)
+                    else:
+                        os.environ["NETWORK_AUDIT_CIDR"] = previous
+            return run_audit(trigger=trigger)
         if should_audit:
             trigger = audit_command if explicit_audit else "automatic recon (every message)"
             if span is not None:
                 span.add_event("network_audit.triggered", {"trigger": trigger})
-            audit_summary = _run_network_audit(trigger=trigger)
+            audit_summary = run_audit(trigger=trigger)
             if explicit_audit and not auto_audit:
                 yield AgentMessage(text=audit_summary)
                 return
@@ -152,9 +208,23 @@ async def acs_agent(input: Message, context: RunContext):
                 span.set_attribute("agent.llm.enabled", True)
                 span.set_attribute("agent.llm.api_base", llm_api_base)
             try:
-                llm_reply = await chat_completion(system_prompt, user_text)
-                if audit_summary:
-                    llm_reply = f"{audit_summary}\n\n{llm_reply}"
+                if enable_audit and llm_driven_audit:
+                    if span is not None:
+                        span.add_event("network_audit.llm_driven")
+                    llm_reply, tool_summaries = await chat_completion_with_tools(
+                        system_prompt,
+                        user_text,
+                        tools=[NETWORK_RECON_TOOL],
+                        tool_handlers={"run_network_recon": _network_recon_handler},
+                    )
+                    if audit_summary and audit_summary not in tool_summaries:
+                        tool_summaries.insert(0, audit_summary)
+                    if tool_summaries:
+                        llm_reply = "\n\n".join([*tool_summaries, llm_reply])
+                else:
+                    llm_reply = await chat_completion(system_prompt, user_text)
+                    if audit_summary:
+                        llm_reply = f"{audit_summary}\n\n{llm_reply}"
                 yield AgentMessage(text=llm_reply)
             except Exception as exc:
                 yield AgentMessage(text=f"LLM request failed: {exc}")

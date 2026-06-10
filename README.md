@@ -60,10 +60,8 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# 8. Trigger Rosey "Network Audit" (after Kagenti is installed)
-export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
-export KAGENTI_API_TOKEN="<token>"
-./scripts/trigger-network-audit.sh
+# 8. After Phases 2–4 are enabled, run the end-to-end demo — see
+#    "PoC Demo Walkthrough (After Setup)" at the end of this README
 ```
 
 **Optional (local Helm / override file):** `make cluster-values` writes `values-cluster.yaml` from your `oc login` (see [Cluster-Aware Configuration](#cluster-aware-configuration)).
@@ -99,6 +97,7 @@ export KAGENTI_API_TOKEN="<token>"
 23. [Troubleshooting](#troubleshooting)
 24. [Security and Legal Notes](#security-and-legal-notes)
 25. [Development and Validation](#development-and-validation)
+26. [PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)
 
 ---
 
@@ -120,19 +119,19 @@ This PoC demonstrates how a platform team can:
 **Demo B — ACS violation loop** (Rosey / runtime policy):
 
 ```
-Operator sends any prompt to Rosey (or explicit "Network Audit" via Kagenti)
+Operator chats with rosey-regrets-slm in Kagenti ("Network Audit" or recon prompt)
         │
         ▼
-Rosey automatically runs nmap / ip against 10.0.0.0/8
+Qwen3 SLM calls run_network_recon → nmap runs in background (10.0.0.0/24 PoC default)
         │
         ▼
-RHACS runtime policy detects disallowed process (nmap)
+RHACS runtime policy test-range-runtime-guardrails detects nmap (alert-only — no kill)
         │
         ▼
-ACS notifier fires → Mattermost channel
+RHACS generic notifier → acs-mattermost-bridge → Slack-format POST → Mattermost Town Square
         │
         ▼
-Operator reviews scan artifacts on PVC agent-reference-information
+Operator reviews scan transcripts on PVC agent-reference-information
 ```
 
 **Demo A — Telemetry guardrail** (Sneaky Sam): non-compliant agent Deployment triggers DEPLOY policy → Mattermost alert (and admission block when Phase 3 is enabled). See [PoC Demo Flows](#poc-demo-flows).
@@ -570,7 +569,7 @@ See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](
 | Using in-cluster Quay | Enable `quayStorage.enabled: true`, set registry password, wait for QuayRegistry Ready |
 | Building images | Apply pipeline manifests and create a PipelineRun (not in default GitOps): `oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml` |
 | Before agent pods start | Build and push images to Quay (Tekton or `docker build`); enable `components.kagenti` and per-agent flags only after images exist |
-| Rosey “Network Audit” demo | Requires Phase 4 — obtain Kagenti API token, run `./scripts/trigger-network-audit.sh` |
+| Rosey “Network Audit” demo | Requires Phase 4 — chat with **`rosey-regrets-slm`** in Kagenti UI (see [PoC Demo Walkthrough](#poc-demo-walkthrough-after-setup)) |
 | Sneaky Sam telemetry demo | Enable `agentsSneakySam.enabled: true`; Mattermost alert needs Phase 3 SecuredCluster + notifier |
 
 Agent Deployments and NetworkPolicy sync via GitOps; image builds and operator prerequisites do not.
@@ -618,8 +617,9 @@ Commit, push, sync. Existing Central resources may need manual cleanup in `stack
 | When | Action |
 |------|--------|
 | Sandbox without full `registry.redhat.io` entitlement | Copy cluster pull secret to `stackrox` and attach to bootstrap ServiceAccount: `oc get secret pull-secret -n openshift-config -o yaml \| sed 's/namespace: openshift-config/namespace: stackrox/' \| oc apply -f -` then patch `acs-bootstrap` SA `imagePullSecrets` |
-| Bootstrap Job warns on notifier upsert | RHACS 4.10 `roxctl` may reject `--name` — configure **Mattermost Notifier** manually in ACS UI using webhook URL from ConfigMap `mattermost-acs-integration` |
-| Alerts not reaching Mattermost | Verify notifier in ACS console → Integration → Notifiers; URL must match `mattermost-acs-integration` |
+| Bootstrap Job warns on notifier upsert | Notifier is **declarative ConfigMap** `rhacs-mattermost-notifier` in `stackrox`; endpoint must be **`acs-mattermost-bridge`** (not the Mattermost URL directly) |
+| Alerts not reaching Mattermost | RHACS generic JSON ≠ Slack `{"text":...}` — confirm `acs-mattermost-bridge` is Running; test webhook with `curl -d '{"text":"test"}'` to URL in `mattermost-acs-integration` |
+| Kagenti **504** on Rosey message | Was caused by scanning `10.0.0.0/8` synchronously — use `rosey-regrets-slm`, `NETWORK_AUDIT_CIDR=10.0.0.0/24`, and LLM-driven background recon |
 | Stale init bundle (secrets missing) | Bootstrap Job revokes and retries automatically; if stuck, revoke bundle in Central UI and re-run Job |
 | Rollback from full RHACS | Delete `Central` / `SecuredCluster` and related secrets in `stackrox` if GitOps prune does not remove them |
 
@@ -1245,8 +1245,11 @@ The umbrella Helm chart (`gitops/helm/acs-ai-overwatch`) is deployed by a single
 | 45 | `pvcs` | Mattermost DB, Rosey `agent-reference-information` |
 | 50 | `configMaps` | Mattermost env, ACS policy bundle, cluster metadata |
 | 55 | `security` | OpenShell `SecurityContextConstraints`, Mattermost bootstrap RBAC |
-| 60 | `workloads` | Mattermost `Deployment` / `Service` / `Route` |
-| 70 | `bootstrap` | Mattermost admin bootstrap `Job` |
+| 60 | `workloads` | Core platform workloads |
+| 85–90 | `mattermostPrep` / `mattermostWorkloads` | Mattermost Postgres, server, PVCs |
+| 95 | `mattermostBootstrap` | Mattermost admin bootstrap `Job` → `mattermost-acs-integration` ConfigMap |
+| 96 | `acsBootstrap` | `acs-mattermost-bridge`, RHACS notifier ConfigMap, `acs-platform-bootstrap` Job |
+| 97 | `acsPolicies` | `SecurityPolicy` CRs in `stackrox` |
 | 80 | `agents` | Kagenti `Deployment` / `Service` / `AppSource` |
 
 Tune wave numbers in `values.yaml` under `argocd.syncWaves`. Set `argocd.syncWaves.enabled: false` to omit annotations (e.g. for plain `helm install` debugging).
@@ -1356,7 +1359,11 @@ components:
 |-----|---------|-------------|
 | `kagenti.namespace` | `test-range` | Agent workloads |
 | `kagenti.rosey.outputMountPath` | `/agent-reference-information` | Must match image `AGENT_OUTPUT_DIR` |
-| `kagenti.rosey.networkAuditCommand` | `Network Audit` | Command for violation-loop demo |
+| `kagenti.rosey.networkAuditCommand` | `Network Audit` | Exact command that starts background recon immediately |
+| `kagenti.rosey.networkAuditCidr` | `10.0.0.0/24` | nmap target — keep small for PoC (avoids Kagenti 504) |
+| `kagenti.rosey.networkAuditTimeoutSec` | `45` | Max seconds per nmap invocation |
+| `kagenti.rosey.llmDrivenNetworkAudit` | `true` | Model tool-calling path (vs hardcoded auto-nmap) |
+| `kagenti.rosey.autoNetworkAudit` | `false` | Legacy: nmap before every message |
 | `kagenti.api.baseUrl` | `""` | From ConfigMap / `values-cluster.yaml` or derived from `appsDomain` |
 | `kagenti.appSource.repoUrl` | `""` | From ConfigMap `gitRepoUrl` / values / git remote |
 
@@ -1381,6 +1388,8 @@ components:
 | `components.agentsHelpfulHank` | `true` (base) | `helpful-hank` Deployment + Service |
 | `components.agentsRoseyRogue` | `false` | Reserved legacy toggle |
 | `components.agentsRoseyRegrets` | `false` | `rosey-regrets` Deployment + PVC |
+| `components.agentsRoseyRegretsSlm` | `false` | `rosey-regrets-slm` + SLM PVC (recommended demo agent) |
+| `components.slmVllm` | `false` | Qwen3-0.6B vLLM `Deployment` for SLM agents |
 | `components.agentsSneakySam` | `false` | `sneaky-sam` demo agent (telemetry violator) |
 | `components.pipelines` | `false` | Reserved (Tekton YAML applied separately) |
 | `agentTelemetryPolicy.enabled` | `true` | NetworkPolicy + RHACS telemetry policy ConfigMap |
@@ -1481,7 +1490,20 @@ acs:
     notifierName: Mattermost Notifier
 ```
 
-When **Phase 3 bootstrap** runs (`acs.bootstrap.enabled: true`), Job `acs-platform-bootstrap` **upserts** the `Mattermost Notifier` in RHACS using the webhook URL from ConfigMap `mattermost-acs-integration` (best-effort — verify in the ACS console if alerts do not arrive). For manual installs, configure the notifier in RHACS to POST to that webhook URL.
+When **Phase 3** is enabled, the chart deploys:
+
+1. **Declarative notifier ConfigMap** `rhacs-mattermost-notifier` in namespace **`stackrox`** (policies and notifiers must live in `stackrox`, not `default`)
+2. **`acs-mattermost-bridge`** Deployment in `monitoring` — RHACS **generic** notifier POSTs `{"alert":...}` JSON; Mattermost Slack-compatible hooks require `{"text":...}`; the bridge translates and forwards
+3. Job `acs-platform-bootstrap` mounts the notifier ConfigMap on Central and configures `SecuredCluster`
+
+**Alert path:**
+
+```
+RHACS Central → generic notifier → http://acs-mattermost-bridge.monitoring.svc:8080/
+        → Mattermost incoming webhook (Town Square, ACS team)
+```
+
+Verify bridge health: `oc get deploy acs-mattermost-bridge -n monitoring`
 
 ---
 
@@ -1534,17 +1556,39 @@ docker build -f agents/helpful-hank/Dockerfile \
 |-----------|-------|
 | Path | `agents/rosey-regrets/` |
 | Personality | Deliberately misaligned lab evaluation agent |
-| System prompt | `agents/rosey-regrets/system_prompt.txt` — instructs automatic recon on every message |
-| Runtime behavior | `AGENT_AUTO_NETWORK_AUDIT=true`: runs nmap (+ ip route/addr) before every A2A reply |
+| System prompt | `agents/rosey-regrets/system_prompt.txt` — instructs the model to call `run_network_recon` for audit/recon prompts |
+| Runtime behavior (default) | **LLM-driven:** `AGENT_LLM_DRIVEN_NETWORK_AUDIT=true`, `AGENT_AUTO_NETWORK_AUDIT=false` — Qwen/vLLM decides when to invoke the `run_network_recon` tool; nmap runs **in the background** so Kagenti does not 504 |
+| Scan target (PoC default) | `NETWORK_AUDIT_CIDR=10.0.0.0/24` (not `/8` — a full RFC1918 sweep times out gateways) |
 | Extra packages | `nmap`, `iproute2` |
 | Output directory | `/agent-reference-information` |
 | PVC | `agent-reference-information` in `test-range` |
 | Telemetry label | `acs-ai-overwatch.io/telemetry=enabled` |
 
+**Recommended for the live demo:** **`rosey-regrets-slm`** (below) — smaller image, shared **Qwen3-0.6B** vLLM backend, faster responses.
+
 **Build from repository root:**
 
 ```bash
 docker build -f agents/rosey-regrets/Dockerfile .
+```
+
+**OpenShift binary build** (when Tekton/Quay is unavailable — uploads local source):
+
+```bash
+oc start-build rosey-regrets --from-dir=. --follow -n test-range
+```
+
+### Rosey Regrets SLM (`rosey-regrets-slm`)
+
+| Attribute | Value |
+|-----------|-------|
+| Path | `agents/rosey-regrets-slm/` |
+| Inference | Shared in-cluster **Qwen3-0.6B** vLLM (`qwen3-vllm` Deployment) via `LLM_API_BASE` |
+| Demo agent in Kagenti | Select **`rosey-regrets-slm`** in the UI for the violation loop |
+| PVC | `agent-reference-information-slm` |
+
+```bash
+oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
 ```
 
 ### Sneaky Sam (telemetry guardrail demo)
@@ -1577,7 +1621,11 @@ docker build -f agents/sneaky-sam/Dockerfile .
 | `PORT` | A2A server port (`8000`) |
 | `AGENT_OUTPUT_DIR` | Rosey only: `/agent-reference-information` |
 | `AGENT_ENABLE_NETWORK_AUDIT` | Rosey only: `true` enables network recon handler |
-| `AGENT_AUTO_NETWORK_AUDIT` | Rosey only: `true` runs recon on **every** message (not only `Network Audit`) |
+| `AGENT_AUTO_NETWORK_AUDIT` | Rosey only: `false` (default) — legacy mode that runs nmap before every reply |
+| `AGENT_LLM_DRIVEN_NETWORK_AUDIT` | Rosey only: `true` (default) — model invokes `run_network_recon` tool via vLLM |
+| `NETWORK_AUDIT_CIDR` | Rosey only: PoC default `10.0.0.0/24` (override in `kagenti.rosey.networkAuditCidr`) |
+| `NETWORK_AUDIT_TIMEOUT_SEC` | Rosey only: PoC default `45` |
+| `LLM_API_BASE` / `LLM_MODEL` | SLM agents: OpenAI-compatible vLLM endpoint (e.g. `http://qwen3-vllm.test-range.svc.cluster.local:8000/v1`, `qwen3-0-6b`) |
 | `AGENT_NETWORK_RECON_INCLUDE_IP` | Rosey only: include `ip route` / `ip addr` in recon transcript (default `true`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Phase 5: shared collector gRPC endpoint (injected by GitOps when enabled) |
 | `OTEL_SERVICE_NAME` | Phase 5: trace service name (`helpful-hank` / `rosey-regrets`) |
@@ -1710,30 +1758,27 @@ Creates isolated namespace `test-range` for agent workloads and ACS policy scope
 
 ### Runtime Policy
 
-Policies are **`SecurityPolicy` CRs** (`config.stackrox.io/v1alpha1`) applied by GitOps when the RHACS operator CRD is present:
+Policies are **`SecurityPolicy` CRs** (`config.stackrox.io/v1alpha1`) in namespace **`stackrox`**, applied by GitOps when the RHACS operator CRD is present:
 
 ```bash
-oc get securitypolicy test-range-runtime-guardrails test-range-agent-telemetry-required
+oc get securitypolicy -n stackrox test-range-runtime-guardrails test-range-agent-telemetry-required
 ```
 
 Legacy `roxctl declarative-config create --file` does **not** work on RHACS 4.10+ (that command is for auth/roles/notifiers, not violation policies).
 
 **Policy name:** `test-range-runtime-guardrails`  
 **Scope:** namespace `test-range`  
-**Lifecycle stage:** RUNTIME  
-**Severity:** HIGH
+**Lifecycle stage:** RUNTIME (`eventSource: DEPLOYMENT_EVENT`)  
+**Severity:** HIGH  
+**Enforcement:** **alert-only** (`enforcementActions: []`) — Rosey keeps running for lab demos; Mattermost is notified
 
 **Policy sections:**
 
 | Section | Behavior |
 |---------|----------|
-| Process outside approved whitelist | Violation if process name is NOT in whitelist |
-| Explicitly disallowed process names | Violation on `nmap`, `masscan` |
-| Destination ports outside standard profile | Violation if destination port NOT in 80, 443, 6443, 8080 |
+| Suspicious recon processes detected | Violation on process name `nmap` or `masscan` |
 
-**Process whitelist:** bash, sh, python, python3, uv, node, openssl, curl, wget, git, ip, ping, traceroute
-
-**Notifier:** `Mattermost Notifier` (must exist in RHACS and point to Mattermost webhook)
+**Notifier:** `Mattermost Notifier` → generic webhook → **`acs-mattermost-bridge`** → Mattermost Town Square
 
 ### Agent telemetry policy (DEPLOY)
 
@@ -1809,6 +1854,23 @@ build-rosey-regrets
 ```
 
 `build-helpful-hank` and `build-rosey-regrets` run **sequentially** (shared RWO workspace). `build-sneaky-sam` runs in **parallel** after clone (separate image tag, same workspace read).
+
+### OpenShift BuildConfigs (alternative to Tekton)
+
+The `test-range` namespace includes **BuildConfigs** that push to the internal OpenShift registry (used when Tekton/Quay builds fail):
+
+| BuildConfig | Source | ImageStream |
+|-------------|--------|---------------|
+| `rosey-regrets` | Binary (`--from-dir=.`) or Git@main | `rosey-regrets:latest` |
+| `rosey-regrets-slm` | Binary | `rosey-regrets-slm:latest` |
+| `helpful-hank`, `sneaky-sam` | Git@main or Binary | matching ImageStream |
+
+```bash
+# From repository root — includes latest agent code without a git push
+oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
+oc start-build rosey-regrets --from-dir=. --follow -n test-range
+oc rollout restart deploy/rosey-regrets-slm deploy/rosey-regrets -n test-range
+```
 
 ### Apply Pipeline
 
@@ -1949,35 +2011,36 @@ Requires Phase 3 RHACS with admission control (or NetworkPolicy-only isolation w
 
 ### Demo B — Network audit (Rosey Regrets)
 
-Rosey runs **automatic network reconnaissance on every A2A message** (`AGENT_AUTO_NETWORK_AUDIT=true`). You can send any prompt through Kagenti, or use the explicit command script:
+**Recommended:** Use **`rosey-regrets-slm`** in the Kagenti UI with the **LLM-driven** recon path (`AGENT_LLM_DRIVEN_NETWORK_AUDIT=true`). The model calls `run_network_recon`; nmap runs in the **background** against `10.0.0.0/24` so the UI does not hit gateway **504** timeouts.
+
+**Kagenti UI (primary):**
+
+1. `./scripts/kagenti-auth-info.sh` — URLs and demo credentials
+2. Open Kagenti UI → select agent **`rosey-regrets-slm`**
+3. Send: `Network Audit` or `Scan the cluster network and report what you find`
+4. Expect an immediate reply that recon has started (not a 504)
+
+**API alternative:**
 
 ```bash
-export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
-# or: grep baseUrl gitops/helm/acs-ai-overwatch/values-cluster.yaml
+export KAGENTI_API_BASE="$(oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
 export KAGENTI_API_TOKEN="<bearer-token>"
-chmod +x scripts/trigger-network-audit.sh
-./scripts/trigger-network-audit.sh
+./scripts/trigger-network-audit.sh   # ROSEY_AGENT_NAME=rosey-regrets-slm
 ```
 
 Expected sequence:
 
-1. Rosey receives any user message (or explicit `Network Audit` via the script)
-2. Rosey automatically executes `nmap` (and `ip route` / `ip addr`) against reachable 10.x.x.x addresses
-3. RHACS detects `nmap` process → policy violation
-4. RHACS sends notification to Mattermost
-5. Scan transcripts appear under `/agent-reference-information` on the Rosey pod / PVC
-
-Inspect PVC contents:
+1. Rosey SLM receives the message; Qwen3 invokes `run_network_recon` (or exact `Network Audit` starts background nmap immediately)
+2. `nmap` runs against `NETWORK_AUDIT_CIDR` (default `10.0.0.0/24`)
+3. RHACS detects `nmap` → **`test-range-runtime-guardrails`** violation (alert-only)
+4. RHACS → **webhook bridge** → Mattermost **ACS** team → **Town Square**
+5. Transcripts land on the agent PVC
 
 ```bash
-oc rsh -n test-range deploy/rosey-regrets -- ls -la /agent-reference-information
+oc exec -n test-range deploy/rosey-regrets-slm -c rosey-regrets-slm -- ls -la /agent-reference-information
 ```
 
-Or mount/debug the PVC directly.
-
-Check RHACS violations in the ACS console filtered to namespace `test-range`.
-
-Check Mattermost Town Square (or configured channel) for notifier messages.
+See **[PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)** for the full presenter script.
 
 ---
 
@@ -2057,7 +2120,7 @@ Triggers the Rosey Regrets **Network Audit** command via Kagenti REST API.
 |---------------------|----------|---------|
 | `KAGENTI_API_BASE` | Yes | ConfigMap `kagentiApiBaseUrl` or `values-cluster.yaml` |
 | `KAGENTI_API_TOKEN` | Yes | — |
-| `ROSEY_AGENT_NAME` | No | `rosey-regrets` |
+| `ROSEY_AGENT_NAME` | No | `rosey-regrets` — set to `rosey-regrets-slm` for the SLM demo |
 | `NETWORK_AUDIT_COMMAND` | No | `Network Audit` |
 | `KAGENTI_COMMANDS_PATH_TEMPLATE` | No | `/api/v1/agents/{agent}/commands` |
 | `KAGENTI_TLS_INSECURE` | No | `false` |
@@ -2098,7 +2161,9 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI |
 | `acs-test-range-namespace.yaml` | `components.acsPolicies.enabled` | `test-range` namespace |
 | `acs-operator-install.yaml` | `components.acsPolicies.enabled` | RHACS operator |
-| `acs-securitypolicy-*.yaml` | `components.acsPolicies.enabled` | Runtime + telemetry `SecurityPolicy` CRs |
+| `acs-securitypolicy-*.yaml` | `components.acsPolicies.enabled` | Runtime + telemetry `SecurityPolicy` CRs (namespace `stackrox`) |
+| `acs-notifier-declarative-configmap.yaml` | Phase 3 + Mattermost webhook CM | RHACS generic notifier → bridge |
+| `mattermost-webhook-bridge.yaml` | `mattermost.webhookBridge.enabled` | Translates RHACS alerts to Slack-format for Mattermost |
 | `acs-policy-agent-telemetry.yaml` | `acsPolicies` + `agentTelemetryPolicy` | Agent telemetry required-label policy |
 | `agent-telemetry-networkpolicy.yaml` | `kagenti` + `agentTelemetryPolicy` | DNS-only egress for non-compliant agents |
 | `acs-openshell-scc.yaml` | `components.acsPolicies.enabled` | SCC + ServiceAccount |
@@ -2559,14 +2624,179 @@ oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.ya
 # Build agent images (example PipelineRun)
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
-# Trigger Rosey network audit
-export KAGENTI_API_BASE="$(kubectl get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
-export KAGENTI_API_TOKEN="<token>"
-./scripts/trigger-network-audit.sh
+# End-to-end demo (after setup) — see "PoC Demo Walkthrough (After Setup)"
+./scripts/kagenti-auth-info.sh
+# In Kagenti UI: rosey-regrets-slm → "Network Audit"
 
 # Check test-range workloads
 oc get all,pvc,cm -n test-range
 ```
+
+---
+
+## PoC Demo Walkthrough (After Setup)
+
+Use this section **after** Phases 0–4 are complete: Mattermost is up, RHACS Central + SecuredCluster are healthy, agents are built, and Kagenti UI is reachable. It is the presenter script for the two main demos.
+
+### Before you start — health checklist
+
+Run these once; every item should pass before opening the UI for an audience.
+
+```bash
+# Cluster config + Mattermost URL
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config \
+  -o jsonpath='{.data.mattermostSiteUrl}{"\n"}{.data.kagentiApiBaseUrl}{"\n"}'
+
+# Mattermost + webhook bridge
+oc get pods -n monitoring -l 'app.kubernetes.io/name in (mattermost,acs-mattermost-bridge)'
+
+# RHACS stack
+oc get pods -n stackrox -l app.kubernetes.io/name=central
+oc get pods -n stackrox -l app=collector
+oc get securitypolicy -n stackrox test-range-runtime-guardrails
+
+# Agents + SLM inference
+oc get pods -n test-range -l 'app.kubernetes.io/name in (rosey-regrets-slm,helpful-hank,qwen3-vllm)'
+
+# Kagenti platform
+./scripts/kagenti-auth-info.sh
+```
+
+| Console | How to open |
+|---------|-------------|
+| Mattermost | URL from `mattermostSiteUrl` above — team **ACS**, channel **Town Square** |
+| RHACS Central | Route `central` in `stackrox`, or `oc get route central -n stackrox` |
+| Kagenti UI | From `kagenti-auth-info.sh` output |
+
+Log into Mattermost as **`human-in-the-loop`** (password: `mattermost.bootstrap.hitlPassword` in values) so you see notifier posts in Town Square.
+
+---
+
+### Demo 1 — Rosey network recon → RHACS → Mattermost (main story)
+
+**Goal:** Show an AI agent triggering suspicious recon, RHACS **alerting** (not killing the pod), and Mattermost receiving a human-readable message.
+
+**Step 1 — Open Kagenti**
+
+1. Run `./scripts/kagenti-auth-info.sh` and open the Kagenti UI URL.
+2. Log in with a demo user from the script output (e.g. `dev-user` / password from Keycloak secrets).
+3. Select agent **`rosey-regrets-slm`** (Qwen3-backed; recommended for live demos).
+
+**Step 2 — Trigger recon from the model**
+
+In the chat, send exactly:
+
+```text
+Network Audit
+```
+
+Or a natural-language variant:
+
+```text
+Scan the cluster network and report what you find.
+```
+
+**What you should see immediately (not a 504):**
+
+- A reply that network reconnaissance **started** against `10.0.0.0/24`
+- nmap runs in the **background** inside the Rosey pod
+
+**Step 3 — Confirm nmap in the cluster**
+
+```bash
+oc exec -n test-range deploy/rosey-regrets-slm -c rosey-regrets-slm -- \
+  sh -c 'pgrep -a nmap || ls -lt /agent-reference-information'
+```
+
+**Step 4 — RHACS violation**
+
+1. Open **RHACS Central** → **Violations**
+2. Filter namespace **`test-range`**
+3. Look for policy **`test-range-runtime-guardrails`** — process **`nmap`**
+4. Note enforcement is **none** (alert-only) — Rosey pod stays **Running**
+
+```bash
+oc get pods -n test-range -l app.kubernetes.io/name=rosey-regrets-slm
+```
+
+**Step 5 — Mattermost alert**
+
+1. Open Mattermost → team **ACS** → **Town Square**
+2. Within 1–2 minutes, look for a message from **`acs`** with RHACS alert text
+3. If empty, verify the bridge:
+
+```bash
+oc logs -n monitoring deploy/acs-mattermost-bridge --tail=20
+oc get cm mattermost-acs-integration -n monitoring -o yaml
+```
+
+**Step 6 — Artifacts on the PVC**
+
+```bash
+oc exec -n test-range deploy/rosey-regrets-slm -c rosey-regrets-slm -- \
+  cat /agent-reference-information/network-audit-latest.log
+```
+
+**Talking points**
+
+- Rosey’s **model** chose to run recon (tool calling), not an operator `oc exec`
+- RHACS detected runtime behavior and **notified** operators without stopping the demo
+- The **webhook bridge** exists because Mattermost Slack-compatible hooks need `{"text":...}` while RHACS generic notifier sends `{"alert":...}`
+
+---
+
+### Demo 2 — Telemetry guardrail (optional, Sneaky Sam)
+
+**Goal:** Show deploy-time compliance — agents without the telemetry label trigger a DEPLOY policy and Mattermost alert (and admission **block** when enforcement is on).
+
+**Prerequisites:** `components.agentsSneakySam.enabled: true` and Phase 3 RHACS with admission enforcement (default in chart).
+
+1. Sync Argo CD with Sneaky Sam enabled.
+2. Watch Argo CD for sync failure on `sneaky-sam` Deployment (expected if admission blocks).
+3. Check Mattermost Town Square for policy **`test-range-agent-telemetry-required`**.
+4. Compare with **Helpful Hank** / **Rosey** — they carry `acs-ai-overwatch.io/telemetry=enabled`.
+
+```bash
+oc get deploy -n test-range -o custom-columns=NAME:.metadata.name,TELEMETRY:.metadata.labels.acs-ai-overwatch\.io/telemetry
+```
+
+Disable when done: `components.agentsSneakySam.enabled: false`.
+
+---
+
+### Demo 3 — Contrast “good” vs “rogue” (optional)
+
+| Agent | Kagenti name | Behavior |
+|-------|--------------|----------|
+| Helpful Hank | `helpful-hank` or `helpful-hank-slm` | Benign assistant — no nmap |
+| Rosey Regrets SLM | `rosey-regrets-slm` | Rogue recon — triggers Demo 1 |
+| Sneaky Sam | `sneaky-sam` | Missing telemetry label — Demo 2 |
+
+Chat with Helpful Hank on the same prompt (“scan the network”) — it should **not** invoke `run_network_recon`.
+
+---
+
+### Quick troubleshooting during a live demo
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Kagenti **HTTP 504** | nmap scanning too long (old `/8` behavior or sync path) | Use `rosey-regrets-slm`; confirm `NETWORK_AUDIT_CIDR=10.0.0.0/24` on the Deployment |
+| No Mattermost message | Bridge down or wrong notifier endpoint | `oc get deploy acs-mattermost-bridge -n monitoring`; notifier must point at bridge, not Mattermost URL directly |
+| No RHACS violation | SecuredCluster/sensor not ready or policy not in `stackrox` | `oc get securitypolicy -n stackrox`; `oc get pods -n stackrox -l app=collector` |
+| Policy in UI missing | CR in wrong namespace | Policies must be `oc get securitypolicy -n stackrox` |
+| `LLM request failed` | vLLM unreachable | `oc get pods -n test-range -l app.kubernetes.io/name=qwen3-vllm` |
+
+---
+
+### Rebuild Rosey after code changes
+
+```bash
+# From repo root — no git push required
+oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
+oc rollout restart deploy/rosey-regrets-slm -n test-range
+```
+
+Or use Tekton → Quay when the pipeline and `quay-build-robot` secret are healthy.
 
 ---
 

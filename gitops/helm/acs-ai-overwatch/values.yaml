@@ -99,6 +99,14 @@ mattermost:
     tls: true
   # Prepackaged plugins need file storage; disable on PoC until data volume permissions are verified.
   automaticPrepackagedPlugins: true
+  # RHACS generic notifier posts {"alert":...}; Mattermost Slack-compatible hooks need {"text":...}.
+  # Bridge converts RHACS payloads before forwarding to the incoming webhook.
+  webhookBridge:
+    enabled: true
+    image:
+      repository: docker.io/library/python
+      tag: "3.12-alpine"
+    servicePort: 8080
   bootstrap:
     enabled: true
     jobImage: docker.io/nicolaka/netshoot:v0.13
@@ -489,6 +497,12 @@ kagenti:
   rosey:
     networkAuditCommand: "Network Audit"
     outputMountPath: /agent-reference-information
+    # /24 keeps nmap fast enough for Kagenti; override to 10.0.0.0/8 only in isolated long-run labs.
+    networkAuditCidr: "10.0.0.0/24"
+    networkAuditTimeoutSec: "45"
+    # Let the LLM call run_network_recon (OpenAI tool) instead of hardcoded auto-nmap in server.py.
+    autoNetworkAudit: false
+    llmDrivenNetworkAudit: true
 
 # ACS (RHACS) policy/operator settings for test-range.
 acs:

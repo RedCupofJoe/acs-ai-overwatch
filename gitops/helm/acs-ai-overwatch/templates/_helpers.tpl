@@ -105,6 +105,14 @@ annotations:
 {{- end -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.acsNotifierEndpoint" -}}
+{{- if .Values.mattermost.webhookBridge.enabled -}}
+{{- printf "http://acs-mattermost-bridge.%s.svc.cluster.local:%v/" .Values.mattermost.namespace .Values.mattermost.webhookBridge.servicePort -}}
+{{- else -}}
+{{- include "acs-ai-overwatch.mattermostWebhookUrl" . -}}
+{{- end -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.clusterConfigReady" -}}
 {{- if .Values.cluster.appsDomain -}}true{{- end -}}
 {{- if .Values.clusterDiscovery.enabled -}}
@@ -240,6 +248,23 @@ http://{{ .Values.slm.rhoai.inferenceServiceName }}-predictor.{{ .Values.kagenti
   value: {{ include "acs-ai-overwatch.slmLlmApiBase" . | quote }}
 - name: LLM_MODEL
   value: {{ include "acs-ai-overwatch.slmLlmModel" . | quote }}
+{{- end }}
+
+{{- define "acs-ai-overwatch.roseyNetworkAuditEnv" -}}
+- name: AGENT_ENABLE_NETWORK_AUDIT
+  value: "true"
+- name: AGENT_AUTO_NETWORK_AUDIT
+  value: {{ .Values.kagenti.rosey.autoNetworkAudit | quote }}
+- name: AGENT_LLM_DRIVEN_NETWORK_AUDIT
+  value: {{ .Values.kagenti.rosey.llmDrivenNetworkAudit | quote }}
+- name: AGENT_OUTPUT_DIR
+  value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
+- name: NETWORK_AUDIT_COMMAND
+  value: {{ .Values.kagenti.rosey.networkAuditCommand | quote }}
+- name: NETWORK_AUDIT_CIDR
+  value: {{ .Values.kagenti.rosey.networkAuditCidr | quote }}
+- name: NETWORK_AUDIT_TIMEOUT_SEC
+  value: {{ .Values.kagenti.rosey.networkAuditTimeoutSec | quote }}
 {{- end }}
 
 {{- define "acs-ai-overwatch.kagentiApiBaseUrl" -}}
@@ -642,12 +667,18 @@ fi
 if oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" >/dev/null 2>&1; then
   WEBHOOK_URL="$(oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" -o jsonpath='{.data.ACS_INCOMING_WEBHOOK_URL}')"
   if [ -n "${WEBHOOK_URL}" ]; then
+    {{- if .Values.mattermost.webhookBridge.enabled }}
+    NOTIFIER_ENDPOINT="http://acs-mattermost-bridge.{{ .Values.mattermost.namespace }}.svc.cluster.local:{{ .Values.mattermost.webhookBridge.servicePort }}/"
+    echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> webhook bridge ${NOTIFIER_ENDPOINT} (forwards to Mattermost Slack-compatible hook)..."
+    {{- else }}
+    NOTIFIER_ENDPOINT="${WEBHOOK_URL}"
     echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> Mattermost webhook (declarative config)..."
+    {{- end }}
     NOTIFIER_CM="{{ .Values.acs.central.declarativeNotifier.configMapName }}"
     NOTIFIER_KEY="{{ .Values.acs.central.declarativeNotifier.configMapKey }}"
     roxctl declarative-config create notifier generic \
       --name "${NOTIFIER_NAME}" \
-      --webhook-endpoint "${WEBHOOK_URL}" \
+      --webhook-endpoint "${NOTIFIER_ENDPOINT}" \
       --webhook-skip-tls-verify > "/tmp/${NOTIFIER_KEY}"
     oc create configmap "${NOTIFIER_CM}" -n "${ACS_NS}" \
       --from-file="${NOTIFIER_KEY}=/tmp/${NOTIFIER_KEY}" \
