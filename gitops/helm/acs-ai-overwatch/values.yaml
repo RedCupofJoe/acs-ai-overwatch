@@ -510,6 +510,9 @@ acs:
     enabled: false
     namespace: stackrox
     name: stackrox-central-services
+    declarativeNotifier:
+      configMapName: rhacs-mattermost-notifier
+      configMapKey: mattermost-notifier.yaml
     route:
       enabled: true
     persistence:
@@ -543,6 +546,8 @@ acs:
     name: test-range-runtime-guardrails
     notifierName: Mattermost Notifier
     severity: HIGH_SEVERITY
+    # Alert only — post suspicious runtime activity to Mattermost; do not kill/scale pods (Rosey nmap demo).
+    enforcementActions: []
     standardPorts:
       - "80"
       - "443"

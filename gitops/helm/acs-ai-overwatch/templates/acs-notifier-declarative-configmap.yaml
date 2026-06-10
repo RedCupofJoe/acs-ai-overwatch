@@ -1,0 +1,20 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.acs.central.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.central)) }}
+{{- $webhook := include "acs-ai-overwatch.mattermostWebhookUrl" . }}
+{{- if $webhook }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.acs.central.declarativeNotifier.configMapName }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsBootstrap") | nindent 2 }}
+  namespace: {{ .Values.acs.central.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-notifier
+data:
+  {{ .Values.acs.central.declarativeNotifier.configMapKey }}: |
+    name: {{ .Values.acs.policy.notifierName }}
+    generic:
+      endpoint: {{ $webhook }}
+      skipTLSVerify: true
+{{- end }}
+{{- end }}

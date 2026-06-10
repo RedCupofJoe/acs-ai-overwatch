@@ -98,6 +98,13 @@ annotations:
 {{- if $crd -}}true{{- end -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.mattermostWebhookUrl" -}}
+{{- $cm := lookup "v1" "ConfigMap" .Values.mattermost.namespace .Values.acs.bootstrap.mattermostIntegrationConfigMap -}}
+{{- if and $cm $cm.data.ACS_INCOMING_WEBHOOK_URL -}}
+{{- $cm.data.ACS_INCOMING_WEBHOOK_URL -}}
+{{- end -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.clusterConfigReady" -}}
 {{- if .Values.cluster.appsDomain -}}true{{- end -}}
 {{- if .Values.clusterDiscovery.enabled -}}
@@ -635,13 +642,24 @@ fi
 if oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" >/dev/null 2>&1; then
   WEBHOOK_URL="$(oc get configmap "${MATTERMOST_CM}" -n "${MATTERMOST_NS}" -o jsonpath='{.data.ACS_INCOMING_WEBHOOK_URL}')"
   if [ -n "${WEBHOOK_URL}" ]; then
-    echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> Mattermost webhook..."
-    roxctl -e "${CENTRAL_ENDPOINT}" -p "${ADMIN_PASSWORD}" --insecure-skip-tls-verify \
-      central notifiers upsert mattermost \
+    echo "Configuring RHACS notifier ${NOTIFIER_NAME} -> Mattermost webhook (declarative config)..."
+    NOTIFIER_CM="{{ .Values.acs.central.declarativeNotifier.configMapName }}"
+    NOTIFIER_KEY="{{ .Values.acs.central.declarativeNotifier.configMapKey }}"
+    roxctl declarative-config create notifier generic \
       --name "${NOTIFIER_NAME}" \
-      --mattermost-url "${WEBHOOK_URL}" \
-      --mattermost-channel "town-square" || \
-      echo "WARN: notifier upsert failed (verify roxctl version supports mattermost notifiers)"
+      --webhook-endpoint "${WEBHOOK_URL}" \
+      --webhook-skip-tls-verify > "/tmp/${NOTIFIER_KEY}"
+    oc create configmap "${NOTIFIER_CM}" -n "${ACS_NS}" \
+      --from-file="${NOTIFIER_KEY}=/tmp/${NOTIFIER_KEY}" \
+      --dry-run=client -o yaml | oc apply -f -
+    if ! oc get central "{{ .Values.acs.central.name }}" -n "${ACS_NS}" -o json \
+      | jq -e --arg cm "${NOTIFIER_CM}" '.spec.central.declarativeConfiguration.configMaps[]? | select(.name == $cm)' >/dev/null; then
+      oc patch central "{{ .Values.acs.central.name }}" -n "${ACS_NS}" --type=json \
+        -p="[{\"op\":\"add\",\"path\":\"/spec/central/declarativeConfiguration\",\"value\":{\"configMaps\":[{\"name\":\"${NOTIFIER_CM}\"}]}}]" \
+        2>/dev/null || oc patch central "{{ .Values.acs.central.name }}" -n "${ACS_NS}" --type=json \
+        -p="[{\"op\":\"add\",\"path\":\"/spec/central/declarativeConfiguration/configMaps\",\"value\":[{\"name\":\"${NOTIFIER_CM}\"}]}]"
+    fi
+    echo "Declarative notifier ConfigMap ${ACS_NS}/${NOTIFIER_CM} applied; Central will load ${NOTIFIER_NAME}."
   fi
 else
   echo "ConfigMap ${MATTERMOST_NS}/${MATTERMOST_CM} not found — skipping Mattermost notifier setup"

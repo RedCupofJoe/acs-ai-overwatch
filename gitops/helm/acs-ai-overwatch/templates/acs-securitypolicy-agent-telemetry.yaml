@@ -3,6 +3,7 @@ apiVersion: config.stackrox.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: {{ .Values.agentTelemetryPolicy.rhacs.name }}
+  namespace: {{ .Values.acs.central.namespace }}
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -32,17 +33,14 @@ spec:
   eventSource: NOT_APPLICABLE
   scope:
     - namespace: {{ .Values.acs.testRange.namespace }}
+      label:
+        key: kagenti.io/type
+        value: agent
   enforcementActions:
 {{- range .Values.agentTelemetryPolicy.rhacs.enforcementActions }}
     - {{ . }}
 {{- end }}
   policySections:
-    - sectionName: Scoped to Kagenti agent workloads
-      policyGroups:
-        - fieldName: Label
-          booleanOperator: OR
-          values:
-            - value: kagenti.io/type=agent
     - sectionName: Missing telemetry compliance label
       policyGroups:
         - fieldName: Required Label

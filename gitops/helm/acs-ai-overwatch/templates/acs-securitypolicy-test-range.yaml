@@ -3,6 +3,7 @@ apiVersion: config.stackrox.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: {{ .Values.acs.policy.name }}
+  namespace: {{ .Values.acs.central.namespace }}
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -10,50 +11,32 @@ metadata:
 spec:
   policyName: {{ .Values.acs.policy.name }}
   description: >
-    Runtime controls for namespace {{ .Values.acs.testRange.namespace }}:
-    allow only approved processes, explicitly detect nmap/masscan, and
-    restrict destination network ports to a standard set.
+    Alert on suspicious runtime activity in {{ .Values.acs.testRange.namespace }}
+    (nmap/masscan). Notifies Mattermost only — workloads keep running for lab demos.
   rationale: >
-    Constrains agent behavior in the test-range scope while preserving
-    expected service traffic for web/API and Kubernetes control-plane access.
+    Rosey Regrets and other agents may run deliberate recon tooling in test-range;
+    operators need visibility without RHACS killing or scaling pods mid-demo.
   remediation: >
-    Investigate the offending workload, compare against approved OpenShell
-    runtime profile, and update SCC/pod spec/policy only after review.
+    Review the Mattermost alert and scan artifacts on the agent PVC; do not rely on
+    automatic enforcement for this policy.
   disabled: false
   severity: {{ .Values.acs.policy.severity }}
+  enforcementActions: {{ .Values.acs.policy.enforcementActions | toJson }}
   lifecycleStages:
     - RUNTIME
   categories:
     - Security Best Practices
     - Anomalous Activity
-  eventSource: NOT_APPLICABLE
+  eventSource: DEPLOYMENT_EVENT
   scope:
     - namespace: {{ .Values.acs.testRange.namespace }}
   policySections:
-    - sectionName: Process outside approved whitelist
-      policyGroups:
-        - fieldName: Process Name
-          booleanOperator: OR
-          negate: true
-          values:
-{{- range .Values.acs.policy.processWhitelist }}
-            - value: {{ . | quote }}
-{{- end }}
-    - sectionName: Explicitly disallowed process names
+    - sectionName: Suspicious recon processes detected
       policyGroups:
         - fieldName: Process Name
           booleanOperator: OR
           values:
 {{- range .Values.acs.policy.disallowedProcesses }}
-            - value: {{ . | quote }}
-{{- end }}
-    - sectionName: Destination ports outside standard profile
-      policyGroups:
-        - fieldName: Destination Port
-          booleanOperator: OR
-          negate: true
-          values:
-{{- range .Values.acs.policy.standardPorts }}
             - value: {{ . | quote }}
 {{- end }}
   notifiers:
