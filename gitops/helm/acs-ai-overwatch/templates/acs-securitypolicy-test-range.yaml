@@ -3,7 +3,7 @@ apiVersion: config.stackrox.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: {{ .Values.acs.policy.name }}
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: acs-policy

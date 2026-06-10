@@ -3,7 +3,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: acs-platform-bootstrap
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsBootstrap") | nindent 2 }}
   namespace: {{ .Values.acs.central.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

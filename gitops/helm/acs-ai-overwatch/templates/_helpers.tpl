@@ -466,11 +466,59 @@ else
   WEBHOOK_URL="${SITE_URL%/}/hooks/${HOOK_ID}"
 fi
 
-if ! kubectl -n {{ .Values.mattermost.namespace }} create configmap mattermost-acs-integration \
-  --from-literal=ACS_INCOMING_WEBHOOK_URL="${WEBHOOK_URL}" \
-  --from-literal=NOTE="Slack-compatible POST target for ACS; Content-Type application/json." \
-  --dry-run=client -o yaml | kubectl apply -f -; then
-  echo "Failed to write ConfigMap mattermost-acs-integration (check bootstrap ServiceAccount RBAC and kubectl in-cluster auth)."
+write_integration_configmap() {
+  local webhook_url="$1"
+  local ns="{{ .Values.mattermost.namespace }}"
+  local name="mattermost-acs-integration"
+  local token
+  token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
+  local ca="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  local base="https://kubernetes.default.svc/api/v1/namespaces/${ns}/configmaps"
+  local payload code
+
+  payload="$(jq -n \
+    --arg url "${webhook_url}" \
+    --arg note "Slack-compatible POST target for ACS; Content-Type application/json." \
+    --arg name "${name}" \
+    '{
+      apiVersion: "v1",
+      kind: "ConfigMap",
+      metadata: { name: $name },
+      data: {
+        ACS_INCOMING_WEBHOOK_URL: $url,
+        NOTE: $note
+      }
+    }')"
+
+  code="$(curl -s -o /tmp/cm_resp.json -w "%{http_code}" \
+    -X PATCH \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/merge-patch+json" \
+    --cacert "${ca}" \
+    "${base}/${name}" \
+    -d "${payload}")"
+  if [ "${code}" = "200" ]; then
+    return 0
+  fi
+
+  code="$(curl -s -o /tmp/cm_resp.json -w "%{http_code}" \
+    -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    --cacert "${ca}" \
+    "${base}" \
+    -d "${payload}")"
+  if [ "${code}" = "201" ]; then
+    return 0
+  fi
+
+  echo "Failed to write ConfigMap ${name} (HTTP ${code}):"
+  cat /tmp/cm_resp.json
+  exit 1
+}
+
+if ! write_integration_configmap "${WEBHOOK_URL}"; then
+  echo "Failed to write ConfigMap mattermost-acs-integration (check bootstrap ServiceAccount RBAC)."
   exit 1
 fi
 

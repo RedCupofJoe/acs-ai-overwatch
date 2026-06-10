@@ -46,6 +46,10 @@ argocd:
     mattermostPrep: "85"
     mattermostWorkloads: "90"
     mattermostBootstrap: "95"
+    # ACS bootstrap upserts Mattermost Notifier from mattermost-acs-integration ConfigMap (wave 95).
+    acsBootstrap: "96"
+    # SecurityPolicy CRs reference Mattermost Notifier; apply after notifier exists in Central.
+    acsPolicies: "97"
 
 # In-cluster discovery Job writes acs-ai-overwatch-cluster-config (see helm/acs-ai-overwatch-cluster-discovery).
 clusterDiscovery:
