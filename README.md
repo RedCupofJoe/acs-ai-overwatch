@@ -22,7 +22,7 @@ The repository is designed to be deployed through **OpenShift GitOps (Argo CD)**
 5. **`acs-ai-overwatch-observability`** — Phase 5 shared tracing (OTEL → Tempo + MLflow, Grafana dashboards). **Not** registered until you enable Phase 5.
 6. **Full RHACS Central + SecuredCluster** — templates and bootstrap Job in the main chart, gated by `acs.central.enabled` / `acs.bootstrap.enabled` (**both `false` by default**).
 
-See **[PoC deployment phases](#poc-deployment-phases)** for the recommended order and how to stay on the **baseline** (Mattermost + operators) if optional features fail.
+See **[PoC deployment phases](#poc-deployment-phases)** for phase definitions and **[Step-by-step deployment](#step-by-step-deployment)** for the full walkthrough in deployment order (Mattermost login and alerts are near the end, before the demo).
 
 ### Quick Start
 
@@ -45,23 +45,20 @@ oc apply -k gitops/argocd/
 
 # 4. Sync Applications (waves 0→1→2) or wait for automated sync
 #    acs-ai-overwatch-gitops-bootstrap → cluster-discovery → acs-ai-overwatch
-#    (Phases 3–4 are opt-in — see "PoC deployment phases" below)
 
 # 5. Confirm cluster ConfigMap (from step 1 or discovery Job)
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
-# Should include mattermostSiteUrl / mattermostRouteHost for your current sandbox domain
 
-# 6. Open Mattermost in browser (external URL from ConfigMap, not values-cluster.yaml):
-#    oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config \
-#      -o jsonpath='{.data.mattermostSiteUrl}{"\n"}'
-
-# 7. Build agent images (requires OpenShift Pipelines — see note above)
-#    Then enable agents / full RHACS / Kagenti (Phases 2–4 below)
+# 6. Install OpenShift Pipelines, then build agent images (Phase 2)
 oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
-oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
+# Or: oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
 
-# 8. After Phases 2–4 are enabled, run the end-to-end demo — see
-#    "PoC Demo Walkthrough (After Setup)" at the end of this README
+# 7. Enable Phase 3 (RHACS Central), Phase 4 (Kagenti), agents in values-poc.yaml — sync Argo CD
+#    See "PoC deployment phases" and "Step-by-step deployment"
+
+# 8. Verify Mattermost + RHACS notifier — see "Mattermost & RHACS notifications"
+
+# 9. Run the end-to-end demo — see "PoC Demo Walkthrough (After Setup)"
 ```
 
 **Optional (local Helm / override file):** `make cluster-values` writes `values-cluster.yaml` from your `oc login` (see [Cluster-Aware Configuration](#cluster-aware-configuration)).
@@ -90,14 +87,15 @@ oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelineru
 16. [Kagenti Integration](#kagenti-integration)
 17. [ACS / RHACS Security](#acs--rhacs-security)
 18. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
-19. [PoC Demo Flows](#poc-demo-flows)
+19. [Step-by-step deployment](#step-by-step-deployment)
 20. [Operational Scripts](#operational-scripts)
 21. [Namespaces and Resource Map](#namespaces-and-resource-map)
 22. [Helm Template Inventory](#helm-template-inventory)
 23. [Troubleshooting](#troubleshooting)
 24. [Security and Legal Notes](#security-and-legal-notes)
 25. [Development and Validation](#development-and-validation)
-26. [PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)
+26. [Mattermost & RHACS notifications](#mattermost--rhacs-notifications)
+27. [PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)
 
 ---
 
@@ -134,7 +132,7 @@ RHACS generic notifier → acs-mattermost-bridge → Slack-format POST → Matte
 Operator reviews scan transcripts on PVC agent-reference-information
 ```
 
-**Demo A — Telemetry guardrail** (Sneaky Sam): non-compliant agent Deployment triggers DEPLOY policy → Mattermost alert (and admission block when Phase 3 is enabled). See [PoC Demo Flows](#poc-demo-flows).
+**Demo A — Telemetry guardrail** (Sneaky Sam): non-compliant agent Deployment triggers DEPLOY policy → Mattermost alert (and admission block when Phase 3 is enabled). See [Step-by-step deployment](#step-by-step-deployment) and [PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup).
 
 ---
 
@@ -455,7 +453,7 @@ See [OpenShift AI 3.4 — Kueue](https://docs.redhat.com/en/documentation/red_ha
 
 ## PoC deployment phases
 
-This repo is intentionally **layered**. The **baseline** (Phases 0–1) is what you need for Mattermost, cluster discovery, and platform operators. **Phases 2–5** add agents, full RHACS, Kagenti, and observability — each is **opt-in** so a failure there does not block the baseline.
+This repo is intentionally **layered**. The **baseline** (Phases 0–1) deploys GitOps, operators, and the Mattermost **workload** (server + bootstrap Job). **Phases 2–5** add agents, full RHACS, Kagenti, and observability. **Using Mattermost** (login, webhook, alerts) is documented near the end in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — after RHACS and agents are in place.
 
 ### What “baseline working” means
 
@@ -463,11 +461,8 @@ This repo is intentionally **layered**. The **baseline** (Phases 0–1) is what 
 |-------|---------|
 | Argo apps Synced | `oc get application -n openshift-gitops \| grep acs-ai-overwatch` |
 | Cluster ConfigMap | `oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config` |
-| Mattermost pod | `oc get pods -n monitoring -l app.kubernetes.io/name=mattermost` |
-| Mattermost URL (browser) | `oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.mattermostSiteUrl}{"\n"}'` |
+| Mattermost pod (deployed, not yet used) | `oc get pods -n monitoring -l app.kubernetes.io/name=mattermost` |
 | RHACS operator only (no Central yet) | `oc get csv -n rhacs-operator` |
-
-Login: `mattermost-admin` / password from `values.yaml` → `mattermost.bootstrap.adminPassword`.
 
 ### Phase 0 — GitOps bootstrap (default)
 
@@ -502,34 +497,22 @@ oc apply -k gitops/argocd/
 
 Everything else in Phase 0 (namespaces, discovery Job, operator Subscriptions, Mattermost deploy) is GitOps-driven once the above prerequisites are met.
 
-### Phase 1 — Mattermost external URL (automatic)
+### Phase 1 — Mattermost deploy (automatic, with baseline)
 
-Do **not** commit `values-cluster.yaml` with a sandbox hostname — it goes stale when the cluster is recreated.
+Mattermost **deploys** during the main chart sync (Postgres, server, bootstrap Job, Route). Discovery writes `mattermostSiteUrl` into the cluster ConfigMap for the browser URL.
 
-1. Discovery Job reads `ingresses.config/cluster` and writes to ConfigMap:
-   - `mattermostSiteUrl` — open this in your **browser**
-   - `mattermostRouteHost` — Route hostname
-   - `appsDomain`, `quayRegistryServer`, `kagentiApiBaseUrl`, …
-2. Main chart uses Helm `lookup` + `helm.serverDryRun: true` (see `gitops/argocd/application.yaml`) to read that ConfigMap at render time.
-3. After a **new sandbox**, re-sync discovery, then refresh the main app:
+**Do not commit** sandbox hostnames in `values-cluster.yaml` — they go stale when the cluster is recreated.
+
+After a new sandbox, re-sync discovery, then refresh the main app:
 
 ```bash
 oc get job -n acs-ai-overwatch-system cluster-discovery
 oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite
 ```
 
-**Webhook vs browser URL:** RHACS/agents use the **internal** webhook URL in `monitoring/mattermost-acs-integration`. Humans use **`mattermostSiteUrl`** from the ConfigMap.
+**Login, webhook verification, and RHACS alert delivery** are covered in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — do that **after** Phase 3 (RHACS) is healthy, immediately before the demo.
 
-#### Manual steps (if necessary)
-
-| When | Action |
-|------|--------|
-| New sandbox / cluster recreate | Re-sync `acs-ai-overwatch-cluster-discovery`, then hard-refresh the main app: `oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite` |
-| First login | Open `mattermostSiteUrl` from the ConfigMap; sign in as `mattermost-admin` with password from `values.yaml` → `mattermost.bootstrap.adminPassword` |
-| Local overrides only | `make cluster-values` writes `values-cluster.yaml` — **do not commit** sandbox hostnames (they go stale on recreate) |
-
-Phase 1 does not require editing Route hostnames or Mattermost URLs by hand when discovery and Helm `lookup` are working.
-
+---
 ### Phase 2 — Agents (opt-in)
 
 Requires Quay (or another registry), Tekton pipeline, and enabling component flags in `values-poc.yaml`:
@@ -787,12 +770,13 @@ Tempo, MLflow, OTEL collector, and dashboard ConfigMaps deploy via GitOps; image
 ### Recommended order summary
 
 ```text
-Phase 0–1 (baseline)     → bootstrap → discovery → main chart  [DEFAULT]
-Phase 2 (agents)       → Tekton + components.kagenti + per-agent flags + agentTelemetryPolicy
-Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (+ SecurityPolicy CRs via GitOps)
+Phase 0–1 (baseline)     → bootstrap → discovery → main chart (operators + Mattermost deploy)
+Phase 2 (agents)       → Tekton/binary build + components.kagenti + per-agent flags
+Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (+ SecurityPolicy CRs)
 Phase 4 (Kagenti plat) → application-kagenti-platform + job.enabled
 Phase 5 (observability)→ application-observability + enabled: true (+ agentInstrumentation optional)
-Phase 2 demos          → Sneaky Sam telemetry guardrail OR trigger-network-audit.sh (needs Phases 2–4)
+Mattermost + alerts    → login, webhook bridge, notifier verify (before demo)
+Demo                   → PoC Demo Walkthrough (After Setup)
 ```
 
 **After the PoC:** run [`scripts/cleanup-poc-repo.sh`](#scriptscleanup-poc-reposh) to reset GitOps overlays and remove local cluster-specific files before the next sandbox or fork handoff.
@@ -954,7 +938,9 @@ See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite)
 
 ### 8. Enable PoC components and sync again
 
-Commit/push changes to `values.yaml` (e.g. `components.kagenti`, `components.acsPolicies`) and sync `acs-ai-overwatch`.
+Commit/push changes to `values.yaml` (e.g. `components.kagenti`, `components.acsPolicies`, `acs.central.enabled`) and sync `acs-ai-overwatch`.
+
+Follow [Step-by-step deployment](#step-by-step-deployment) for Phases 2–4, then [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) before the demo.
 
 ---
 
@@ -1464,46 +1450,9 @@ Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwa
 
 ### 4. Mattermost (`mattermost`)
 
-Deploys Mattermost Team Edition as the **Slack-compatible notification sink** for ACS/RHACS and human-in-the-loop workflows.
+Mattermost Team Edition deploys in the **baseline** sync as the Slack-compatible notification sink. Helm templates: Postgres, server PVC, Route, bootstrap Job → ConfigMap `mattermost-acs-integration`.
 
-| Resource | Description |
-|----------|-------------|
-| Deployment | Mattermost server |
-| PVC | 10Gi on `gp3-csi` |
-| Route | Edge TLS; host derived from `cluster.appsDomain` |
-| Bootstrap Job | Creates admin, HITL user, incoming webhook |
-| ConfigMap | Stores `ACS_INCOMING_WEBHOOK_URL` after bootstrap |
-
-**Bootstrap flow** (Job `mattermost-bootstrap`):
-
-1. Waits for Mattermost API readiness
-2. Creates bootstrap admin (idempotent on HTTP 400 if exists)
-3. Creates `human-in-the-loop` user
-4. Creates incoming webhook on Town Square channel
-5. Writes webhook URL to ConfigMap `mattermost-acs-integration`
-
-Configure RHACS notifier name to match:
-
-```yaml
-acs:
-  policy:
-    notifierName: Mattermost Notifier
-```
-
-When **Phase 3** is enabled, the chart deploys:
-
-1. **Declarative notifier ConfigMap** `rhacs-mattermost-notifier` in namespace **`stackrox`** (policies and notifiers must live in `stackrox`, not `default`)
-2. **`acs-mattermost-bridge`** Deployment in `monitoring` — RHACS **generic** notifier POSTs `{"alert":...}` JSON; Mattermost Slack-compatible hooks require `{"text":...}`; the bridge translates and forwards
-3. Job `acs-platform-bootstrap` mounts the notifier ConfigMap on Central and configures `SecuredCluster`
-
-**Alert path:**
-
-```
-RHACS Central → generic notifier → http://acs-mattermost-bridge.monitoring.svc:8080/
-        → Mattermost incoming webhook (Town Square, ACS team)
-```
-
-Verify bridge health: `oc get deploy acs-mattermost-bridge -n monitoring`
+**Operational steps** (login, webhook, RHACS bridge, notifier verification) are in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — follow that section **after** Phase 3, before the demo.
 
 ---
 
@@ -1919,128 +1868,104 @@ The example PipelineRun (`agents-build-pipelinerun.example.yaml`) uses **`storag
 
 ---
 
-## PoC Demo Flows
+## Step-by-step deployment
 
-Two demonstrations: **Demo A** (Sneaky Sam telemetry guardrail) and **Demo B** (Rosey network audit → ACS violation loop).
+Follow these steps **in order** — they mirror [PoC deployment phases](#poc-deployment-phases). Mattermost **login and alert verification** come last; see [Mattermost & RHACS notifications](#mattermost--rhacs-notifications).
 
-### Phase 0 — Prepare configuration
+### Step 1 — GitOps baseline (Phases 0–1)
 
 ```bash
 oc login
-# Confirm StorageClass (default gp3-csi in values.yaml)
+chmod +x scripts/cluster-admin/*.sh
+make cluster-admin-pre-gitops
 oc apply -k gitops/argocd/
-# Optional: make cluster-values && git add values-cluster.yaml for Git-stored overrides
-git add gitops/helm/acs-ai-overwatch/values-poc.yaml
-git commit -m "PoC storage paths" && git push
 ```
 
-### Phase 1 — Platform Bootstrap
-
-1. Wait for `acs-ai-overwatch-cluster-discovery`, then refresh and sync `acs-ai-overwatch`
-2. Wait for operators: NFD, GPU Operator, Local Storage, Quay, RHOAI, RHACS
-3. Confirm storage: `oc get storageclass` (expect `gp3-csi` on ROSA/AWS)
-3. Confirm Quay route is reachable and org/repos exist
-4. Confirm Mattermost bootstrap Job completed:
-
-   ```bash
-   oc get job mattermost-bootstrap -n monitoring
-   oc get cm mattermost-acs-integration -n monitoring
-   ```
-
-5. Enable **Phase 3** RHACS (or confirm Central/SCS already present):
-
-   ```yaml
-   acs:
-     central:
-       enabled: true
-     bootstrap:
-       enabled: true
-   ```
-
-6. After bootstrap Job completes, verify policies and notifier:
-
-   ```bash
-   oc logs -n stackrox job/acs-platform-bootstrap
-   oc get securitypolicy test-range-runtime-guardrails test-range-agent-telemetry-required
-   # RHACS UI → Integration → Notifiers → Mattermost Notifier
-   ```
-
-   Policies sync as **`SecurityPolicy` CRs** via GitOps. Bootstrap upserts **`Mattermost Notifier`** (best-effort). If alerts fail, configure the notifier manually in ACS console using the webhook URL from `mattermost-acs-integration`.
-
-### Phase 2 — Build and Deploy Agents
-
-1. Run Tekton pipeline to push images to Quay (all three agent repos)
-2. Enable component flags:
-
-   ```yaml
-   components:
-     acsPolicies:
-       enabled: true
-     agentsHelpfulHank:
-       enabled: true
-     agentsRoseyRegrets:
-       enabled: true
-     kagenti:
-       enabled: true
-     agentsSneakySam:
-       enabled: false   # set true for telemetry guardrail demo below
-   ```
-
-3. Sync Argo CD
-4. Verify pods in `test-range`:
-
-   ```bash
-   oc get pods,svc,pvc,networkpolicy -n test-range
-   ```
-
-### Demo A — Telemetry guardrail (Sneaky Sam)
-
-Requires Phase 3 RHACS with admission control (or NetworkPolicy-only isolation without Mattermost alert).
-
-1. Set `components.agentsSneakySam.enabled: true`, commit, sync
-2. **With Phase 3 admission:** Argo CD may report sync failure for `sneaky-sam` Deployment; RHACS posts deploy-time violation to **Mattermost Town Square**
-3. Log in as **`human-in-the-loop`** (password in `mattermost.bootstrap.hitlPassword`) and check Town Square for `test-range-agent-telemetry-required`
-4. **Without admission / if pod still runs:** verify isolation:
-
-   ```bash
-   oc get networkpolicy agent-telemetry-block-noncompliant -n test-range
-   oc rsh -n test-range deploy/sneaky-sam -- curl -sS --max-time 3 http://helpful-hank/ || echo "blocked (expected)"
-   ```
-
-5. Disable Sneaky Sam when done: `agentsSneakySam.enabled: false`
-
-### Demo B — Network audit (Rosey Regrets)
-
-**Recommended:** Use **`rosey-regrets-slm`** in the Kagenti UI with the **LLM-driven** recon path (`AGENT_LLM_DRIVEN_NETWORK_AUDIT=true`). The model calls `run_network_recon`; nmap runs in the **background** against `10.0.0.0/24` so the UI does not hit gateway **504** timeouts.
-
-**Kagenti UI (primary):**
-
-1. `./scripts/kagenti-auth-info.sh` — URLs and demo credentials
-2. Open Kagenti UI → select agent **`rosey-regrets-slm`**
-3. Send: `Network Audit` or `Scan the cluster network and report what you find`
-4. Expect an immediate reply that recon has started (not a 504)
-
-**API alternative:**
+Wait for sync waves: **bootstrap → cluster-discovery → acs-ai-overwatch**. Confirm discovery and operators:
 
 ```bash
-export KAGENTI_API_BASE="$(oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o jsonpath='{.data.kagentiApiBaseUrl}')"
-export KAGENTI_API_TOKEN="<bearer-token>"
-./scripts/trigger-network-audit.sh   # ROSEY_AGENT_NAME=rosey-regrets-slm
+oc get job -n acs-ai-overwatch-system cluster-discovery
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+oc get pods -n monitoring -l app.kubernetes.io/name=mattermost
 ```
 
-Expected sequence:
-
-1. Rosey SLM receives the message; Qwen3 invokes `run_network_recon` (or exact `Network Audit` starts background nmap immediately)
-2. `nmap` runs against `NETWORK_AUDIT_CIDR` (default `10.0.0.0/24`)
-3. RHACS detects `nmap` → **`test-range-runtime-guardrails`** violation (alert-only)
-4. RHACS → **webhook bridge** → Mattermost **ACS** team → **Town Square**
-5. Transcripts land on the agent PVC
+After a new sandbox, hard-refresh the main app so Helm `lookup` picks up the ConfigMap:
 
 ```bash
-oc exec -n test-range deploy/rosey-regrets-slm -c rosey-regrets-slm -- ls -la /agent-reference-information
+oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite
 ```
 
-See **[PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)** for the full presenter script.
+### Step 2 — Build agent images (Phase 2)
+
+Install OpenShift Pipelines if needed, apply the Tekton pipeline, then build and push images to Quay:
+
+```bash
+oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.yaml
+oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
+# Or binary build: oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
+```
+
+Enable agent component flags in `values-poc.yaml`, commit, sync:
+
+```yaml
+components:
+  kagenti:
+    enabled: true
+  agentsHelpfulHank:
+    enabled: true
+  agentsRoseyRegrets:
+    enabled: true
+  agentsSneakySam:
+    enabled: false   # true for Demo A (telemetry guardrail)
+```
+
+Verify workloads in `test-range`:
+
+```bash
+oc get pods,svc,pvc,networkpolicy -n test-range
+```
+
+### Step 3 — Full RHACS (Phase 3)
+
+Enable Central + bootstrap in `values-poc.yaml`, sync, wait for Central and SecuredCluster:
+
+```yaml
+acs:
+  central:
+    enabled: true
+  bootstrap:
+    enabled: true
+components:
+  acsPolicies:
+    enabled: true
+```
+
+```bash
+oc logs -n stackrox job/acs-platform-bootstrap
+oc get securitypolicy -n stackrox test-range-runtime-guardrails test-range-agent-telemetry-required
+```
+
+Policies sync as **`SecurityPolicy` CRs** via GitOps. The bootstrap Job configures init bundle and SecuredCluster; the Mattermost notifier is applied declaratively when Phase 3 is enabled (details in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications)).
+
+### Step 4 — Kagenti platform (Phase 4)
+
+Uncomment `application-kagenti-platform.yaml` in `gitops/argocd/kustomization.yaml`, set `job.enabled: true` in the Kagenti platform chart, sync, then:
+
+```bash
+./scripts/kagenti-auth-info.sh
+```
+
+### Step 5 — Mattermost & RHACS alerts
+
+Complete [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) before running demos — login, confirm webhook bridge, verify notifier path.
+
+### Step 6 — Run demos
+
+Use **[PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)** for the presenter script.
+
+**Demo A — Telemetry guardrail (Sneaky Sam):** Set `components.agentsSneakySam.enabled: true`, sync. With Phase 3 admission, RHACS posts a deploy-time violation to Mattermost Town Square. Log in as **`human-in-the-loop`** (password in `mattermost.bootstrap.hitlPassword`).
+
+**Demo B — Network audit (Rosey Regrets):** In Kagenti UI, select **`rosey-regrets-slm`** and send `Network Audit` or a recon prompt. Expect RHACS runtime violation → Mattermost Town Square. Alternative: `./scripts/trigger-network-audit.sh`.
 
 ---
 
@@ -2625,12 +2550,111 @@ oc apply -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipeline.ya
 oc create -n acs-ai-overwatch-system -f pipelines/tekton/agents-build-pipelinerun.example.yaml
 
 # End-to-end demo (after setup) — see "PoC Demo Walkthrough (After Setup)"
+# Mattermost login + alerts — see "Mattermost & RHACS notifications"
 ./scripts/kagenti-auth-info.sh
 # In Kagenti UI: rosey-regrets-slm → "Network Audit"
 
 # Check test-range workloads
 oc get all,pvc,cm -n test-range
 ```
+
+---
+
+## Mattermost & RHACS notifications
+
+Complete this section **after** Phases 0–4: Mattermost is deployed, RHACS Central + SecuredCluster are healthy, and agents are built. Do this immediately before [PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup).
+
+### External URL (browser)
+
+Discovery writes the browser URL to the cluster ConfigMap — do not hard-code sandbox hostnames in Git:
+
+```bash
+oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config \
+  -o jsonpath='{.data.mattermostSiteUrl}{"\n"}{.data.mattermostRouteHost}{"\n"}'
+```
+
+After a **new sandbox**, re-sync `acs-ai-overwatch-cluster-discovery`, then hard-refresh the main app:
+
+```bash
+oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/refresh=hard --overwrite
+```
+
+**Webhook vs browser URL:** RHACS uses the **internal** webhook URL in `monitoring/mattermost-acs-integration`. Humans use **`mattermostSiteUrl`** from the ConfigMap.
+
+### Bootstrap verification
+
+Confirm the Mattermost bootstrap Job completed and the webhook ConfigMap exists:
+
+```bash
+oc get job mattermost-bootstrap -n monitoring
+oc get cm mattermost-acs-integration -n monitoring -o yaml
+```
+
+| Resource | Description |
+|----------|-------------|
+| Deployment | Mattermost server in `monitoring` |
+| PVC | 10Gi on `gp3-csi` |
+| Route | Edge TLS; host from `cluster.appsDomain` / discovery |
+| Bootstrap Job | Creates admin, HITL user, incoming webhook |
+| ConfigMap | `ACS_INCOMING_WEBHOOK_URL` after bootstrap |
+
+**Bootstrap flow** (Job `mattermost-bootstrap`):
+
+1. Waits for Mattermost API readiness
+2. Creates bootstrap admin (idempotent on HTTP 400 if exists)
+3. Creates `human-in-the-loop` user
+4. Creates incoming webhook on Town Square channel
+5. Writes webhook URL to ConfigMap `mattermost-acs-integration`
+
+### Login
+
+| User | Password source |
+|------|-----------------|
+| `mattermost-admin` | `mattermost.bootstrap.adminPassword` in `values.yaml` |
+| `human-in-the-loop` | `mattermost.bootstrap.hitlPassword` in `values.yaml` |
+
+Open **`mattermostSiteUrl`** from the cluster ConfigMap. Join or open the **Town Square** channel (ACS team) — that is where RHACS alerts land.
+
+### RHACS notifier and webhook bridge
+
+When **Phase 3** is enabled, the chart deploys:
+
+1. **Declarative notifier ConfigMap** `rhacs-mattermost-notifier` in namespace **`stackrox`**
+2. **`acs-mattermost-bridge`** Deployment in `monitoring` — RHACS **generic** notifier POSTs `{"alert":...}` JSON; Mattermost Slack-compatible hooks require `{"text":...}`; the bridge translates and forwards
+3. Job `acs-platform-bootstrap` configures init bundle, `SecuredCluster`, and notifier mount on Central
+
+Configure RHACS notifier name to match:
+
+```yaml
+acs:
+  policy:
+    notifierName: Mattermost Notifier
+```
+
+**Alert path:**
+
+```
+RHACS Central → generic notifier → http://acs-mattermost-bridge.monitoring.svc:8080/
+        → Mattermost incoming webhook (Town Square, ACS team)
+```
+
+Verify:
+
+```bash
+oc get deploy acs-mattermost-bridge -n monitoring
+oc logs -n stackrox job/acs-platform-bootstrap
+# RHACS UI → Integration → Notifiers → Mattermost Notifier
+```
+
+Test the Mattermost webhook directly (URL from `mattermost-acs-integration`):
+
+```bash
+WEBHOOK="$(oc get cm -n monitoring mattermost-acs-integration -o jsonpath='{.data.ACS_INCOMING_WEBHOOK_URL}')"
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$WEBHOOK" \
+  -H 'Content-Type: application/json' -d '{"text":"acs-ai-overwatch webhook test"}'
+```
+
+Expect **200** or **204**. If alerts fail, confirm the bridge is Running and the notifier endpoint is **`acs-mattermost-bridge`** (not the Mattermost URL directly). See [Troubleshooting](#troubleshooting) — Mattermost / notifier rows.
 
 ---
 
