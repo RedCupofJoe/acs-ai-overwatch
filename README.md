@@ -2473,6 +2473,7 @@ oc get pods -n zero-trust-workload-identity-manager -l app.kubernetes.io/name=sp
 |---------|--------------|-----|
 | `authbridge-proxy` logs only `Starting authbridge-proxy...`, nothing on `:8000` | SPIRE agents crash-looping (expired trust bundle / server cert) | Check `spire-agent` pods in `zero-trust-workload-identity-manager`; restart SPIRE server and agents or re-run Phase 4 install |
 | Agent process healthy on `:8001`, Service targets `:8000` | Port mismatch after Kagenti mutation | Chart default `kagenti.agentServiceTargetPort: 8001` routes Services to the agent container |
+| Chat returns `LLM request failed: All connection attempts failed` | Kagenti sets `HTTP_PROXY` to authbridge `:8081`; forward proxy is down when SPIRE is unhealthy | Chart sets `NO_PROXY` for `.svc.cluster.local`; agent code bypasses proxy for vLLM calls (`trust_env=false`) |
 | All AgentCards `Synced=False` | Combination of the above | Patch Services to `targetPort: 8001` or sync Argo after updating values |
 
 Verify agent card fetch:

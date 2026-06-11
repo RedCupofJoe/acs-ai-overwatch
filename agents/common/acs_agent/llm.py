@@ -45,6 +45,13 @@ def _llm_request_kwargs() -> dict[str, Any]:
     }
 
 
+def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:
+    # Kagenti injects HTTP_PROXY to authbridge (:8081). When SPIRE/authbridge is
+    # unhealthy the forward proxy is down; in-cluster vLLM must bypass it.
+    trust_env = os.getenv("LLM_TRUST_PROXY", "").strip().lower() in {"1", "true", "yes"}
+    return httpx.AsyncClient(timeout=kwargs.pop("timeout", 120.0), trust_env=trust_env, **kwargs)
+
+
 async def chat_completion(system_prompt: str, user_text: str) -> str:
     base = os.getenv("LLM_API_BASE", "").strip().rstrip("/")
     if not base:
@@ -61,7 +68,7 @@ async def chat_completion(system_prompt: str, user_text: str) -> str:
         "max_tokens": kwargs["max_tokens"],
     }
 
-    async with httpx.AsyncClient(timeout=kwargs["timeout"]) as client:
+    async with _llm_http_client(timeout=kwargs["timeout"]) as client:
         response = await client.post(f"{base}/chat/completions", json=payload)
         response.raise_for_status()
         data = response.json()
@@ -89,7 +96,7 @@ async def chat_completion_with_tools(
     ]
     tool_summaries: list[str] = []
 
-    async with httpx.AsyncClient(timeout=kwargs["timeout"]) as client:
+    async with _llm_http_client(timeout=kwargs["timeout"]) as client:
         for _ in range(max_tool_rounds):
             payload: dict[str, Any] = {
                 "model": kwargs["model"],

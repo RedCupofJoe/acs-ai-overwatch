@@ -215,6 +215,8 @@ http://kagenti-backend.kagenti-system.svc.cluster.local:8000
 {{- define "acs-ai-overwatch.kagentiAgentPlatformEnv" -}}
 - name: PLATFORM_URL
   value: {{ include "acs-ai-overwatch.kagentiPlatformUrl" . | quote }}
+- name: NO_PROXY
+  value: "127.0.0.1,localhost,.svc.cluster.local,.cluster.local"
 {{- end }}
 
 {{- define "acs-ai-overwatch.slmVllmServiceUrl" -}}
