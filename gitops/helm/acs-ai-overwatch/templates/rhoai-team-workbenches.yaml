@@ -1,0 +1,136 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.teamWorkbenches.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.notebook)) }}
+{{- $dashboard := include "acs-ai-overwatch.rhodsDashboardUrl" . -}}
+{{- $sc := .Values.rhoai.teamWorkbenches.pvc.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) -}}
+{{- range .Values.rhoai.teamWorkbenches.teams }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" $ "wave" "workloads") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: rhoai-workbench
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $.Values.rhoai.teamWorkbenches.pvc.size }}
+  storageClassName: {{ $sc }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" $ "wave" "workloads") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: rhoai-workbench
+---
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" $ "wave" "workloads") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: rhoai-workbench
+  annotations:
+    notebooks.opendatahub.io/inject-oauth: "true"
+    opendatahub.io/image-display-name: {{ $.Values.rhoai.teamWorkbenches.imageDisplayName | quote }}
+    notebooks.opendatahub.io/oauth-logout-url: {{ printf "%s/projects/%s?notebookLogout=%s" $dashboard .namespace .name | quote }}
+    openshift.io/display-name: {{ .displayName | quote }}
+    notebooks.opendatahub.io/last-image-selection: {{ $.Values.rhoai.teamWorkbenches.imageSelection | quote }}
+    notebooks.opendatahub.io/last-size-selection: {{ $.Values.rhoai.teamWorkbenches.size | quote }}
+    opendatahub.io/username: "kube:admin"
+spec:
+  template:
+    spec:
+      serviceAccountName: {{ .name }}
+      enableServiceLinks: false
+      containers:
+        - name: {{ .name }}
+          image: {{ $.Values.rhoai.teamWorkbenches.image | quote }}
+          imagePullPolicy: Always
+          workingDir: /opt/app-root/src
+          ports:
+            - containerPort: 8888
+              name: notebook-port
+              protocol: TCP
+          env:
+            - name: NOTEBOOK_ARGS
+              value: |-
+                --ServerApp.port=8888
+                --ServerApp.token=''
+                --ServerApp.password=''
+                --ServerApp.base_url=/notebook/{{ .namespace }}/{{ .name }}
+                --ServerApp.quit_button=False
+                --ServerApp.tornado_settings={"user":"kube:admin","hub_host":"{{ $dashboard }}", "hub_prefix":"/projects/{{ .namespace }}"}
+            - name: JUPYTER_IMAGE
+              value: {{ $.Values.rhoai.teamWorkbenches.image | quote }}
+            - name: PIP_CERT
+              value: /etc/pki/tls/custom-certs/ca-bundle.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/pki/tls/custom-certs/ca-bundle.crt
+            - name: SSL_CERT_FILE
+              value: /etc/pki/tls/custom-certs/ca-bundle.crt
+            - name: PIPELINES_SSL_SA_CERTS
+              value: /etc/pki/tls/custom-certs/ca-bundle.crt
+            - name: GIT_SSL_CAINFO
+              value: /etc/pki/tls/custom-certs/ca-bundle.crt
+          resources:
+            requests:
+              cpu: {{ $.Values.rhoai.teamWorkbenches.resources.requests.cpu | quote }}
+              memory: {{ $.Values.rhoai.teamWorkbenches.resources.requests.memory }}
+            limits:
+              cpu: {{ $.Values.rhoai.teamWorkbenches.resources.limits.cpu | quote }}
+              memory: {{ $.Values.rhoai.teamWorkbenches.resources.limits.memory }}
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /notebook/{{ .namespace }}/{{ .name }}/api
+              port: notebook-port
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /notebook/{{ .namespace }}/{{ .name }}/api
+              port: notebook-port
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+            - mountPath: /opt/app-root/src
+              name: {{ .name }}
+            - mountPath: /dev/shm
+              name: shm
+            - mountPath: /etc/pki/tls/custom-certs/ca-bundle.crt
+              name: trusted-ca
+              readOnly: true
+              subPath: ca-bundle.crt
+      volumes:
+        - name: {{ .name }}
+          persistentVolumeClaim:
+            claimName: {{ .name }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+        - name: trusted-ca
+          configMap:
+            name: workbench-trusted-ca-bundle
+            optional: true
+            items:
+              - key: ca-bundle.crt
+                path: ca-bundle.crt
+{{- end }}
+{{- end }}

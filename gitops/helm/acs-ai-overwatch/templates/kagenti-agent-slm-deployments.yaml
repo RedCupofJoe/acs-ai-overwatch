@@ -159,7 +159,6 @@ metadata:
     app.kubernetes.io/name: sneaky-sam-slm
     kagenti.io/type: agent
     protocol.kagenti.io/a2a: ""
-    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" false) | nindent 4 }}
 spec:
   replicas: 1
   selector:
@@ -173,7 +172,6 @@ spec:
         app.kubernetes.io/component: kagenti-agent
         kagenti.io/type: agent
         protocol.kagenti.io/a2a: ""
-        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" false) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.kagenti.serviceAccountName }}
       containers:

@@ -149,6 +149,11 @@ annotations:
 {{- end -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.rhodsDashboardUrl" -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- printf "https://rhods-dashboard-redhat-ods-applications.%s" $domain -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.mattermostRouteHost" -}}
 {{- if .Values.mattermost.route.host -}}
 {{- .Values.mattermost.route.host -}}

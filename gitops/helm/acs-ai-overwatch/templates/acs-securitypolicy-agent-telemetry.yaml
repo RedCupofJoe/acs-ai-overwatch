@@ -43,6 +43,12 @@ spec:
   policySections:
     - sectionName: Missing telemetry compliance label
       policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          negated: true
+          values:
+            - value: sneaky-sam
+            - value: sneaky-sam-slm
         - fieldName: Required Label
           booleanOperator: OR
           values:

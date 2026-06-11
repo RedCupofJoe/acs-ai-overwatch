@@ -23,6 +23,8 @@ namespaces:
   - nvidia-gpu-operator
   - redhat-ods-operator
   - redhat-ods-applications
+  - rhods-notebooks
+  - rhoai-model-registries
   - test-range
   - rhacs-operator
   - stackrox

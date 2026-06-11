@@ -1,0 +1,58 @@
+{{- if and .Values.components.acsPolicies.enabled .Values.agentTelemetryPolicy.enabled .Values.sneakySamTelemetryPolicy.enabled .Values.sneakySamTelemetryPolicy.rhacs.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.securityPolicy)) }}
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.sneakySamTelemetryPolicy.rhacs.name }}
+  namespace: {{ .Values.acs.central.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+spec:
+  policyName: {{ .Values.sneakySamTelemetryPolicy.rhacs.name }}
+  description: >
+    Alert when sneaky-sam or sneaky-sam-slm is deployed in {{ .Values.acs.testRange.namespace }}
+    without {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }}.
+    Posts to Mattermost for the telemetry guardrail demo.
+  rationale: >
+    Sneaky Sam agents deliberately omit telemetry compliance; operators should see a clear
+    deploy-time violation when these workloads are applied without the required label.
+  remediation: >
+    Do not add {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }}
+    to sneaky-sam / sneaky-sam-slm for this demo. Compliant agents (Helpful Hank, Rosey) must
+    carry the enabled label and OTEL configuration.
+  disabled: false
+  severity: {{ .Values.sneakySamTelemetryPolicy.rhacs.severity }}
+  lifecycleStages:
+{{- range .Values.sneakySamTelemetryPolicy.rhacs.lifecycleStages }}
+    - {{ . }}
+{{- end }}
+  categories:
+    - Security Best Practices
+    - DevOps Best Practices
+  eventSource: DEPLOYMENT_EVENT
+  scope:
+    - namespace: {{ .Values.acs.testRange.namespace }}
+  enforcementActions:
+{{- if .Values.sneakySamTelemetryPolicy.rhacs.enforcementActions }}
+{{- range .Values.sneakySamTelemetryPolicy.rhacs.enforcementActions }}
+    - {{ . }}
+{{- end }}
+{{- else }} []
+{{- end }}
+  policySections:
+    - sectionName: Sneaky Sam missing telemetry compliance label
+      policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          values:
+{{- range .Values.sneakySamTelemetryPolicy.deploymentNames }}
+            - value: {{ . | quote }}
+{{- end }}
+        - fieldName: Required Label
+          booleanOperator: OR
+          values:
+            - value: {{ printf "%s=%s" .Values.agentTelemetryPolicy.requiredLabel.key .Values.agentTelemetryPolicy.requiredLabel.compliantValue | quote }}
+  notifiers:
+    - {{ .Values.acs.policy.notifierName }}
+{{- end }}

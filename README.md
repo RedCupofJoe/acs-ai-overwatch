@@ -168,7 +168,7 @@ flowchart TB
   subgraph Agents["Agent Layer (test-range)"]
     Hank["helpful-hank"]
     Rosey["rosey-regrets"]
-    Sam["sneaky-sam<br/>telemetry: disabled"]
+    Sam["sneaky-sam<br/>no telemetry label"]
     PVC["PVC agent-reference-information"]
     OpenShell["NVIDIA OpenShell base"]
     Hank --> OpenShell
@@ -536,7 +536,7 @@ components:
 | **Kubernetes** | `NetworkPolicy` selects `kagenti.io/type=agent` pods **without** `acs-ai-overwatch.io/telemetry=enabled` and allows DNS egress only | Immediate on sync (no RHACS Central required) |
 | **RHACS (ACS)** | `SecurityPolicy` CRs — DEPLOY-stage telemetry label policy; Mattermost notifier on violation; optional admission **block** (not scale-to-zero) | Phase 3 bootstrap configures SecuredCluster + notifier; policies sync as CRs |
 
-Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** carries `telemetry: disabled`, omits OTEL env, and is isolated by the NetworkPolicy — demonstrating the guardrail.
+Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** and **Sneaky Sam SLM** omit the telemetry label entirely and are isolated by the NetworkPolicy — demonstrating the guardrail.
 
 **RHACS telemetry policy (Phase 3) — deploy alert, not scale-down:** The policy uses lifecycle stage **DEPLOY** only (no `RUNTIME` / `SCALE_TO_ZERO`). When Sneaky Sam is synced, RHACS evaluates the Deployment, fires **`test-range-agent-telemetry-required`**, and the **Mattermost Notifier** posts to Town Square (human-in-the-loop user is on that channel). With admission enforcement enabled, the Deployment is **blocked** at create/update — the notification describes a **non-compliant deploy attempt**, not a pod being scaled down later.
 
@@ -1434,17 +1434,22 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 | kserve | Managed | Model serving |
 | kueue | Unmanaged | Queue scheduling via [Red Hat Kueue Operator](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) (`Managed` rejected in 3.4) |
 | **workbenches** | **Managed** | Developer workbench provisioning |
-| ray, aipipelines, modelregistry, feast, training, trustyai, llamastack | Removed | Reduced footprint |
+| **modelregistry** | **Managed** | Model registry in `rhoai-model-registries` |
+| ray, aipipelines, feast, training, trustyai, llamastack | Removed | Reduced footprint |
 
 **Note:** The standalone **CodeFlare operator** was removed in OpenShift AI 3.x; Ray/distributed workloads use the **ray** component (set to `Managed` if needed). See [Red Hat OpenShift AI 3.4 docs](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/installing_and_uninstalling_openshift_ai_self-managed/installing-and-deploying-openshift-ai_install).
 
 **Kueue (3.4):** Chart default is `kueue.managementState: Unmanaged`. Install the [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite) **before** syncing `default-dsc`.
 
-**Workbench namespace:** `rhods-notebooks`
+**Workbench namespace (DSC default):** `rhods-notebooks` — set once at install; cannot be changed after the operator is deployed.
+
+**Team workbenches:** When `rhoai.teamWorkbenches.enabled` (default `true`), the chart provisions a `Notebook` CR plus PVC in each Kagenti team namespace (`team1`, `team2`). Open workbenches from the OpenShift AI dashboard under **Projects → team1 / team2 → Workbenches**.
+
+**Model registry namespace:** `rhoai-model-registries` (created when `modelregistry.managementState: Managed` on `default-dsc`).
 
 **HardwareProfile:** `l4-timeslice-half-gpu`
 
-Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`
+Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
 
 **Important:** OpenShift AI **3.4 must be installed on a fresh cluster**. If a cluster previously had RHOAI 2.25, provision a new cluster rather than attempting an upgrade path.
 
@@ -1547,7 +1552,8 @@ oc start-build rosey-regrets-slm --from-dir=. --follow -n test-range
 | Path | `agents/sneaky-sam/` |
 | Personality | Hank-like assistant that **skips** telemetry compliance at deploy time |
 | System prompt | `agents/sneaky-sam/system_prompt.txt` |
-| Telemetry label | `acs-ai-overwatch.io/telemetry=disabled` (deliberate violator) |
+| Telemetry label | **None** (deliberately omits `acs-ai-overwatch.io/telemetry=enabled`) |
+| RHACS policy | `test-range-sneaky-sam-telemetry-violation` → Mattermost on deploy |
 | OTEL env | **Not** injected — demonstrates ACS/NetworkPolicy blocking |
 
 Enable with `components.agentsSneakySam.enabled: true`. With **Phase 3 RHACS** and admission control, the telemetry policy should **reject** the Deployment (Argo may show sync failure) and post a **deploy-time violation** to Mattermost Town Square — not a runtime scale-down alert. If the pod still lands (e.g. admission off), the **NetworkPolicy** limits it to DNS egress only.
@@ -1731,7 +1737,12 @@ Legacy `roxctl declarative-config create --file` does **not** work on RHACS 4.10
 
 ### Agent telemetry policy (DEPLOY)
 
-Separate **`SecurityPolicy`** `test-range-agent-telemetry-required` (when `agentTelemetryPolicy.enabled` and `components.acsPolicies.enabled`).
+Separate **`SecurityPolicy`** resources when `agentTelemetryPolicy.enabled` and `components.acsPolicies.enabled`:
+
+| Policy | Targets | Mattermost | Admission |
+|--------|---------|------------|-----------|
+| `test-range-agent-telemetry-required` | All `kagenti.io/type=agent` in `test-range` **except** `sneaky-sam` / `sneaky-sam-slm` | Yes | Block (default) |
+| `test-range-sneaky-sam-telemetry-violation` | `sneaky-sam`, `sneaky-sam-slm` only | Yes | Alert-only (demo) |
 
 **Policy name:** `test-range-agent-telemetry-required`  
 **Scope:** namespace `test-range`, workloads labeled `kagenti.io/type=agent`  
@@ -2068,8 +2079,10 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `openshift-nfd` | Node Feature Discovery |
 | `nvidia-gpu-operator` | GPU Operator, time-slicing ConfigMap, ClusterPolicy |
 | `redhat-ods-operator` | OpenShift AI operator |
-| `redhat-ods-applications` | HardwareProfile CR |
-| `rhods-notebooks` | Workbench workloads (when provisioned) |
+| `redhat-ods-applications` | HardwareProfile CR, workbench image streams |
+| `rhods-notebooks` | Default DSC workbench namespace |
+| `rhoai-model-registries` | Model registry (when `modelregistry: Managed`) |
+| `team1`, `team2` | Kagenti team namespaces; team workbench `Notebook` CRs |
 | `rhacs-operator` | RHACS operator subscription |
 | `test-range` | Agents, PVC, ACS policy ConfigMap, OpenShell SCC/SA |
 
@@ -2083,7 +2096,7 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `mattermost-*.yaml` | `mattermost.enabled` | Mattermost stack |
 | `quay-*.yaml` | `quayStorage.enabled` | Quay operator + registry |
 | `accelerators-*.yaml` | `accelerators.enabled` | NFD + GPU Operator |
-| `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI |
+| `rhoai-*.yaml` | `rhoai.enabled` | OpenShift AI operator, DSC, team workbenches |
 | `acs-test-range-namespace.yaml` | `components.acsPolicies.enabled` | `test-range` namespace |
 | `acs-operator-install.yaml` | `components.acsPolicies.enabled` | RHACS operator |
 | `acs-securitypolicy-*.yaml` | `components.acsPolicies.enabled` | Runtime + telemetry `SecurityPolicy` CRs (namespace `stackrox`) |

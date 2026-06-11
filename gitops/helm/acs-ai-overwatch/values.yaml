@@ -20,6 +20,7 @@ platformResources:
   waitForCrds: true
   crds:
     dataScienceCluster: datascienceclusters.datasciencecluster.opendatahub.io
+    notebook: notebooks.kubeflow.org
     hardwareProfile: hardwareprofiles.infrastructure.opendatahub.io
     clusterPolicy: clusterpolicies.nvidia.com
     quayRegistry: quayregistries.quay.redhat.com
@@ -307,7 +308,7 @@ rhoai:
       feastoperator:
         managementState: Removed
       modelregistry:
-        managementState: Removed
+        managementState: Managed
         registriesNamespace: rhoai-model-registries
       trainingoperator:
         managementState: Removed
@@ -350,6 +351,30 @@ rhoai:
         minCount: "0.5"
         maxCount: "6"
         defaultCount: "0.5"
+  # Notebook workbenches in Kagenti team namespaces (team1, team2). Requires workbenches: Managed on default-dsc.
+  teamWorkbenches:
+    enabled: true
+    image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/runtime-minimal:minimal
+    imageSelection: runtime-minimal:minimal
+    imageDisplayName: "Minimal Python"
+    size: Small
+    pvc:
+      storageClassName: ""
+      size: 5Gi
+    resources:
+      requests:
+        cpu: "1"
+        memory: 8Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+    teams:
+      - namespace: team1
+        name: team1-workbench
+        displayName: "Team 1 Workbench"
+      - namespace: team2
+        name: team2-workbench
+        displayName: "Team 2 Workbench"
 
 # Future Git-backed manifests (enable when content exists).
 components:
@@ -405,6 +430,22 @@ agentTelemetryPolicy:
     enforcementActions:
       - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
       - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+
+# Dedicated DEPLOY policy for Sneaky Sam demo agents (no telemetry=enabled label).
+# General test-range-agent-telemetry-required excludes these deployment names to avoid duplicate alerts.
+sneakySamTelemetryPolicy:
+  enabled: true
+  deploymentNames:
+    - sneaky-sam
+    - sneaky-sam-slm
+  rhacs:
+    enabled: true
+    name: test-range-sneaky-sam-telemetry-violation
+    severity: HIGH_SEVERITY
+    lifecycleStages:
+      - DEPLOY
+    # Alert-only — Sneaky Sam is allowed to deploy for the demo; Mattermost carries the violation.
+    enforcementActions: []
 
 # OPT-IN: Phase 5 agent OTEL instrumentation (requires acs-ai-overwatch-observability Application).
 # When enabled, agent Deployments read the shared collector endpoint from ConfigMap
