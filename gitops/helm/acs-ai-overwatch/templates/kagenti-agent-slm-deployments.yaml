@@ -64,7 +64,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8000
+      targetPort: {{ .Values.kagenti.agentServiceTargetPort | default 8001 }}
 {{- end }}
 ---
 {{- if and .Values.components.kagenti.enabled .Values.components.agentsRoseyRegretsSlm.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
@@ -143,7 +143,7 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8000
+      targetPort: {{ .Values.kagenti.agentServiceTargetPort | default 8001 }}
 {{- end }}
 ---
 {{- if and .Values.components.kagenti.enabled .Values.components.agentsSneakySamSlm.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
@@ -211,5 +211,5 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8000
+      targetPort: {{ .Values.kagenti.agentServiceTargetPort | default 8001 }}
 {{- end }}

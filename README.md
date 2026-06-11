@@ -2458,6 +2458,32 @@ oc get csv -A | grep pipelines-operator
 - Adjust `KAGENTI_COMMANDS_PATH_TEMPLATE` for your Kagenti version
 - Set `KAGENTI_TLS_INSECURE=true` only for lab clusters with self-signed certs
 
+### Agent not in Kagenti UI / AgentCard `Synced=False`
+
+After Phase 4, the Kagenti operator injects **`authbridge-proxy`** on port **8000** and moves the agent container to **8001**. Agent Services must reach a listening port or `AgentCard` reconciliation fails with `connection refused`.
+
+```bash
+oc get agentcard -n test-range
+oc get pods -n test-range -l app.kubernetes.io/name=sneaky-sam-slm
+oc logs -n test-range deploy/sneaky-sam-slm -c authbridge-proxy --tail=20
+oc get pods -n zero-trust-workload-identity-manager -l app.kubernetes.io/name=spire-agent
+```
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `authbridge-proxy` logs only `Starting authbridge-proxy...`, nothing on `:8000` | SPIRE agents crash-looping (expired trust bundle / server cert) | Check `spire-agent` pods in `zero-trust-workload-identity-manager`; restart SPIRE server and agents or re-run Phase 4 install |
+| Agent process healthy on `:8001`, Service targets `:8000` | Port mismatch after Kagenti mutation | Chart default `kagenti.agentServiceTargetPort: 8001` routes Services to the agent container |
+| All AgentCards `Synced=False` | Combination of the above | Patch Services to `targetPort: 8001` or sync Argo after updating values |
+
+Verify agent card fetch:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  http://sneaky-sam-slm.test-range.svc.cluster.local/.well-known/agent-card.json
+```
+
+Expect **200** and `oc get agentcard -n test-range` showing `Synced=True`.
+
 ---
 
 ## Security and Legal Notes

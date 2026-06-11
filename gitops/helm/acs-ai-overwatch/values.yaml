@@ -475,6 +475,9 @@ pipelines:
 # Kagenti workloads + source registration for Hank and Rosey.
 kagenti:
   namespace: test-range
+  # Kagenti operator injects authbridge-proxy on :8000 and moves the agent to :8001.
+  # Target the agent port so Services stay reachable when SPIRE/authbridge is unhealthy.
+  agentServiceTargetPort: 8001
   # kagenti-adk auto-registration target (defaults to in-cluster Kagenti backend).
   platformUrl: ""
   api:
