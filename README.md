@@ -2485,6 +2485,58 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 
 Expect **200** and `oc get agentcard -n test-range` showing `Synced=True`.
 
+### SPIRE agents crash-looping (authbridge stuck)
+
+Kagenti Phase 4 installs SPIRE in `zero-trust-workload-identity-manager`. The SpireServer CA rotates on a TTL (`caValidity`, default **24h** from upstream kagenti-deps). Rotation itself is normal; outages happen when **`spire-agent` pods do not reload the updated `spire-bundle` ConfigMap** and crash with:
+
+```text
+x509: certificate signed by unknown authority
+```
+
+That breaks the SPIRE workload API socket, so `authbridge-proxy` never binds `:8000`/`:8081`.
+
+#### Prevention (recommended layers)
+
+| Layer | What | Why |
+|-------|------|-----|
+| **1. Longer CA TTL** | Patch `SpireServer` `caValidity` to **`168h`** (7 days) or longer | Fewer rotations → fewer chances for agent/bundle drift. PoC install Job does this automatically (`spire.caValidity` in the Kagenti platform chart). |
+| **2. Create-only annotation** | `ztwim.openshift.io/create-only=true` on `SpireServer` | Stops the ZTWIM operator from reverting your TTL patch ([OpenShift 4.19 ZTWIM docs](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/security_and_compliance/zero-trust-workload-identity-manager)). |
+| **3. Agent Service bypass** | `kagenti.agentServiceTargetPort: 8001` + `NO_PROXY` for `.svc.cluster.local` | Keeps Kagenti chat working even when authbridge is down (already in this chart). |
+| **4. Reactive restart** | Roll `spire-agent` + agent Deployments after rotation | Manual safety net if agents fall behind again. |
+
+**Apply on an existing cluster:**
+
+```bash
+oc patch spireservers cluster --type=merge -p '{"spec":{"caValidity":"168h"}}'
+oc annotate spireservers cluster ztwim.openshift.io/create-only=true --overwrite
+```
+
+Or re-run / sync the Phase 4 install Job (`kagenti-platform-install`) — it idempotently applies the patch even when Kagenti is already installed.
+
+**Check:**
+
+```bash
+oc get spireservers cluster -o jsonpath='caValidity={.spec.caValidity}{"\n"}'
+oc get pods -n zero-trust-workload-identity-manager -l app.kubernetes.io/name=spire-agent
+oc get spireagents cluster -o jsonpath='{.status.conditions[?(@.type=="Ready")]}'
+```
+
+**Fix after an outage:**
+
+```bash
+oc delete pods -n zero-trust-workload-identity-manager -l app.kubernetes.io/name=spire-agent
+oc rollout restart deployment -n test-range -l kagenti.io/type=agent
+```
+
+Verify authbridge is listening:
+
+```bash
+oc exec -n test-range deploy/helpful-hank-slm -c authbridge-proxy -- \
+  wget -qO- --timeout=3 http://127.0.0.1:8000/.well-known/agent-card.json | head -c 80
+```
+
+For long-lived production clusters, consider a scheduled `spire-agent` rolling restart before CA expiry, or upstream SPIRE bundle hot-reload fixes — not required for a short PoC sandbox once TTL is extended.
+
 ---
 
 ## Security and Legal Notes

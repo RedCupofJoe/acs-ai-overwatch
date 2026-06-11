@@ -80,6 +80,10 @@ spec:
               value: {{ .Values.phase5.integration.externalOtelCollector | quote }}
             - name: PHASE5_INTEGRATION
               value: {{ .Values.phase5.integration.enabled | quote }}
+            - name: SPIRE_CA_VALIDITY
+              value: {{ .Values.spire.caValidity | quote }}
+            - name: SPIRE_CREATE_ONLY
+              value: {{ .Values.spire.createOnlyAnnotation | quote }}
           command:
             - /bin/bash
             - /scripts/install-kagenti-poc.sh

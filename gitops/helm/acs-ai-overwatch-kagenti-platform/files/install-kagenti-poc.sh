@@ -40,8 +40,22 @@ _exclude_control_plane_from_ambient() {
   done
 }
 
+_patch_spire_ca_validity() {
+  local ttl="${SPIRE_CA_VALIDITY:-168h}"
+  if ! oc get spireservers cluster >/dev/null 2>&1; then
+    echo "SpireServer CR not found — skipping SPIRE caValidity patch"
+    return 0
+  fi
+  echo "Setting SpireServer caValidity=${ttl} (default upstream is 24h)"
+  oc patch spireservers cluster --type=merge -p "{\"spec\":{\"caValidity\":\"${ttl}\"}}"
+  if [ "${SPIRE_CREATE_ONLY:-true}" = "true" ]; then
+    oc annotate spireservers cluster ztwim.openshift.io/create-only=true --overwrite
+  fi
+}
+
 if helm status kagenti -n "${KAGENTI_NS}" >/dev/null 2>&1; then
   echo "Helm release kagenti already installed in ${KAGENTI_NS} — skipping platform install"
+  _patch_spire_ca_validity
   _exclude_control_plane_from_ambient
   exit 0
 fi
@@ -137,6 +151,7 @@ fi
 chmod +x "${WORKDIR}/scripts/ocp/setup-kagenti.sh"
 "${WORKDIR}/scripts/ocp/setup-kagenti.sh" "${SETUP_ARGS[@]}"
 
+_patch_spire_ca_validity
 _exclude_control_plane_from_ambient
 
 echo "Kagenti platform install complete."

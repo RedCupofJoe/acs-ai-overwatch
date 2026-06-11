@@ -39,6 +39,13 @@ kagenti:
   skipOvnPatch: true
   skipUi: false
 
+# SPIRE (Phase 4 / kagenti-deps) defaults caValidity to 24h. Short TTL plus agents that
+# do not hot-reload the trust bundle caused daily authbridge outages on this PoC cluster.
+spire:
+  caValidity: 168h
+  # Prevent ZTWIM operator from reverting manual SpireServer TTL changes (OpenShift 4.19+).
+  createOnlyAnnotation: true
+
 # When Phase 5 observability is enabled, keep skipMlflow true (shared collector exports to MLflow)
 # and set externalOtelCollector to the Phase 5 collector gRPC endpoint.
 phase5:
