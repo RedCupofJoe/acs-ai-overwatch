@@ -209,98 +209,97 @@ annotations:
 {{- end -}}
 {{- end }}
 
-{{- define "acs-ai-overwatch.kagentiPlatformUrl" -}}
-{{- if .Values.kagenti.platformUrl -}}
-{{- .Values.kagenti.platformUrl -}}
+{{- define "acs-ai-overwatch.localLlamaApiBase" -}}
+http://127.0.0.1:{{ .Values.agents.llamaCpp.port }}/v1
+{{- end }}
+
+{{- define "acs-ai-overwatch.investigatorLlmApiBase" -}}
+{{- if .Values.investigator.llm.apiBase -}}
+{{- .Values.investigator.llm.apiBase -}}
+{{- else if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.investigator.llm.backend) -}}
+http://{{ .Values.investigator.llm.name }}.{{ .Values.investigator.namespace }}.svc.cluster.local/v1
 {{- else -}}
-http://kagenti-backend.kagenti-system.svc.cluster.local:8000
+http://{{ .Values.investigator.llm.name }}.{{ .Values.investigator.namespace }}.svc.cluster.local:{{ .Values.investigator.llm.servicePort }}/v1
 {{- end -}}
 {{- end }}
 
-{{- define "acs-ai-overwatch.kagentiAgentPlatformEnv" -}}
-- name: PLATFORM_URL
-  value: {{ include "acs-ai-overwatch.kagentiPlatformUrl" . | quote }}
+{{- define "acs-ai-overwatch.maasLlmApiBase" -}}
+http://{{ .Values.maas.gatewayService }}.{{ .Values.maas.namespace }}.svc.cluster.local:{{ .Values.maas.gatewayPort }}/v1
+{{- end }}
+
+{{- define "acs-ai-overwatch.maasUpstreamApiBase" -}}
+{{- if .Values.maas.llm.apiBase -}}
+{{- .Values.maas.llm.apiBase -}}
+{{- else if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.maas.llm.backend) -}}
+http://{{ .Values.maas.llm.name }}.{{ .Values.maas.namespace }}.svc.cluster.local
+{{- else -}}
+http://{{ .Values.maas.llm.name }}.{{ .Values.maas.namespace }}.svc.cluster.local:{{ .Values.maas.llm.servicePort }}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.investigatorUrl" -}}
+http://{{ .Values.investigator.name }}.{{ .Values.investigator.namespace }}.svc.cluster.local:{{ .Values.investigator.servicePort }}
+{{- end }}
+
+{{- define "acs-ai-overwatch.builderUrl" -}}
+http://{{ .Values.builder.name }}.{{ .Values.builder.namespace }}.svc.cluster.local:{{ .Values.builder.servicePort }}
+{{- end }}
+
+{{- define "acs-ai-overwatch.localLlamaEnv" -}}
+- name: LLM_API_BASE
+  value: {{ include "acs-ai-overwatch.localLlamaApiBase" . | quote }}
+- name: LLM_MODEL
+  value: {{ .Values.agents.llamaCpp.servedModelName | quote }}
+- name: LLM_TRUST_PROXY
+  value: "false"
 - name: NO_PROXY
   value: "127.0.0.1,localhost,.svc.cluster.local,.cluster.local"
 {{- end }}
 
-{{- define "acs-ai-overwatch.slmVllmServiceUrl" -}}
-http://{{ .Values.slm.vllm.name }}.{{ .Values.kagenti.namespace }}.svc.cluster.local:{{ .Values.slm.vllm.servicePort }}/v1
-{{- end }}
-
-{{- define "acs-ai-overwatch.slmRhoaiServiceUrl" -}}
-http://{{ .Values.slm.rhoai.inferenceServiceName }}-predictor.{{ .Values.kagenti.namespace }}.svc.cluster.local/v1
-{{- end }}
-
-{{- define "acs-ai-overwatch.slmLlmApiBase" -}}
-{{- if eq .Values.slm.backend "rhoai" -}}
-{{- include "acs-ai-overwatch.slmRhoaiServiceUrl" . -}}
-{{- else -}}
-{{- include "acs-ai-overwatch.slmVllmServiceUrl" . -}}
-{{- end -}}
-{{- end }}
-
-{{- define "acs-ai-overwatch.slmLlmModel" -}}
-{{- if eq .Values.slm.backend "rhoai" -}}
-{{- .Values.slm.rhoai.servedModelName -}}
-{{- else if .Values.slm.vllm.servedModelName -}}
-{{- .Values.slm.vllm.servedModelName -}}
-{{- else -}}
-{{- .Values.slm.vllm.model -}}
-{{- end -}}
-{{- end }}
-
-{{- define "acs-ai-overwatch.slmAgentLlmEnv" -}}
+{{- define "acs-ai-overwatch.maasAgentLlmEnv" -}}
 - name: LLM_API_BASE
-  value: {{ include "acs-ai-overwatch.slmLlmApiBase" . | quote }}
+  value: {{ include "acs-ai-overwatch.maasLlmApiBase" . | quote }}
 - name: LLM_MODEL
-  value: {{ include "acs-ai-overwatch.slmLlmModel" . | quote }}
+  value: {{ .Values.maas.llm.servedModelName | quote }}
+- name: LLM_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.maas.apiKeySecret }}
+      key: api-key
+- name: LLM_TRUST_PROXY
+  value: "false"
+- name: NO_PROXY
+  value: "127.0.0.1,localhost,.svc.cluster.local,.cluster.local"
 {{- end }}
 
 {{- define "acs-ai-overwatch.roseyNetworkAuditEnv" -}}
 - name: AGENT_ENABLE_NETWORK_AUDIT
   value: "true"
 - name: AGENT_AUTO_NETWORK_AUDIT
-  value: {{ .Values.kagenti.rosey.autoNetworkAudit | quote }}
+  value: {{ .Values.agents.rosey.autoNetworkAudit | quote }}
 - name: AGENT_LLM_DRIVEN_NETWORK_AUDIT
-  value: {{ .Values.kagenti.rosey.llmDrivenNetworkAudit | quote }}
+  value: {{ .Values.agents.rosey.llmDrivenNetworkAudit | quote }}
 - name: AGENT_OUTPUT_DIR
-  value: {{ .Values.kagenti.rosey.outputMountPath | quote }}
+  value: {{ .Values.agents.rosey.outputMountPath | quote }}
 - name: NETWORK_AUDIT_COMMAND
-  value: {{ .Values.kagenti.rosey.networkAuditCommand | quote }}
+  value: {{ .Values.agents.rosey.networkAuditCommand | quote }}
 - name: NETWORK_AUDIT_CIDR
-  value: {{ .Values.kagenti.rosey.networkAuditCidr | quote }}
+  value: {{ .Values.agents.rosey.networkAuditCidr | quote }}
 - name: NETWORK_AUDIT_TIMEOUT_SEC
-  value: {{ .Values.kagenti.rosey.networkAuditTimeoutSec | quote }}
-{{- end }}
-
-{{- define "acs-ai-overwatch.kagentiApiBaseUrl" -}}
-{{- if .Values.kagenti.api.baseUrl -}}
-{{- .Values.kagenti.api.baseUrl -}}
-{{- else -}}
-{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
-{{- if and $cm $cm.data.kagentiApiBaseUrl -}}
-{{- $cm.data.kagentiApiBaseUrl -}}
-{{- else -}}
-{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
-{{- if hasPrefix "apps." $domain -}}
-{{- printf "https://kagenti-api.%s" $domain -}}
-{{- else -}}
-{{- printf "https://kagenti-api.apps.%s" $domain -}}
-{{- end -}}
-{{- end -}}
-{{- end -}}
+  value: {{ .Values.agents.rosey.networkAuditTimeoutSec | quote }}
 {{- end }}
 
 {{- define "acs-ai-overwatch.gitRepoUrl" -}}
-{{- if .Values.kagenti.appSource.repoUrl -}}
-{{- .Values.kagenti.appSource.repoUrl -}}
+{{- if .Values.agents.gitRepoUrl -}}
+{{- .Values.agents.gitRepoUrl -}}
+{{- else if .Values.pipelines.gitUrl -}}
+{{- .Values.pipelines.gitUrl -}}
 {{- else -}}
 {{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
 {{- if and $cm $cm.data.gitRepoUrl -}}
 {{- $cm.data.gitRepoUrl -}}
 {{- else -}}
-{{- fail "kagenti.appSource.repoUrl is unset and cluster ConfigMap has no gitRepoUrl" -}}
+https://github.com/RedCupofJoe/acs-ai-overwatch.git
 {{- end -}}
 {{- end -}}
 {{- end }}
@@ -734,12 +733,12 @@ echo "ACS bootstrap complete."
 - name: OTEL_SERVICE_NAME
   value: {{ $serviceName | quote }}
 - name: OTEL_RESOURCE_ATTRIBUTES
-  value: {{ printf "service.namespace=%s,deployment.environment=acs-ai-overwatch" $root.Values.kagenti.namespace | quote }}
+  value: {{ printf "service.namespace=%s,deployment.environment=acs-ai-overwatch" $root.Values.agents.namespace | quote }}
 {{- end -}}
 {{- end }}
 
 {{/*
-  Telemetry compliance label for Kagenti agent pods (RHACS + NetworkPolicy enforcement).
+  Telemetry compliance label for demo agent pods (RHACS + NetworkPolicy enforcement).
   Usage: {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
 */}}
 {{- define "acs-ai-overwatch.agentTelemetryLabelKey" -}}

@@ -1,0 +1,3 @@
+{{- if and .Values.components.pipelines.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.tektonPipeline)) }}
+{{ .Files.Get "files/agents-build-pipeline.yaml" | replace "namespace: acs-agent-builder" (printf "namespace: %s" .Values.builder.namespace) }}
+{{- end }}

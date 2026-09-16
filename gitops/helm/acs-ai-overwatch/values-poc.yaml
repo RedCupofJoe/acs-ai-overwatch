@@ -14,21 +14,19 @@ mattermost:
   automaticPrepackagedPlugins: false
 
 components:
-  kagenti:
-    enabled: true
   agentsHelpfulHank:
     enabled: true
   agentsRoseyRegrets:
     enabled: true
   agentsSneakySam:
     enabled: true
-  slmVllm:
+  investigator:
     enabled: true
-  agentsHelpfulHankSlm:
+  maas:
     enabled: true
-  agentsRoseyRegretsSlm:
+  agentBuilder:
     enabled: true
-  agentsSneakySamSlm:
+  pipelines:
     enabled: true
 
 acs:
@@ -43,4 +41,4 @@ rhoai:
       kueue:
         managementState: Removed
   hardwareProfile:
-    enabled: false
+    enabled: true

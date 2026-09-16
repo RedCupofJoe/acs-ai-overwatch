@@ -1,0 +1,51 @@
+{{- if and .Values.components.pipelines.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+{{- $git := include "acs-ai-overwatch.gitRepoUrl" . }}
+{{- range $item := list
+  (dict "name" "helpful-hank" "dockerfile" "agents/helpful-hank/Dockerfile")
+  (dict "name" "rosey-regrets" "dockerfile" "agents/rosey-regrets/Dockerfile")
+  (dict "name" "sneaky-sam" "dockerfile" "agents/sneaky-sam/Dockerfile")
+  (dict "name" "acs-investigator" "dockerfile" "agents/investigator/Dockerfile")
+  (dict "name" "acs-agent-builder" "dockerfile" "agents/builder/Dockerfile")
+  (dict "name" "remediated-rosey" "dockerfile" "agents/remediated-rosey/Dockerfile")
+  (dict "name" "remediated-sam" "dockerfile" "agents/remediated-sam/Dockerfile")
+}}
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ $item.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" $ "wave" "workloads") | nindent 2 }}
+  namespace: {{ $.Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
+spec:
+  lookupPolicy:
+    local: false
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ $item.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" $ "wave" "workloads") | nindent 2 }}
+  namespace: {{ $.Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agentic-build
+spec:
+  source:
+    type: Git
+    git:
+      uri: {{ $git | quote }}
+      ref: {{ $.Values.pipelines.gitRevision | quote }}
+    contextDir: .
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: {{ $item.dockerfile }}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: {{ printf "%s:latest" $item.name | quote }}
+  triggers: []
+{{- end }}
+{{- end }}

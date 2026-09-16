@@ -1,0 +1,142 @@
+{{- if or .Values.components.maas.enabled .Values.components.remediatedRosey.enabled .Values.components.remediatedSam.enabled .Values.components.agentBuilder.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.maas.apiKeySecret }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "secrets") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+stringData:
+  api-key: {{ .Values.maas.apiKey | quote }}
+{{- end }}
+---
+{{- if and .Values.components.remediatedRosey.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remediated-rosey
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: remediated-rosey
+    acs-ai-overwatch.io/remediated: "true"
+    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: remediated-rosey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: remediated-rosey
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        acs-ai-overwatch.io/remediated: "true"
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      containers:
+        - name: remediated-rosey
+          image: {{ .Values.agents.images.remediatedRosey }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_ROLE
+              value: remediated-rosey
+            - name: AGENT_ENABLE_NETWORK_AUDIT
+              value: "false"
+            {{- include "acs-ai-overwatch.maasAgentLlmEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "remediated-rosey") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: remediated-rosey
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: remediated-rosey
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+{{- end }}
+---
+{{- if and .Values.components.remediatedSam.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remediated-sam
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: remediated-sam
+    acs-ai-overwatch.io/remediated: "true"
+    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: remediated-sam
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: remediated-sam
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        acs-ai-overwatch.io/remediated: "true"
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      containers:
+        - name: remediated-sam
+          image: {{ .Values.agents.images.remediatedSam }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_ROLE
+              value: remediated-sam
+            - name: AGENT_ENABLE_NETWORK_AUDIT
+              value: "false"
+            {{- include "acs-ai-overwatch.maasAgentLlmEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "remediated-sam") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: remediated-sam
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: remediated-sam
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+{{- end }}

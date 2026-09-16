@@ -19,4 +19,9 @@ data:
         resources:
           - name: nvidia.com/gpu
             replicas: {{ .Values.accelerators.timeSlicing.replicasPerGpu }}
+            devices:
+{{- range .Values.accelerators.timeSlicing.devices }}
+              - {{ . | quote }}
+{{- end }}
+            rename: {{ .Values.accelerators.timeSlicing.renameResource | quote }}
 {{- end }}

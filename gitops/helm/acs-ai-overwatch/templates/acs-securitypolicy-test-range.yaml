@@ -12,13 +12,12 @@ spec:
   policyName: {{ .Values.acs.policy.name }}
   description: >
     Alert on suspicious runtime activity in {{ .Values.acs.testRange.namespace }}
-    (nmap/masscan). Notifies Mattermost only — workloads keep running for lab demos.
+    (nmap/masscan/rustscan/naabu). Notifies Mattermost only — workloads keep running for lab demos.
   rationale: >
     Rosey Regrets and other agents may run deliberate recon tooling in test-range;
     operators need visibility without RHACS killing or scaling pods mid-demo.
   remediation: >
-    Review the Mattermost alert and scan artifacts on the agent PVC; do not rely on
-    automatic enforcement for this policy.
+    Review the Mattermost alert; the ACS investigator will emit a rebuild spec for Remediated Rosey/Sam.
   disabled: false
   severity: {{ .Values.acs.policy.severity }}
   enforcementActions: {{ .Values.acs.policy.enforcementActions | toJson }}

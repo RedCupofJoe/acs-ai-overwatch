@@ -19,6 +19,7 @@ data:
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
     MATTERMOST_URL = os.environ["MATTERMOST_WEBHOOK_URL"]
+    INVESTIGATOR_URL = os.environ.get("INVESTIGATOR_URL", "").rstrip("/")
     PORT = int(os.environ.get("PORT", "8080"))
 
     def format_alert(payload):
@@ -45,10 +46,10 @@ data:
             lines.append("Policy violation detected — see RHACS Central for details.")
         return "\n".join(lines)
 
-    def post_mattermost(text):
-        body = json.dumps({"text": text, "username": "acs"}).encode()
+    def post_json(url, payload):
+        body = json.dumps(payload).encode()
         request = urllib.request.Request(
-            MATTERMOST_URL,
+            url,
             data=body,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -58,6 +59,14 @@ data:
         context.verify_mode = ssl.CERT_NONE
         with urllib.request.urlopen(request, context=context) as response:
             return response.status
+
+    def post_mattermost(text):
+        return post_json(MATTERMOST_URL, {"text": text, "username": "acs"})
+
+    def post_investigator(payload):
+        if not INVESTIGATOR_URL:
+            return None
+        return post_json(INVESTIGATOR_URL + "/alerts", payload)
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -69,6 +78,10 @@ data:
                 payload = {}
             try:
                 post_mattermost(format_alert(payload))
+                try:
+                    post_investigator(payload)
+                except Exception as exc:
+                    print(f"investigator fan-out failed: {exc}", flush=True)
                 self.send_response(204)
             except urllib.error.HTTPError as exc:
                 print(f"mattermost returned HTTP {exc.code}: {exc.read()}", flush=True)
@@ -144,6 +157,10 @@ spec:
                   key: ACS_INCOMING_WEBHOOK_URL
             - name: PORT
               value: {{ .Values.mattermost.webhookBridge.servicePort | quote }}
+            {{- if and .Values.mattermost.webhookBridge.investigatorFanout.enabled .Values.components.investigator.enabled }}
+            - name: INVESTIGATOR_URL
+              value: {{ include "acs-ai-overwatch.investigatorUrl" . | quote }}
+            {{- end }}
           volumeMounts:
             - name: script
               mountPath: /app

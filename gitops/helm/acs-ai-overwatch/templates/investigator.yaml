@@ -1,0 +1,214 @@
+{{- if and .Values.components.investigator.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.investigator.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    argocd.argoproj.io/managed-by: openshift-gitops
+---
+{{- if .Values.investigator.ogx.postgres.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "secrets") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+stringData:
+  password: {{ .Values.investigator.ogx.postgres.password | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "pvcs") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ include "acs-ai-overwatch.storageClassName" . }}
+  resources:
+    requests:
+      storage: {{ .Values.investigator.ogx.postgres.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: ogx-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ogx-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ogx-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.investigator.ogx.postgres.image }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.investigator.ogx.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.investigator.ogx.postgres.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ogx-postgres
+                  key: password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ogx-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: ogx-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+{{- end }}
+---
+{{- if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.investigator.llm.backend) }}
+{{- include "acs-ai-overwatch.llmInferenceService" (dict "root" . "llm" .Values.investigator.llm "namespace" .Values.investigator.namespace "component" "investigator-llm") }}
+{{- else }}
+{{- include "acs-ai-overwatch.standaloneVllmDeployment" (dict "root" . "llm" .Values.investigator.llm "namespace" .Values.investigator.namespace "component" "investigator-llm") }}
+{{- end }}
+---
+{{- if and .Values.investigator.ogx.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.ogxServer)) }}
+apiVersion: ogx.io/v1beta1
+kind: OGXServer
+metadata:
+  name: {{ .Values.investigator.ogx.name }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  distribution:
+    name: rh-dev
+  workload:
+    replicas: 1
+    storage:
+      size: "20Gi"
+    overrides:
+      env:
+        - name: VLLM_URL
+          value: {{ include "acs-ai-overwatch.investigatorLlmApiBase" . | quote }}
+        - name: INFERENCE_MODEL
+          value: {{ .Values.investigator.llm.servedModelName | quote }}
+        - name: VLLM_TLS_VERIFY
+          value: "false"
+        - name: POSTGRES_HOST
+          value: ogx-postgres
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: {{ .Values.investigator.ogx.postgres.database | quote }}
+        - name: POSTGRES_USER
+          value: {{ .Values.investigator.ogx.postgres.username | quote }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ogx-postgres
+              key: password
+{{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.investigator.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.investigator.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ .Values.investigator.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.investigator.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.investigator.name }}
+        app.kubernetes.io/component: investigator
+        app.kubernetes.io/part-of: acs-ai-overwatch
+    spec:
+      serviceAccountName: {{ .Values.investigator.name }}
+      containers:
+        - name: investigator
+          image: {{ .Values.agents.images.investigator }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.investigator.servicePort | quote }}
+            - name: LLM_API_BASE
+              value: {{ include "acs-ai-overwatch.investigatorLlmApiBase" . | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.investigator.llm.servedModelName | quote }}
+            - name: BUILDER_URL
+              value: {{ include "acs-ai-overwatch.builderUrl" . | quote }}
+            - name: MAAS_MODEL
+              value: {{ .Values.maas.llm.servedModelName | quote }}
+            - name: MATTERMOST_WEBHOOK_URL
+              value: {{ include "acs-ai-overwatch.mattermostWebhookUrl" . | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.investigator.servicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.investigator.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.investigator.name }}
+  ports:
+    - name: http
+      port: {{ .Values.investigator.servicePort }}
+      targetPort: http
+{{- end }}

@@ -52,7 +52,7 @@ def configure_otel() -> None:
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
 
-    # kagenti-adk uses FastAPI/Starlette — instrument after provider is registered.
+    # FastAPI / Starlette — instrument after provider is registered.
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor

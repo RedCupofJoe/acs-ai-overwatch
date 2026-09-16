@@ -69,7 +69,7 @@ spec:
                   --dry-run=client -o yaml | oc apply -f -
                 echo "Enabled user workload monitoring via ${NS}/${CM}"
               fi
-              for ns in test-range kagenti-system {{ .Values.namespace }} {{ .Values.tempo.monolithic.namespace }}; do
+              for ns in test-range acs-investigator acs-agent-builder acs-maas {{ .Values.namespace }} {{ .Values.tempo.monolithic.namespace }}; do
                 oc label namespace "${ns}" openshift.io/cluster-monitoring=true --overwrite 2>/dev/null || true
               done
 {{- end }}

@@ -1,0 +1,178 @@
+{{- if and .Values.components.agentBuilder.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.builder.namespace }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "namespace") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    argocd.argoproj.io/managed-by: openshift-gitops
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.builder.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.builder.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns", "taskruns", "pipelines", "tasks"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["build.openshift.io"]
+    resources: ["buildconfigs", "builds"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["image.openshift.io"]
+    resources: ["imagestreams", "imagestreamtags"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "persistentvolumeclaims", "secrets", "configmaps", "services"]
+    verbs: ["get", "list", "watch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.builder.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.builder.name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.builder.name }}
+    namespace: {{ .Values.builder.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.builder.name }}-test-range
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["services", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.builder.name }}-test-range
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.builder.name }}-test-range
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.builder.name }}
+    namespace: {{ .Values.builder.namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.builder.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ .Values.builder.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.builder.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.builder.name }}
+        app.kubernetes.io/component: agent-builder
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.builder.name }}
+      initContainers:
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.builder) | nindent 8 }}
+      containers:
+        {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
+        - name: builder
+          image: {{ .Values.agents.images.builder }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.builder.servicePort | quote }}
+            - name: BUILDER_NAMESPACE
+              value: {{ .Values.builder.namespace | quote }}
+            - name: GIT_REPO_URL
+              value: {{ include "acs-ai-overwatch.gitRepoUrl" . | quote }}
+            - name: GIT_REVISION
+              value: {{ .Values.pipelines.gitRevision | quote }}
+            - name: IMAGE_REGISTRY
+              value: {{ .Values.pipelines.imageRegistry.host | quote }}
+            - name: IMAGE_ORG
+              value: {{ .Values.pipelines.imageRegistry.organization | quote }}
+            - name: LLM_API_BASE
+              value: {{ include "acs-ai-overwatch.localLlamaApiBase" . | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.agents.llamaCpp.servedModelName | quote }}
+            - name: MATTERMOST_WEBHOOK_URL
+              value: {{ include "acs-ai-overwatch.mattermostWebhookUrl" . | quote }}
+            - name: TEST_RANGE_NAMESPACE
+              value: {{ .Values.agents.namespace | quote }}
+            - name: MAAS_API_BASE
+              value: {{ include "acs-ai-overwatch.maasLlmApiBase" . | quote }}
+            - name: MAAS_MODEL
+              value: {{ .Values.maas.llm.servedModelName | quote }}
+            - name: MAAS_API_KEY_SECRET
+              value: {{ .Values.maas.apiKeySecret | quote }}
+            - name: AGENTS_SERVICE_PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_SA
+              value: {{ .Values.agents.serviceAccountName | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.builder.servicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.builder.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.builder.name }}
+  ports:
+    - name: http
+      port: {{ .Values.builder.servicePort }}
+      targetPort: http
+{{- end }}

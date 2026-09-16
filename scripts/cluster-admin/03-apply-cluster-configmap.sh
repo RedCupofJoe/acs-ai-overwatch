@@ -52,7 +52,6 @@ openshift_discover_apply_configmap \
   "${APPS_DOMAIN}" \
   "${CLUSTER_NAME}" \
   "${QUAY_REGISTRY_SERVER}" \
-  "${KAGENTI_API_BASE_URL}" \
   "${GIT_REPO_URL}" \
   "${API_SERVER}" \
   "${MATTERMOST_ROUTE_HOST}" \
@@ -65,4 +64,4 @@ openshift_discover_apply_configmap \
   "${GPU_OPERATOR_CHANNEL}"
 
 cluster_admin_info "Done:"
-"${KUBE_CMD[@]}" get configmap -n "${NAMESPACE}" "${CONFIGMAP_NAME}" -o yaml | grep -E '^  (appsDomain|clusterName|defaultStorageClass|quayOperatorChannel|rhoaiOperatorChannel|rhacsOperatorChannel|nfdOperatorChannel|gpuOperatorChannel|mattermostRouteHost|mattermostSiteUrl|quayRegistryServer|kagentiApiBaseUrl|gitRepoUrl):'
+"${KUBE_CMD[@]}" get configmap -n "${NAMESPACE}" "${CONFIGMAP_NAME}" -o yaml | grep -E '^  (appsDomain|clusterName|defaultStorageClass|quayOperatorChannel|rhoaiOperatorChannel|rhacsOperatorChannel|nfdOperatorChannel|gpuOperatorChannel|mattermostRouteHost|mattermostSiteUrl|quayRegistryServer|gitRepoUrl):'

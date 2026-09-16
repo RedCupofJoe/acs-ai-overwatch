@@ -15,13 +15,17 @@ mattermost:
 
 # Phase 2+ opt-in — see README "PoC deployment phases".
 components:
-  kagenti:
-    enabled: false
   agentsHelpfulHank:
     enabled: false
   agentsRoseyRegrets:
     enabled: false
   agentsSneakySam:
+    enabled: false
+  investigator:
+    enabled: false
+  maas:
+    enabled: false
+  agentBuilder:
     enabled: false
 
 # Phase 3 opt-in — baseline is RHACS operator + SecurityPolicy CRs only (no Central).

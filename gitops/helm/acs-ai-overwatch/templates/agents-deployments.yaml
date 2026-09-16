@@ -1,0 +1,238 @@
+{{- if and .Values.components.agentsHelpfulHank.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helpful-hank
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/name: helpful-hank
+    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: helpful-hank
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: helpful-hank
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      initContainers:
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.helpfulHank) | nindent 8 }}
+      containers:
+        {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
+        - name: helpful-hank
+          image: {{ .Values.agents.images.helpfulHank }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_SYSTEM_PROMPT_FILE
+              value: /etc/acs-agent/system_prompt.txt
+            - name: AGENT_ROLE
+              value: helpful-hank
+            {{- include "acs-ai-overwatch.localLlamaEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "helpful-hank") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helpful-hank
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: helpful-hank
+spec:
+  selector:
+    app.kubernetes.io/name: helpful-hank
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+---
+{{- include "acs-ai-overwatch.agentRoute" (dict "root" . "name" "helpful-hank") }}
+{{- end }}
+---
+{{- if and .Values.components.agentsRoseyRegrets.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rosey-regrets
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/name: rosey-regrets
+    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rosey-regrets
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rosey-regrets
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        acs-ai-overwatch.io/recon: "true"
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.agents.roseyServiceAccountName }}
+      initContainers:
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.roseyRegrets) | nindent 8 }}
+      containers:
+        {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
+        - name: rosey-regrets
+          image: {{ .Values.agents.images.roseyRegrets }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_SYSTEM_PROMPT_FILE
+              value: /etc/acs-agent/system_prompt.txt
+            - name: AGENT_ROLE
+              value: rosey-regrets
+            {{- include "acs-ai-overwatch.roseyNetworkAuditEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.localLlamaEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "rosey-regrets") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          volumeMounts:
+            - name: agent-output
+              mountPath: {{ .Values.agents.rosey.outputMountPath | quote }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 8Gi
+        - name: agent-output
+          persistentVolumeClaim:
+            claimName: {{ .Values.agentsRoseyRegrets.pvc.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rosey-regrets
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: rosey-regrets
+spec:
+  selector:
+    app.kubernetes.io/name: rosey-regrets
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+---
+{{- include "acs-ai-overwatch.agentRoute" (dict "root" . "name" "rosey-regrets") }}
+{{- end }}
+---
+{{- if and .Values.components.agentsSneakySam.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sneaky-sam
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/name: sneaky-sam
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sneaky-sam
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sneaky-sam
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      initContainers:
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.sneakySam) | nindent 8 }}
+      containers:
+        {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
+        - name: sneaky-sam
+          image: {{ .Values.agents.images.sneakySam }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_SYSTEM_PROMPT_FILE
+              value: /etc/acs-agent/system_prompt.txt
+            - name: AGENT_ROLE
+              value: sneaky-sam
+            {{- include "acs-ai-overwatch.localLlamaEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sneaky-sam
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: sneaky-sam
+spec:
+  selector:
+    app.kubernetes.io/name: sneaky-sam
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+---
+{{- include "acs-ai-overwatch.agentRoute" (dict "root" . "name" "sneaky-sam") }}
+{{- end }}

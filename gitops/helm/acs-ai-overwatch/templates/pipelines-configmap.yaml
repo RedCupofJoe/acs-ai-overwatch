@@ -1,0 +1,20 @@
+{{- if and .Values.components.pipelines.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acs-agent-build-pipelines
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "configMaps") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+data:
+  README: |
+    GitOps applies Task/Pipeline CRs from files/agents-build-pipeline.yaml when
+    components.pipelines.enabled is true and the OpenShift Pipelines operator CRDs exist.
+
+    Manual fallback:
+      oc apply -n {{ .Values.builder.namespace }} -f pipelines/tekton/agents-build-pipeline.yaml
+      oc create -n {{ .Values.builder.namespace }} -f pipelines/tekton/agents-build-pipelinerun.yaml
+
+    The agentic builder creates PipelineRuns against pipeline build-remediated-agents.
+{{- end }}

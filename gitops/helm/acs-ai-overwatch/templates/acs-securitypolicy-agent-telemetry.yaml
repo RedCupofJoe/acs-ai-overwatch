@@ -11,11 +11,11 @@ metadata:
 spec:
   policyName: {{ .Values.agentTelemetryPolicy.rhacs.name }}
   description: >
-    Alert when a Kagenti agent Deployment is applied in {{ .Values.acs.testRange.namespace }}
+    Alert when an agent Deployment is applied in {{ .Values.acs.testRange.namespace }}
     without label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }}.
     Notifies operators via Mattermost; does not scale running pods down at runtime.
   rationale: >
-    Agents without declared telemetry compliance should not be admitted to the cluster agent mesh.
+    Agents without declared telemetry compliance should not be admitted to the demo agent namespace.
     Deploy-time detection gives human-in-the-loop visibility before or as non-compliant workloads land.
   remediation: >
     Add pod template label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }},
@@ -34,7 +34,7 @@ spec:
   scope:
     - namespace: {{ .Values.acs.testRange.namespace }}
       label:
-        key: kagenti.io/type
+        key: app.kubernetes.io/component
         value: agent
   enforcementActions:
 {{- range .Values.agentTelemetryPolicy.rhacs.enforcementActions }}
@@ -48,7 +48,6 @@ spec:
           negated: true
           values:
             - value: sneaky-sam
-            - value: sneaky-sam-slm
         - fieldName: Required Label
           booleanOperator: OR
           values:

@@ -27,6 +27,9 @@ platformResources:
     central: centrals.platform.stackrox.io
     securedCluster: securedclusters.platform.stackrox.io
     securityPolicy: securitypolicies.config.stackrox.io
+    llmInferenceService: llminferenceservices.serving.kserve.io
+    ogxServer: ogxservers.ogx.io
+    tektonPipeline: pipelines.tekton.dev
 
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
@@ -67,8 +70,12 @@ cluster:
   topology: "3x3"
   gpu:
     count: 3
-    model: T4
+    model: L4
     vendor: nvidia
+    # GPU 0 is time-sliced as nvidia.com/gpu.shared (Hank, Rosey, Sam, builder).
+    # GPU 1 and GPU 2 stay dedicated nvidia.com/gpu (investigator Gemma, MaaS Granite).
+    sharedIndex: "0"
+    sharedReplicas: 4
 
 # Optional ConfigMap with cluster facts (for operators / workbenches that read it).
 clusterMetadata:
@@ -108,6 +115,8 @@ mattermost:
       repository: docker.io/library/python
       tag: "3.12-alpine"
     servicePort: 8080
+    investigatorFanout:
+      enabled: true
   bootstrap:
     enabled: true
     jobImage: docker.io/nicolaka/netshoot:v0.13
@@ -240,9 +249,13 @@ accelerators:
     # ConfigMap consumed by ClusterPolicy devicePlugin.config
     configMapName: time-slicing-config
     configKey: any
-    # Each physical L4 advertises N logical `nvidia.com/gpu` devices (scheduling units).
-    # 3 GPUs × replicasPerGpu = total slices (set to 6 for six half-GPU slices).
-    replicasPerGpu: 2
+    # Slice only GPU 0; advertise nvidia.com/gpu.shared so dedicated L4s stay nvidia.com/gpu.
+    # If L4s are on separate nodes, label the shared node nvidia.com/device-plugin.config=shared-l4
+    # and use a second ConfigMap key instead of devices: ["0"].
+    replicasPerGpu: 4
+    devices:
+      - "0"
+    renameResource: nvidia.com/gpu.shared
     migStrategy: none
   clusterPolicy:
     name: gpu-cluster-policy
@@ -270,12 +283,12 @@ accelerators:
       rollingUpdate:
         maxUnavailable: "1"
 
-# Red Hat OpenShift AI (RHOAI) 3.4 — operator, DataScienceCluster v2, HardwareProfile.
-# Requires a NEW cluster with no prior 2.25 install (no supported in-place 2.25→3.4 upgrade).
-# Discovery picks stable-3.4 / fast-3.4 / eus-3.4 from catalog (RHOAI_TARGET_VERSION, default 3.4).
+# Red Hat OpenShift AI (RHOAI) 3.5 — operator, DataScienceCluster v2, OGX, MaaS, HardwareProfiles.
+# Requires OpenShift 4.20 (or 4.19.9+) and a cluster that is not stuck on RHOAI 2.25.
+# Discovery picks stable-3.5 / fast-3.5 / eus-3.5 from catalog (RHOAI_TARGET_VERSION, default 3.5).
 rhoai:
   enabled: true
-  targetVersion: "3.4"
+  targetVersion: "3.5"
   operator:
     namespace: redhat-ods-operator
     clusterMonitoringLabel: "true"
@@ -283,7 +296,7 @@ rhoai:
       name: redhat-ods-operator
     subscription:
       name: rhods-operator
-      channel: stable-3.4
+      channel: stable-3.5
       installPlanApproval: Automatic
       source: redhat-operators
       sourceNamespace: openshift-marketplace
@@ -295,9 +308,13 @@ rhoai:
         managementState: Managed
       kserve:
         managementState: Managed
+        modelsAsService:
+          managementState: Managed
+      ogx:
+        managementState: Managed
       kueue:
-        # OpenShift AI 3.4: Managed rejected by webhook; requires manual Red Hat Kueue Operator (README).
-        managementState: Unmanaged
+        # Keep Removed on the PoC unless the 3.5 webhook accepts Managed.
+        managementState: Removed
         defaultClusterQueueName: default
         defaultLocalQueueName: default
       workbenches:
@@ -320,14 +337,36 @@ rhoai:
         managementState: Removed
         argoWorkflowsControllers:
           managementState: Removed
+  dashboardConfig:
+    enabled: true
+    name: odh-dashboard-config
+    namespace: redhat-ods-applications
+    modelAsService: true
+    genAiStudio: true
   hardwareProfile:
     enabled: true
     apiVersion: infrastructure.opendatahub.io/v1alpha1
     namespace: redhat-ods-applications
-    name: l4-timeslice-half-gpu
-    displayName: "L4 time-slice (0.5 GPU increment)"
-    # Must match a Kueue LocalQueue that exists for scheduled workloads (see rhoai.datascienceCluster kueue).
     kueueLocalQueueName: default
+    profiles:
+      - name: l4-shared-timeslice
+        displayName: "L4 time-slice (shared MiniCPM agents)"
+        gpu:
+          displayName: "NVIDIA L4 shared (time-sliced)"
+          identifier: nvidia.com/gpu.shared
+          resourceType: Accelerator
+          minCount: "1"
+          maxCount: "4"
+          defaultCount: "1"
+      - name: l4-full
+        displayName: "L4 full GPU (Gemma / Granite MaaS)"
+        gpu:
+          displayName: "NVIDIA L4"
+          identifier: nvidia.com/gpu
+          resourceType: Accelerator
+          minCount: "1"
+          maxCount: "2"
+          defaultCount: "1"
     identifiers:
       cpu:
         displayName: CPU
@@ -343,17 +382,9 @@ rhoai:
         minCount: 4Gi
         maxCount: 64Gi
         defaultCount: 8Gi
-      gpu:
-        displayName: "NVIDIA GPU (time-sliced)"
-        identifier: nvidia.com/gpu
-        resourceType: Accelerator
-        # One scheduling unit = half of an L4 when replicasPerGpu is 2 (see accelerators.timeSlicing).
-        minCount: "0.5"
-        maxCount: "6"
-        defaultCount: "0.5"
-  # Notebook workbenches in Kagenti team namespaces (team1, team2). Requires workbenches: Managed on default-dsc.
+  # Optional Notebook workbenches (not used by the agent demo loop).
   teamWorkbenches:
-    enabled: true
+    enabled: false
     image: image-registry.openshift-image-registry.svc:5000/redhat-ods-applications/runtime-minimal:minimal
     imageSelection: runtime-minimal:minimal
     imageDisplayName: "Minimal Python"
@@ -369,22 +400,17 @@ rhoai:
         cpu: "2"
         memory: 8Gi
     teams:
-      - namespace: team1
-        name: team1-workbench
-        displayName: "Team 1 Workbench"
-      - namespace: team2
-        name: team2-workbench
-        displayName: "Team 2 Workbench"
+      - namespace: ai-workbenches
+        name: overwatch-workbench
+        displayName: "ACS Overwatch Workbench"
 
-# Future Git-backed manifests (enable when content exists).
+# Demo component toggles (PoC overlay turns the agent loop on).
 components:
   bootstrapOperators:
     enabled: false
   gpuConfig:
     enabled: false
   acsPolicies:
-    enabled: true
-  kagenti:
     enabled: true
   agentsHelpfulHank:
     enabled: true
@@ -394,19 +420,23 @@ components:
     enabled: false
   agentsSneakySam:
     enabled: false
-  slmVllm:
+  investigator:
     enabled: false
-  agentsHelpfulHankSlm:
+  maas:
     enabled: false
-  agentsRoseyRegretsSlm:
+  agentBuilder:
     enabled: false
-  agentsSneakySamSlm:
+  remediatedRosey:
+    enabled: false
+  remediatedSam:
     enabled: false
   pipelines:
     enabled: false
+  userWorkloadMonitoring:
+    enabled: true
 
-# Require Kagenti agents in test-range to carry acs-ai-overwatch.io/telemetry=enabled.
-# Non-compliant deploys: RHACS DEPLOY policy notifies Mattermost (Phase 3+); NetworkPolicy isolates if a pod still runs.
+# Require demo agents in test-range to carry acs-ai-overwatch.io/telemetry=enabled.
+# Non-compliant deploys: RHACS DEPLOY policy notifies Mattermost; NetworkPolicy isolates if a pod still runs.
 agentTelemetryPolicy:
   enabled: true
   requiredLabel:
@@ -437,7 +467,6 @@ sneakySamTelemetryPolicy:
   enabled: true
   deploymentNames:
     - sneaky-sam
-    - sneaky-sam-slm
   rhacs:
     enabled: true
     name: test-range-sneaky-sam-telemetry-violation
@@ -465,88 +494,129 @@ agentsRoseyRegrets:
     storageClassName: gp3-csi
     size: 20Gi
 
-agentsRoseyRegretsSlm:
-  namespace: test-range
-  pvc:
-    name: agent-reference-information-slm
-    storageClassName: gp3-csi
-    size: 20Gi
-
-# Shared inference + SLM agent variants (opt-in via components.*Slm).
-# backend: standalone (vLLM Deployment + HuggingFace model) or rhoai (KServe ModelCar).
-slm:
-  backend: standalone
-  vllm:
-    name: qwen3-vllm
-    image: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:ad06abf3bb5235ebb5b2df84cd1b9fd09e823f0ff2eebfc82bb4590275ccfe0b
-    imagePullPolicy: IfNotPresent
-    model: Qwen/Qwen3-0.6B
-    servedModelName: qwen3-0-6b
-    maxModelLen: 4096
-    gpuMemoryUtilization: 0.85
-    gpuCount: 1
-    servicePort: 8000
-    vllmUseV1: false
-    enforceEager: true
-    nodeSelector: {}
-    tolerations: []
-  rhoai:
-    inferenceServiceName: qwen3-0-6b
-    # Optional KServe path when a ModelCar exists; Qwen3-0.6B uses hf:// via standalone vLLM.
-    modelUri: hf://Qwen/Qwen3-0.6B
-    servedModelName: qwen3-0-6b
-    vllmCudaImage: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:ad06abf3bb5235ebb5b2df84cd1b9fd09e823f0ff2eebfc82bb4590275ccfe0b
-    maxModelLen: 4096
-    gpuMemoryUtilization: 0.85
-    gpuCount: 1
-    servicePort: 8080
-    vllmUseV1: false
-    enforceEager: true
-  rosey:
-    autoNetworkAudit: false
-
 # Tekton/OpenShift Pipelines defaults (see pipelines/tekton/agents-build-pipeline.yaml).
 pipelines:
-  namespace: acs-ai-overwatch-system
+  namespace: acs-agent-builder
+  gitUrl: ""
+  gitRevision: main
   imageRegistry:
-    # Internal Quay registry service DNS (adjust to match your QuayRegistry route/service).
     host: quay-quay-app.quay.svc.cluster.local:80
     organization: acs-agents
+  operator:
+    namespace: openshift-operators
+    subscription:
+      name: openshift-pipelines-operator
+      channel: latest
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
 
-# Kagenti workloads + source registration for Hank and Rosey.
-kagenti:
+# Rogue + remediated agents (OpenShift Deployments; llama.cpp sidecar for in-sandbox GGUF).
+agents:
   namespace: test-range
-  # Kagenti operator injects authbridge-proxy on :8000 and moves the agent to :8001.
-  # Target the agent port so Services stay reachable when SPIRE/authbridge is unhealthy.
-  agentServiceTargetPort: 8001
-  # kagenti-adk auto-registration target (defaults to in-cluster Kagenti backend).
-  platformUrl: ""
-  api:
-    # External base URL for Kagenti API; derived from cluster.appsDomain when empty.
-    baseUrl: ""
-  appSource:
-    name: acs-ai-overwatch-gitops
-    # Set in values-cluster.yaml by discover-cluster-values.sh (git remote).
-    repoUrl: ""
-    revision: main
-    path: gitops/helm/acs-ai-overwatch
+  serviceAccountName: acs-agent
+  roseyServiceAccountName: acs-agent-rosey
+  agentServicePort: 8000
+  gitRepoUrl: ""
+  llamaCpp:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    imagePullPolicy: IfNotPresent
+    port: 8080
+    servedModelName: minicpm-abliterated
+    ngl: "99"
+    contextSize: "4096"
+  huggingface:
+    modelRepo: tinyopsec/Huihui-MiniCPM5-2B-abliterated-GGUF
+    modelFile: ""
+    cacheMountPath: /models
+  gpuResource: nvidia.com/gpu.shared
+  gpuCount: "1"
   images:
     helpfulHank: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank:latest
     roseyRegrets: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets:latest
     sneakySam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam:latest
-    helpfulHankSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank-slm:latest
-    roseyRegretsSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets-slm:latest
-    sneakySamSlm: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam-slm:latest
-  serviceAccountName: openshell
+    investigator: quay-quay-app.quay.svc.cluster.local:80/acs-agents/acs-investigator:latest
+    builder: quay-quay-app.quay.svc.cluster.local:80/acs-agents/acs-agent-builder:latest
+    remediatedRosey: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-rosey:latest
+    remediatedSam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-sam:latest
   rosey:
     networkAuditCommand: "Network Audit"
     outputMountPath: /agent-reference-information
-    # /24 keeps nmap fast enough for Kagenti; override to 10.0.0.0/8 only in isolated long-run labs.
     networkAuditCidr: "10.0.0.0/24"
     networkAuditTimeoutSec: "45"
-    # Let the LLM call run_network_recon (OpenAI tool) instead of hardcoded auto-nmap in server.py.
     autoNetworkAudit: false
     llmDrivenNetworkAudit: true
+
+# ACS investigator: Gemma 2 9B FP8 on a dedicated L4 (namespace acs-investigator).
+# Weights come from the OpenShift AI Model Catalog (ModelCar on registry.redhat.io), not Hugging Face.
+investigator:
+  namespace: acs-investigator
+  name: acs-investigator
+  servicePort: 8080
+  ogx:
+    enabled: true
+    name: acs-investigator-ogx
+    postgres:
+      enabled: true
+      image: docker.io/library/postgres:16-alpine
+      database: ogx
+      username: ogx
+      password: ogx-poc-password
+      storage: 10Gi
+  llm:
+    name: gemma-2-9b-it-fp8
+    # OpenShift AI Model Catalog ModelCar (not Hugging Face). Cluster pull secret pulls registry.redhat.io.
+    modelUri: oci://registry.redhat.io/rhelai1/modelcar-gemma-2-9b-it-fp8:1.5
+    servedModelName: gemma-2-9b-it-fp8
+    # llminferenceservice (OpenShift AI 3.5 LLMInferenceService) or vllm (standalone Deployment fallback).
+    backend: llminferenceservice
+    apiBase: ""
+    gpuResource: nvidia.com/gpu
+    gpuCount: "1"
+    maxModelLen: 4096
+    gpuMemoryUtilization: 0.90
+    vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
+    vllmModelPath: /mnt/models
+    servicePort: 8080
+
+# Models-as-a-Service: Granite 8B FP8 on the remaining dedicated L4 (namespace acs-maas).
+# Weights come from the OpenShift AI Model Catalog (ModelCar on registry.redhat.io), not Hugging Face.
+maas:
+  namespace: acs-maas
+  name: granite-maas
+  gatewayService: maas-api
+  gatewayPort: 8080
+  apiKeySecret: maas-poc-api-key
+  apiKey: CHANGE_ME_MAAS_API_KEY
+  postgres:
+    enabled: true
+    image: docker.io/library/postgres:16-alpine
+    database: maas
+    username: maas
+    password: maas-poc-password
+    storage: 10Gi
+  llm:
+    name: granite-3-1-8b-instruct-fp8
+    # OpenShift AI Model Catalog ModelCar (not Hugging Face). Cluster pull secret pulls registry.redhat.io.
+    modelUri: oci://registry.redhat.io/rhelai1/modelcar-granite-3-1-8b-instruct-fp8-dynamic:1.5
+    servedModelName: granite-3.1-8b-instruct-fp8
+    backend: llminferenceservice
+    apiBase: ""
+    gpuResource: nvidia.com/gpu
+    gpuCount: "1"
+    maxModelLen: 4096
+    gpuMemoryUtilization: 0.90
+    vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
+    vllmModelPath: /mnt/models
+    servicePort: 8080
+
+# In-cluster agentic builder (OpenShift Pipelines + Buildah).
+builder:
+  namespace: acs-agent-builder
+  name: acs-agent-builder
+  servicePort: 8080
+  gpuResource: nvidia.com/gpu.shared
+  gpuCount: "1"
 
 # ACS (RHACS) policy/operator settings for test-range.
 acs:
@@ -628,3 +698,8 @@ acs:
     disallowedProcesses:
       - nmap
       - masscan
+      - rustscan
+      - naabu
+      - ncat
+      - nc
+      - zmap

@@ -16,7 +16,6 @@ openshift_discover_apply_configmap \
   "${APPS_DOMAIN}" \
   "${CLUSTER_NAME}" \
   "${QUAY_REGISTRY_SERVER}" \
-  "${KAGENTI_API_BASE_URL}" \
   "${GIT_REPO_URL}" \
   "${API_SERVER}" \
   "${MATTERMOST_ROUTE_HOST}" \

@@ -1,19 +1,18 @@
-{{- if and .Values.components.kagenti.enabled .Values.agentTelemetryPolicy.enabled .Values.agentTelemetryPolicy.networkPolicy.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
-# Isolates Kagenti agents that lack acs-ai-overwatch.io/telemetry=enabled.
-# Works without RHACS Central (immediate PoC enforcement). Compliant agents are not selected.
+{{- if and .Values.agentTelemetryPolicy.enabled .Values.agentTelemetryPolicy.networkPolicy.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+# Isolates demo agents that lack acs-ai-overwatch.io/telemetry=enabled.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ .Values.agentTelemetryPolicy.networkPolicy.name }}
   {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
-  namespace: {{ .Values.kagenti.namespace }}
+  namespace: {{ .Values.agents.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: agent-telemetry-policy
 spec:
   podSelector:
     matchExpressions:
-      - key: kagenti.io/type
+      - key: app.kubernetes.io/component
         operator: In
         values:
           - agent
@@ -24,7 +23,6 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # DNS only — blocks Kagenti API, peer agents, OTEL collector, and external traffic.
     - ports:
         - protocol: UDP
           port: 53

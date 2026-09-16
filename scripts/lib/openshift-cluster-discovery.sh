@@ -66,26 +66,24 @@ openshift_discover_mattermost_site_url() {
   printf 'https://%s' "${route_host}"
 }
 
-openshift_discover_kagenti_api_base_url() {
-  local apps_domain="$1"
-  local base="${KAGENTI_API_BASE_URL:-}"
-  local ns host
-  if [[ -n "${base}" ]]; then
-    printf '%s' "${base}"
-    return
-  fi
-  for ns in kagenti-system kagenti default; do
-    host="$(kubectl get route -n "${ns}" -o jsonpath='{range .items[*]}{.spec.host}{"\n"}{end}' 2>/dev/null | grep -i kagenti | head -n1 || true)"
-    if [[ -n "${host}" ]]; then
-      printf 'https://%s' "${host}"
-      return
+# Pick the newest OpenShift AI channel for a target minor (e.g. 3.5).
+openshift_discover_rhoai_channel() {
+  local channels="$1"
+  local target="${RHOAI_TARGET_VERSION:-3.5}"
+  local pref channel fallback
+
+  for pref in "stable-${target}" "fast-${target}" "eus-${target}"; do
+    if echo "${channels}" | grep -qxF "${pref}"; then
+      printf '%s' "${pref}"
+      return 0
     fi
   done
-  if [[ "${apps_domain}" == apps.* ]]; then
-    printf 'https://kagenti-api.%s' "${apps_domain}"
-  else
-    printf 'https://kagenti-api.apps.%s' "${apps_domain}"
+  fallback="$(echo "${channels}" | grep -E "${target}" | sort -V | tail -n1 || true)"
+  if [[ -n "${fallback}" ]]; then
+    printf '%s' "${fallback}"
+    return 0
   fi
+  return 1
 }
 
 openshift_discover_git_repo_url() {
@@ -122,26 +120,6 @@ openshift_discover_default_storage_class() {
     return 0
   fi
   printf '%s' "${sc}"
-}
-
-# Pick the newest OpenShift AI channel for a target minor (e.g. 3.4).
-openshift_discover_rhoai_channel() {
-  local channels="$1"
-  local target="${RHOAI_TARGET_VERSION:-3.4}"
-  local pref channel fallback
-
-  for pref in "stable-${target}" "fast-${target}" "eus-${target}"; do
-    if echo "${channels}" | grep -qxF "${pref}"; then
-      printf '%s' "${pref}"
-      return 0
-    fi
-  done
-  fallback="$(echo "${channels}" | grep -E "${target}" | sort -V | tail -n1 || true)"
-  if [[ -n "${fallback}" ]]; then
-    printf '%s' "${fallback}"
-    return 0
-  fi
-  return 1
 }
 
 # Resolve OLM Subscription channel from packagemanifest (oc jsonpath; no jq required).
@@ -183,7 +161,7 @@ openshift_discover_package_channel() {
 openshift_discover_operator_channels() {
   DEFAULT_STORAGE_CLASS="$(openshift_discover_default_storage_class)"
   QUAY_OPERATOR_CHANNEL="$(openshift_discover_package_channel quay-operator stable-3.15 latest-stable-3)"
-  RHOAI_OPERATOR_CHANNEL="$(openshift_discover_package_channel rhods-operator stable-3.4 rhoai-target)"
+  RHOAI_OPERATOR_CHANNEL="$(openshift_discover_package_channel rhods-operator stable-3.5 rhoai-target)"
   RHACS_OPERATOR_CHANNEL="$(openshift_discover_package_channel rhacs-operator stable default)"
   NFD_OPERATOR_CHANNEL="$(openshift_discover_package_channel nfd stable default)"
   GPU_OPERATOR_CHANNEL="$(openshift_discover_package_channel gpu-operator-certified stable default)"
@@ -195,9 +173,8 @@ openshift_discover_write_helm_values() {
   local apps_domain="$1"
   local cluster_name="$2"
   local quay_host="$3"
-  local kagenti_base="$4"
-  local git_url="$5"
-  local password_line="${6:-}"
+  local git_url="$4"
+  local password_line="${5:-}"
   cat <<EOF
 cluster:
   name: ${cluster_name}
@@ -237,11 +214,11 @@ accelerators:
     subscription:
       channel: ${GPU_OPERATOR_CHANNEL}
 
-kagenti:
-  api:
-    baseUrl: ${kagenti_base}
-  appSource:
-    repoUrl: ${git_url}
+agents:
+  gitRepoUrl: ${git_url}
+
+pipelines:
+  gitUrl: ${git_url}
 EOF
 }
 
@@ -252,17 +229,16 @@ openshift_discover_apply_configmap() {
   local apps_domain="$3"
   local cluster_name="$4"
   local quay_host="$5"
-  local kagenti_base="$6"
-  local git_url="$7"
-  local api_server="${8:-}"
-  local mattermost_route_host="${9:-}"
-  local mattermost_site_url="${10:-}"
-  local default_storage_class="${11:-gp3-csi}"
-  local quay_operator_channel="${12:-stable-3.15}"
-  local rhoai_operator_channel="${13:-stable-3.4}"
-  local rhacs_operator_channel="${14:-stable}"
-  local nfd_operator_channel="${15:-stable}"
-  local gpu_operator_channel="${16:-stable}"
+  local git_url="$6"
+  local api_server="${7:-}"
+  local mattermost_route_host="${8:-}"
+  local mattermost_site_url="${9:-}"
+  local default_storage_class="${10:-gp3-csi}"
+  local quay_operator_channel="${11:-stable-3.15}"
+  local rhoai_operator_channel="${12:-stable-3.5}"
+  local rhacs_operator_channel="${13:-stable}"
+  local nfd_operator_channel="${14:-stable}"
+  local gpu_operator_channel="${15:-stable}"
   local discovered_at
   discovered_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -271,7 +247,6 @@ openshift_discover_apply_configmap() {
     --from-literal=appsDomain="${apps_domain}" \
     --from-literal=clusterName="${cluster_name}" \
     --from-literal=quayRegistryServer="${quay_host}" \
-    --from-literal=kagentiApiBaseUrl="${kagenti_base}" \
     --from-literal=gitRepoUrl="${git_url}" \
     --from-literal=apiServer="${api_server}" \
     --from-literal=mattermostRouteHost="${mattermost_route_host}" \
@@ -287,7 +262,7 @@ openshift_discover_apply_configmap() {
 }
 
 openshift_discover_run() {
-  local apps_domain cluster_name quay_host kagenti_base git_url api_server mm_namespace mm_route_host mm_site_url
+  local apps_domain cluster_name quay_host git_url api_server mm_namespace mm_route_host mm_site_url
   apps_domain="$(openshift_discover_apps_domain)"
   if [[ -z "${apps_domain}" ]]; then
     echo "Could not read ingresses.config/cluster spec.domain" >&2
@@ -296,7 +271,6 @@ openshift_discover_run() {
   mm_namespace="${MATTERMOST_NAMESPACE:-monitoring}"
   cluster_name="$(openshift_discover_cluster_name)"
   quay_host="$(openshift_discover_quay_registry_server "${apps_domain}")"
-  kagenti_base="$(openshift_discover_kagenti_api_base_url "${apps_domain}")"
   git_url="$(openshift_discover_git_repo_url "${GIT_REPO_URL_DEFAULT:-}")"
   api_server="$(openshift_discover_api_server)"
   mm_route_host="$(openshift_discover_mattermost_route_host "${apps_domain}" "${mm_namespace}")"
@@ -306,11 +280,10 @@ openshift_discover_run() {
   APPS_DOMAIN="${apps_domain}"
   CLUSTER_NAME="${cluster_name}"
   QUAY_REGISTRY_SERVER="${quay_host}"
-  KAGENTI_API_BASE_URL="${kagenti_base}"
   GIT_REPO_URL="${git_url}"
   API_SERVER="${api_server}"
   MATTERMOST_ROUTE_HOST="${mm_route_host}"
   MATTERMOST_SITE_URL="${mm_site_url}"
-  export APPS_DOMAIN CLUSTER_NAME QUAY_REGISTRY_SERVER KAGENTI_API_BASE_URL GIT_REPO_URL API_SERVER MATTERMOST_ROUTE_HOST MATTERMOST_SITE_URL \
+  export APPS_DOMAIN CLUSTER_NAME QUAY_REGISTRY_SERVER GIT_REPO_URL API_SERVER MATTERMOST_ROUTE_HOST MATTERMOST_SITE_URL \
     DEFAULT_STORAGE_CLASS QUAY_OPERATOR_CHANNEL RHOAI_OPERATOR_CHANNEL RHACS_OPERATOR_CHANNEL NFD_OPERATOR_CHANNEL GPU_OPERATOR_CHANNEL
 }

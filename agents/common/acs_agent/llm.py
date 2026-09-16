@@ -1,4 +1,4 @@
-"""OpenAI-compatible chat completions client for shared vLLM backends."""
+"""OpenAI-compatible chat completions client (llama.cpp, vLLM, or MaaS)."""
 
 from __future__ import annotations
 
@@ -11,45 +11,28 @@ import httpx
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str] | str]
 
-NETWORK_RECON_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "run_network_recon",
-        "description": (
-            "Run nmap host discovery against the cluster RFC1918 network (default 10.0.0.0/8), "
-            "collect ip route/addr context, and write transcripts under /agent-reference-information."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string",
-                    "description": "Short operator-facing reason for running recon.",
-                },
-                "cidr": {
-                    "type": "string",
-                    "description": "Optional CIDR override; defaults to NETWORK_AUDIT_CIDR env.",
-                },
-            },
-        },
-    },
-}
-
 
 def _llm_request_kwargs() -> dict[str, Any]:
     return {
-        "model": os.getenv("LLM_MODEL", "HuggingFaceTB/SmolLM2-1.7B-Instruct"),
-        "timeout": float(os.getenv("LLM_TIMEOUT_SEC", "120")),
+        "model": os.getenv("LLM_MODEL", "minicpm-abliterated"),
+        "timeout": float(os.getenv("LLM_TIMEOUT_SEC", "180")),
         "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
-        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "512")),
+        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "768")),
     }
 
 
 def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:
-    # Kagenti injects HTTP_PROXY to authbridge (:8081). When SPIRE/authbridge is
-    # unhealthy the forward proxy is down; in-cluster vLLM must bypass it.
     trust_env = os.getenv("LLM_TRUST_PROXY", "").strip().lower() in {"1", "true", "yes"}
-    return httpx.AsyncClient(timeout=kwargs.pop("timeout", 120.0), trust_env=trust_env, **kwargs)
+    headers = {}
+    api_key = os.getenv("LLM_API_KEY", "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return httpx.AsyncClient(
+        timeout=kwargs.pop("timeout", 180.0),
+        trust_env=trust_env,
+        headers=headers or None,
+        **kwargs,
+    )
 
 
 async def chat_completion(system_prompt: str, user_text: str) -> str:
@@ -82,7 +65,7 @@ async def chat_completion_with_tools(
     tools: list[dict[str, Any]],
     tool_handlers: dict[str, ToolHandler],
     *,
-    max_tool_rounds: int = 3,
+    max_tool_rounds: int = 5,
 ) -> tuple[str, list[str]]:
     """Run an OpenAI-style tool loop; returns final assistant text and tool summaries."""
     base = os.getenv("LLM_API_BASE", "").strip().rstrip("/")
@@ -104,9 +87,16 @@ async def chat_completion_with_tools(
                 "temperature": kwargs["temperature"],
                 "max_tokens": kwargs["max_tokens"],
                 "tools": tools,
-                "tool_choice": "auto",
             }
             response = await client.post(f"{base}/chat/completions", json=payload)
+            if response.status_code == 400 and tools:
+                plain_payload = {
+                    "model": kwargs["model"],
+                    "messages": messages,
+                    "temperature": kwargs["temperature"],
+                    "max_tokens": kwargs["max_tokens"],
+                }
+                response = await client.post(f"{base}/chat/completions", json=plain_payload)
             response.raise_for_status()
             data = response.json()
 

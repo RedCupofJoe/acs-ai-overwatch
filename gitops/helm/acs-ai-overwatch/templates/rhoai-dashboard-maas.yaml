@@ -1,0 +1,71 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.dashboardConfig.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rhoai-dashboard-patch
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.rhoai.dashboardConfig.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhoai-dashboard-patch
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.rhoai.dashboardConfig.namespace }}
+rules:
+  - apiGroups: ["opendatahub.io"]
+    resources: ["odhdashboardconfigs"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rhoai-dashboard-patch
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.rhoai.dashboardConfig.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rhoai-dashboard-patch
+subjects:
+  - kind: ServiceAccount
+    name: rhoai-dashboard-patch
+    namespace: {{ .Values.rhoai.dashboardConfig.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhoai-dashboard-maas-flags
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "bootstrap") | nindent 2 }}
+  namespace: {{ .Values.rhoai.dashboardConfig.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: rhoai-dashboard-patch
+      containers:
+        - name: patch
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              for i in $(seq 1 60); do
+                if oc get odhdashboardconfig {{ .Values.rhoai.dashboardConfig.name }} -n {{ .Values.rhoai.dashboardConfig.namespace }} >/dev/null 2>&1; then
+                  oc patch odhdashboardconfig {{ .Values.rhoai.dashboardConfig.name }} -n {{ .Values.rhoai.dashboardConfig.namespace }} --type merge -p '{"spec":{"dashboardConfig":{"modelAsService":true,"genAiStudio":true}}}' || true
+                  oc patch odhdashboardconfig {{ .Values.rhoai.dashboardConfig.name }} -n {{ .Values.rhoai.dashboardConfig.namespace }} --type merge -p '{"spec":{"dashboardConfig":{"disableModelAsService":false,"disableGenAiStudio":false}}}' || true
+                  exit 0
+                fi
+                echo "waiting for OdhDashboardConfig..."
+                sleep 10
+              done
+              echo "OdhDashboardConfig not found; skip"
+              exit 0
+{{- end }}

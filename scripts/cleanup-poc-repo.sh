@@ -175,8 +175,6 @@ main() {
     "${REPO_ROOT}/gitops/helm/acs-ai-overwatch/values-poc.yaml"
   copy_baseline "${BASELINE}/kustomization.yaml" \
     "${REPO_ROOT}/gitops/argocd/kustomization.yaml"
-  copy_baseline "${BASELINE}/kagenti-platform-values.yaml" \
-    "${REPO_ROOT}/gitops/helm/acs-ai-overwatch-kagenti-platform/values.yaml"
 
   ensure_observability_disabled
 

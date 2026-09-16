@@ -20,7 +20,6 @@ if command -v kubectl >/dev/null 2>&1 && kubectl get configmap -n "${CM_NS}" "${
   appsDomain="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.appsDomain}')"
   clusterName="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.clusterName}')"
   quayServer="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.quayRegistryServer}')"
-  kagentiBase="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.kagentiApiBaseUrl}')"
   gitUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.gitRepoUrl}')"
   mattermostRouteHost="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostRouteHost}')"
   mattermostSiteUrl="$(kubectl get configmap -n "${CM_NS}" "${CM_NAME}" -o jsonpath='{.data.mattermostSiteUrl}')"
@@ -61,11 +60,10 @@ accelerators:
   gpuOperator:
     subscription:
       channel: ${gpuOperatorChannel}
-kagenti:
-  api:
-    baseUrl: ${kagentiBase}
-  appSource:
-    repoUrl: ${gitUrl}
+agents:
+  gitRepoUrl: ${gitUrl}
+pipelines:
+  gitUrl: ${gitUrl}
 EOF
 elif [[ -z "${ALLOW_MISSING_CLUSTER_CONFIG:-}" ]]; then
   echo "ConfigMap ${CM_NS}/${CM_NAME} not found. Sync Application acs-ai-overwatch-cluster-discovery first." >&2

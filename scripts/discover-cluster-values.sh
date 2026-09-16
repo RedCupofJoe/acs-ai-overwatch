@@ -11,9 +11,8 @@
 #
 # Optional environment variables:
 #   QUAY_REGISTRY_PASSWORD   If set, written to values-cluster.yaml (not committed by default if you gitignore the file).
-#   KAGENTI_API_BASE_URL     Override detected Kagenti API URL.
 #   GIT_REPO_URL             Override detected Git remote URL.
-#   RHOAI_TARGET_VERSION     OpenShift AI minor to match (default 3.4); picks stable-3.4 / fast-3.4 / eus-3.4 from catalog.
+#   RHOAI_TARGET_VERSION     OpenShift AI minor to match (default 3.5); picks stable-3.5 / fast-3.5 / eus-3.5 from catalog.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -80,7 +79,6 @@ mkdir -p "$(dirname "${OUTPUT}")"
     "${APPS_DOMAIN}" \
     "${CLUSTER_NAME}" \
     "${QUAY_REGISTRY_SERVER}" \
-    "${KAGENTI_API_BASE_URL}" \
     "${GIT_REPO_URL}" \
     "${PASSWORD_LINE}"
 } >"${OUTPUT}"
@@ -95,8 +93,7 @@ echo "  rhacs operator channel:   ${RHACS_OPERATOR_CHANNEL}"
 echo "  nfd operator channel:     ${NFD_OPERATOR_CHANNEL}"
 echo "  gpu operator channel:     ${GPU_OPERATOR_CHANNEL}"
 echo "  quay server:              ${QUAY_REGISTRY_SERVER}"
-echo "  kagenti.api.baseUrl:      ${KAGENTI_API_BASE_URL}"
-echo "  kagenti.appSource.repoUrl: ${GIT_REPO_URL}"
+echo "  git repo URL:             ${GIT_REPO_URL}"
 if [[ "${APPLY_CONFIGMAP}" == true ]]; then
   chmod +x "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"
   exec "${REPO_ROOT}/scripts/cluster-admin/03-apply-cluster-configmap.sh"
