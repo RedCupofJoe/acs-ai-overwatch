@@ -706,22 +706,40 @@ echo "ACS bootstrap complete."
 {{- end }}
 
 {{/*
-  Phase 5 — optional OTEL env vars for agent Deployments when observability.agentInstrumentation.enabled.
-  Reads acs-ai-overwatch-observability-config written by the observability chart bootstrap Job.
+  OTEL env vars for agent Deployments when observability.agentInstrumentation.enabled (default true).
+  Prefers acs-ai-overwatch-observability-config from the observability bootstrap Job; falls back
+  to observability.otlp.endpoint so traces are configured before that ConfigMap exists.
 */}}
-{{- define "acs-ai-overwatch.observabilityConfigReady" -}}
-{{- if not .Values.observability.agentInstrumentation.enabled -}}{{- end -}}
+{{- define "acs-ai-overwatch.otelCollectorEndpoint" -}}
 {{- $cm := lookup "v1" "ConfigMap" .Values.observability.integrationConfigMap.namespace .Values.observability.integrationConfigMap.name -}}
-{{- if and $cm $cm.data.otelCollectorGrpcEndpoint -}}true{{- end -}}
+{{- if and $cm $cm.data.otelCollectorGrpcEndpoint -}}
+{{- $cm.data.otelCollectorGrpcEndpoint -}}
+{{- else -}}
+{{- .Values.observability.otlp.endpoint -}}
+{{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.otelEgress" -}}
+{{- if .Values.observability.agentInstrumentation.enabled }}
+- to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.observability.namespace }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.observability.otlp.grpcPort }}
+    - protocol: TCP
+      port: {{ .Values.observability.otlp.httpPort }}
+{{- end }}
 {{- end }}
 
 {{- define "acs-ai-overwatch.otelAgentEnv" -}}
 {{- $root := .root -}}
 {{- $serviceName := .serviceName -}}
-{{- if and $root.Values.observability.agentInstrumentation.enabled (include "acs-ai-overwatch.observabilityConfigReady" $root) -}}
-{{- $cm := lookup "v1" "ConfigMap" $root.Values.observability.integrationConfigMap.namespace $root.Values.observability.integrationConfigMap.name -}}
+{{- $endpoint := include "acs-ai-overwatch.otelCollectorEndpoint" $root -}}
+{{- if and $root.Values.observability.agentInstrumentation.enabled $endpoint -}}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
-  value: {{ $cm.data.otelCollectorGrpcEndpoint | quote }}
+  value: {{ $endpoint | quote }}
 - name: OTEL_EXPORTER_OTLP_PROTOCOL
   value: grpc
 - name: OTEL_TRACES_EXPORTER
@@ -751,4 +769,17 @@ echo "ACS bootstrap complete."
 {{- if $root.Values.agentTelemetryPolicy.enabled -}}
 {{ $root.Values.agentTelemetryPolicy.requiredLabel.key }}: {{ if $compliant }}{{ $root.Values.agentTelemetryPolicy.requiredLabel.compliantValue | quote }}{{ else }}{{ $root.Values.agentTelemetryPolicy.requiredLabel.nonCompliantValue | quote }}{{ end }}
 {{- end -}}
+{{- end }}
+
+{{/*
+  Tolerate nvidia.com/gpu NoSchedule (AWS GPU MachineSet from configs/00-cluster-setup/05-aws-gpu-machineset).
+  Harmless on clusters that do not taint GPU nodes.
+*/}}
+{{- define "acs-ai-overwatch.gpuTolerations" -}}
+{{- if .Values.accelerators.gpuTaintToleration.enabled }}
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+{{- end }}
 {{- end }}

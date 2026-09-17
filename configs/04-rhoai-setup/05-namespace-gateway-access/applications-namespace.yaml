@@ -1,0 +1,9 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: redhat-ods-applications
+  labels:
+    # Allows the maas-api-route HTTPRoute (created in this namespace by the
+    # MaaS Tenant controller) to attach to the maas-default-gateway Gateway,
+    # whose listener only accepts routes from namespaces with this label.
+    maas.opendatahub.io/gateway-access: 'true'

@@ -69,11 +69,16 @@ cluster:
   # Describe layout (e.g. 3×3 failure domains / nodes); used for documentation ConfigMap only.
   topology: "3x3"
   gpu:
-    count: 3
+    # One AWS g6.12xlarge = 4× L4. Do not use 3× g6.4xlarge (1× L4 each): time-slicing
+    # devices ["0"] would share every node GPU and leave no dedicated nvidia.com/gpu.
+    count: 4
+    nodes: 1
+    instanceType: g6.12xlarge
     model: L4
     vendor: nvidia
     # GPU 0 is time-sliced as nvidia.com/gpu.shared (Hank, Rosey, Sam, builder).
     # GPU 1 and GPU 2 stay dedicated nvidia.com/gpu (investigator Gemma, MaaS Granite).
+    # GPU 3 is spare dedicated nvidia.com/gpu.
     sharedIndex: "0"
     sharedReplicas: 4
 
@@ -249,14 +254,16 @@ accelerators:
     # ConfigMap consumed by ClusterPolicy devicePlugin.config
     configMapName: time-slicing-config
     configKey: any
-    # Slice only GPU 0; advertise nvidia.com/gpu.shared so dedicated L4s stay nvidia.com/gpu.
-    # If L4s are on separate nodes, label the shared node nvidia.com/device-plugin.config=shared-l4
-    # and use a second ConfigMap key instead of devices: ["0"].
+    # Slice only GPU 0 on the single g6.12xlarge (4× L4). GPUs 1–3 stay nvidia.com/gpu.
+    # Do not use 3× g6.4xlarge: devices ["0"] would time-slice every node's only GPU.
     replicasPerGpu: 4
     devices:
       - "0"
     renameResource: nvidia.com/gpu.shared
     migStrategy: none
+  # AWS GPU MachineSet taints nodes nvidia.com/gpu=NoSchedule. Extra toleration is a no-op if untainted.
+  gpuTaintToleration:
+    enabled: true
   clusterPolicy:
     name: gpu-cluster-policy
     operator:
@@ -282,6 +289,10 @@ accelerators:
       updateStrategy: RollingUpdate
       rollingUpdate:
         maxUnavailable: "1"
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
 
 # Red Hat OpenShift AI (RHOAI) 3.5 — operator, DataScienceCluster v2, OGX, MaaS, HardwareProfiles.
 # Requires OpenShift 4.20 (or 4.19.9+) and a cluster that is not stuck on RHOAI 2.25.
@@ -476,12 +487,18 @@ sneakySamTelemetryPolicy:
     # Alert-only — Sneaky Sam is allowed to deploy for the demo; Mattermost carries the violation.
     enforcementActions: []
 
-# OPT-IN: Phase 5 agent OTEL instrumentation (requires acs-ai-overwatch-observability Application).
-# When enabled, agent Deployments read the shared collector endpoint from ConfigMap
-# acs-ai-overwatch-observability-config (written by the observability bootstrap Job).
+# Agent OTEL instrumentation (on by default). Deployments inject OTEL_* env so traces
+# go to the shared collector. Endpoint comes from ConfigMap acs-ai-overwatch-observability-config
+# when the observability bootstrap Job has written it; otherwise otlp.endpoint is used.
+# Sneaky Sam still omits acs-ai-overwatch.io/telemetry=enabled (RHACS DEPLOY demo).
 observability:
   agentInstrumentation:
-    enabled: false
+    enabled: true
+  namespace: acs-ai-overwatch-observability
+  otlp:
+    endpoint: acs-otel-collector.acs-ai-overwatch-observability.svc.cluster.local:4317
+    grpcPort: 4317
+    httpPort: 4318
   integrationConfigMap:
     namespace: acs-ai-overwatch-system
     name: acs-ai-overwatch-observability-config

@@ -1,7 +1,4 @@
-# Example overlay when enabling Phase 5 — uncomment application-observability.yaml in kustomization first.
+# Observability defaults match this overlay (chart enabled: true; main chart
+# observability.agentInstrumentation.enabled: true). Keep this file as an explicit
+# overlay if you split valueFiles in the Argo Application.
 enabled: true
-
-# After observability bootstrap Job writes acs-ai-overwatch-observability-config, enable agent OTEL in main chart:
-# observability:
-#   agentInstrumentation:
-#     enabled: true

@@ -1,0 +1,7 @@
+# Name matches gitops/helm/acs-ai-overwatch (values.rhoai.operator.operatorGroup.name).
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: redhat-ods-operator
+  namespace: redhat-ods-operator
+spec: {}

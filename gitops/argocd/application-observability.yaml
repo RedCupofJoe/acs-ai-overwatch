@@ -1,5 +1,5 @@
-# Installs Phase 5 shared observability (OTEL → Tempo + MLflow, Grafana dashboards).
-# Sync after acs-ai-overwatch (and ideally after Phase 4 Kagenti for AuthBridge traces).
+# Installs shared observability (OTEL → Tempo + MLflow, Grafana dashboards). On by default.
+# Sync after acs-ai-overwatch so agent OTEL env can target the collector.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

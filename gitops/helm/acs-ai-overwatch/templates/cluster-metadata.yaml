@@ -21,6 +21,8 @@ data:
   CLUSTER_NAME: {{ include "acs-ai-overwatch.clusterName" . | quote }}
   CLUSTER_TOPOLOGY: {{ .Values.cluster.topology | quote }}
   GPU_COUNT: {{ .Values.cluster.gpu.count | toString | quote }}
+  GPU_NODES: {{ .Values.cluster.gpu.nodes | default 1 | toString | quote }}
+  GPU_INSTANCE_TYPE: {{ .Values.cluster.gpu.instanceType | default "g6.12xlarge" | quote }}
   GPU_MODEL: {{ .Values.cluster.gpu.model | quote }}
   GPU_VENDOR: {{ .Values.cluster.gpu.vendor | quote }}
 {{- end }}

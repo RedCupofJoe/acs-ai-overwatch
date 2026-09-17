@@ -1,0 +1,48 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: job-aws-gpu-machineset-
+  name: job-aws-gpu-machineset
+  namespace: nvidia-gpu-operator
+  # annotations:
+  #   argocd.argoproj.io/hook: Sync
+    # argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  template:
+    spec:
+      containers:
+        - name: job-aws-gpu-machineset
+          # image: image-registry.openshift-image-registry.svc:5000/openshift/tools:latest
+          image: registry.redhat.io/openshift4/ose-cli
+          env:
+            # PoC default: one g6.12xlarge (4× L4). Time-slice GPU 0; keep GPU 1–2 dedicated.
+            # Do not set GPU_REPLICAS=3 with g6.4xlarge (1× L4 each) — that shares every GPU 0.
+            - name: INSTANCE_TYPE
+              value: "g6.12xlarge"
+            - name: GPU_REPLICAS
+              value: "1"
+            - name: NODE_VOLUME_SIZE
+              value: "250"
+            - name: ENABLE_GPU_AUTOSCALE
+              value: "false"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          command:
+            - /bin/bash
+            - -c
+            - /scripts/job.sh
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: job-aws-gpu-machineset
+            defaultMode: 0755
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 30
+      serviceAccount: job-aws-gpu-machineset
+      serviceAccountName: job-aws-gpu-machineset

@@ -18,9 +18,10 @@ spec:
     Agents without declared telemetry compliance should not be admitted to the demo agent namespace.
     Deploy-time detection gives human-in-the-loop visibility before or as non-compliant workloads land.
   remediation: >
-    Add pod template label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }},
-    enable observability.agentInstrumentation, and ensure OTEL_EXPORTER_OTLP_ENDPOINT is injected from
-    acs-ai-overwatch-observability-config. Rebuild images with agents/common/acs_agent OTEL runtime.
+    Add pod template label {{ .Values.agentTelemetryPolicy.requiredLabel.key }}={{ .Values.agentTelemetryPolicy.requiredLabel.compliantValue }}.
+    Agent OTEL env is injected by default (observability.agentInstrumentation); confirm
+    OTEL_EXPORTER_OTLP_ENDPOINT points at the shared collector. Rebuild images with the
+    agents/common/acs_agent OTEL runtime if traces are missing.
   disabled: false
   severity: {{ .Values.agentTelemetryPolicy.rhacs.severity }}
   lifecycleStages:

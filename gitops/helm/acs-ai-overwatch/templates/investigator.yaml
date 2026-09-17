@@ -188,6 +188,7 @@ spec:
               value: {{ .Values.maas.llm.servedModelName | quote }}
             - name: MATTERMOST_WEBHOOK_URL
               value: {{ include "acs-ai-overwatch.mattermostWebhookUrl" . | quote }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "acs-investigator") | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.investigator.servicePort }}

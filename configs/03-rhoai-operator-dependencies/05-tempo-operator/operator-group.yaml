@@ -1,0 +1,10 @@
+# Name matches gitops/helm/acs-ai-overwatch-observability (tempo.operator.operatorGroupName).
+# Two OperatorGroups in openshift-tempo-operator break OLM.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: tempo-product
+  namespace: openshift-tempo-operator
+spec:
+  targetNamespaces:
+    - openshift-tempo-operator

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: maas-postgresql
+  template:
+    metadata:
+      labels:
+        app: maas-postgresql
+    spec:
+      containers:
+      - name: postgresql
+        image: registry.redhat.io/rhel9/postgresql-16:latest
+        ports:
+        - containerPort: 5432
+        envFrom:
+        - secretRef:
+            name: maas-postgresql-credentials
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/pgsql/data
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 250m
+          limits:
+            memory: 512Mi
+            cpu: 500m
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - maasadmin
+            - -d
+            - maasdb
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - maasadmin
+            - -d
+            - maasdb
+          initialDelaySeconds: 30
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: maas-postgresql-data

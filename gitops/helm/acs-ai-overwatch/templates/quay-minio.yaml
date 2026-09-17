@@ -116,9 +116,6 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/component: quay-minio-init
-  annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: {{ .Values.quayStorage.quayRegistry.minio.bucketJob.backoffLimit }}
   template:

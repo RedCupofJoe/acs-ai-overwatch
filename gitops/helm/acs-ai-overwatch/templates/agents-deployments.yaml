@@ -24,6 +24,7 @@ spec:
         {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
         {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.helpfulHank) | nindent 8 }}
       containers:
@@ -103,6 +104,7 @@ spec:
         {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.agents.roseyServiceAccountName }}
+      {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
         {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.roseyRegrets) | nindent 8 }}
       containers:
@@ -186,6 +188,7 @@ spec:
         app.kubernetes.io/part-of: acs-ai-overwatch
     spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
         {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.sneakySam) | nindent 8 }}
       containers:

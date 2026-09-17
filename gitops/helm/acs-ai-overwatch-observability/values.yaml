@@ -1,8 +1,8 @@
 global:
   partOf: acs-ai-overwatch
 
-# Master gate — when false, this chart renders nothing (safe default for baseline PoC).
-enabled: false
+# Master gate — telemetry stack is on by default (OTEL collector, Tempo, MLflow, Grafana).
+enabled: true
 
 gitops:
   bootstrapNamespaces: true

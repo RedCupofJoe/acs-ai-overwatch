@@ -32,11 +32,24 @@ spec:
       minCount: {{ .gpu.minCount | quote }}
       maxCount: {{ .gpu.maxCount | quote }}
       defaultCount: {{ .gpu.defaultCount | quote }}
-{{- if ne (default "Removed" $.Values.rhoai.datascienceCluster.components.kueue.managementState) "Removed" }}
+{{- $kueueOn := ne (default "Removed" $.Values.rhoai.datascienceCluster.components.kueue.managementState) "Removed" }}
+{{- $gpuTaint := $.Values.accelerators.gpuTaintToleration.enabled }}
+{{- if or $kueueOn $gpuTaint }}
   scheduling:
+    {{- if $kueueOn }}
     type: Queue
     kueue:
       localQueueName: {{ $hp.kueueLocalQueueName | quote }}
+    {{- else }}
+    type: Node
+    {{- end }}
+    {{- if $gpuTaint }}
+    node:
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Exists
+    {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

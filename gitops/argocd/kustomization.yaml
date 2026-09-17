@@ -6,6 +6,5 @@ resources:
   - appproject-acs-ai-overwatch.yaml
   - application-gitops-bootstrap.yaml
   - application-cluster-discovery.yaml
-  # OPT-IN — Phase 5 observability (OTEL dual-export, Tempo, MLflow, Grafana):
-  # - application-observability.yaml
+  - application-observability.yaml
   - application.yaml

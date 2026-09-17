@@ -46,6 +46,12 @@ spec:
     gateway: {}
     scheduler: {}
   template:
+    {{- if $root.Values.accelerators.gpuTaintToleration.enabled }}
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    {{- end }}
     containers:
       - name: main
         resources:
@@ -85,6 +91,12 @@ spec:
         app.kubernetes.io/name: {{ $llm.name }}
         app.kubernetes.io/component: {{ $component }}
     spec:
+      {{- if $root.Values.accelerators.gpuTaintToleration.enabled }}
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      {{- end }}
 {{- if hasPrefix "oci://" $llm.modelUri }}
       initContainers:
         - name: modelcar

@@ -88,15 +88,22 @@ cat <<EOF
 Pre-GitOps bootstrap complete.
 
 Next:
-  1. Confirm StorageClass: oc get storageclass (default gp3-csi in values.yaml)
-  2. Set repoURL in gitops/argocd/application*.yaml to your fork
-  3. oc apply -k gitops/argocd/
-  4. Sync Applications in order (or wait for sync-waves 0→1→2):
+  1. AWS GPU nodes + NFD instance (skip ClusterPolicy/DSC; Helm owns those):
+       ./scripts/cluster-admin/05-apply-platform-prep.sh
+       # or: make platform-prep
+  2. Confirm StorageClass: oc get storageclass (default gp3-csi in values.yaml)
+  3. Set repoURL in gitops/argocd/application*.yaml to your fork
+  4. oc apply -k gitops/argocd/
+  5. Wait for sync-waves 0→1→2→4:
        acs-ai-overwatch-gitops-bootstrap
        acs-ai-overwatch-cluster-discovery
        acs-ai-overwatch
-  4. Install [Red Hat Kueue Operator](README.md#red-hat-kueue-operator-prerequisite) manually before default-dsc syncs
-  5. (Optional, for agent builds) Install OpenShift Pipelines — see README Prerequisites
+       acs-ai-overwatch-observability
+  6. Hard-refresh the main app after the cluster ConfigMap exists
+  7. After OpenShift Pipelines CSV Succeeded, create quay-build-robot in
+     acs-agent-builder and oc create a PipelineRun (see README Quick Start)
+
+Kueue is not required (DataScienceCluster kueue.managementState: Removed).
 
 Cluster ConfigMap:
   oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config -o yaml

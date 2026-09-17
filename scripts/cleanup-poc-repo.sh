@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Reset local GitOps files to the portable PoC baseline (no cluster-specific settings).
 #
-# Run from the repo root after a PoC demo to undo opt-in phases, local discovery
-# output, and scratch files before the next cluster or before sharing the fork.
+# Run from the repo root after a PoC demo to restore the portable overlay, local
+# discovery output, and scratch files before the next cluster or before sharing the fork.
 #
 # Does NOT delete or modify anything on the OpenShift cluster — repo only.
 #
@@ -148,20 +148,6 @@ PY
   done
 }
 
-ensure_observability_disabled() {
-  local values="${REPO_ROOT}/gitops/helm/acs-ai-overwatch-observability/values.yaml"
-  [[ -f "${values}" ]] || return 0
-  if grep -q '^enabled: true' "${values}" 2>/dev/null; then
-    if [[ "${DRY_RUN}" == true ]]; then
-      log "[dry-run] set enabled: false in gitops/helm/acs-ai-overwatch-observability/values.yaml"
-    else
-      sed -i.bak 's/^enabled: true/enabled: false/' "${values}"
-      rm -f "${values}.bak"
-      log "set enabled: false in gitops/helm/acs-ai-overwatch-observability/values.yaml"
-    fi
-  fi
-}
-
 main() {
   cd "${REPO_ROOT}"
 
@@ -175,8 +161,6 @@ main() {
     "${REPO_ROOT}/gitops/helm/acs-ai-overwatch/values-poc.yaml"
   copy_baseline "${BASELINE}/kustomization.yaml" \
     "${REPO_ROOT}/gitops/argocd/kustomization.yaml"
-
-  ensure_observability_disabled
 
   remove_path "${REPO_ROOT}/gitops/helm/acs-ai-overwatch/values-cluster.yaml"
   remove_path "${REPO_ROOT}/scratch"

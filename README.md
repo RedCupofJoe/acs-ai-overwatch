@@ -14,8 +14,7 @@ The repository is designed to be deployed through **OpenShift GitOps (Argo CD)**
 1. **`acs-ai-overwatch-gitops-bootstrap`** — namespaces with `argocd.argoproj.io/managed-by`
 2. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap
 3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
-
-**Optional:** **`acs-ai-overwatch-observability`** — OTEL → Tempo + MLflow, Grafana dashboards (not in the default kustomization).
+4. **`acs-ai-overwatch-observability`** — OTEL collector → Tempo + MLflow + Grafana (on by default)
 
 Kagenti and NVIDIA OpenShell are **removed**. Agents are plain OpenShift Deployments. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift Pipelines.
 
@@ -24,39 +23,60 @@ Kagenti and NVIDIA OpenShell are **removed**. Agents are plain OpenShift Deploym
 ```bash
 oc login   # cluster-admin
 
-# 1. Cluster-admin bootstrap (RBAC, namespaces, cluster ConfigMap, discovery SA)
+# 0. Confirm the cluster meets prerequisites
+./scripts/check-prereqs.sh          # or: make check-prereqs
+
+# 1. Cluster-admin bootstrap (AppProject, RBAC, namespaces, cluster ConfigMap, discovery SA)
 ./scripts/cluster-admin/install-pre-gitops.sh
+# or: make cluster-admin-pre-gitops
+
+# 1b. AWS GPU MachineSet + NFD instance (Helm still owns ClusterPolicy time-slicing and DSC)
+./scripts/cluster-admin/05-apply-platform-prep.sh
+# or: make platform-prep
+#     Non-AWS: Job no-ops. Already have GPUs+NFD: --skip-machineset --skip-gpu-operators
 
 # 2. Confirm StorageClass matches values.yaml (default gp3-csi)
 #    oc get storageclass
 
-# 3. Register Argo CD Applications (set repoURL in YAML to your fork if needed)
+# 3. If this is a fork, set spec.source.repoURL in every gitops/argocd/application*.yaml
+
+# 4. Register Argo CD Applications (automated sync, waves 0 → 1 → 2 → 4)
 oc apply -k gitops/argocd/
+#    bootstrap → cluster-discovery → acs-ai-overwatch → acs-ai-overwatch-observability
 
-# 4. Sync Applications (waves 0→1→2)
-#    acs-ai-overwatch-gitops-bootstrap → cluster-discovery → acs-ai-overwatch
-
-# 5. Confirm cluster ConfigMap
+# 5. Wait for discovery, then hard-refresh the main app so Helm lookup reads the ConfigMap
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+oc annotate application acs-ai-overwatch -n openshift-gitops \
+  argocd.argoproj.io/refresh=hard --overwrite
 
-# 6. Install OpenShift Pipelines, then build agent images in acs-agent-builder
-oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml
+# 6. After OpenShift Pipelines CSV is Succeeded, push agent images.
+#    GitOps already installs the operator (values-poc components.pipelines) and applies
+#    Task/Pipeline CRs. PipelineRuns are not GitOps — you create them. Until images
+#    exist in Quay, Hank/Rosey/Sam/investigator/builder stay ImagePullBackOff.
+oc create secret docker-registry quay-build-robot -n acs-agent-builder \
+  --docker-server=quay-quay-app.quay.svc.cluster.local:80 \
+  --docker-username=<robot-account> --docker-password=<token>
+# Edit git-url in the PipelineRun if this repo is a fork, then:
 oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml
 
-# 7. Enable RHACS Central + demo agents in values-poc.yaml — already on in the PoC overlay
-# 8. Verify Mattermost + RHACS notifier
-# 9. Run the end-to-end demo (scan → alert → investigate → rebuild)
+# 7. values-poc.yaml already enables RHACS Central, Hank/Rosey/Sam, investigator, MaaS, builder
+# 8. Mattermost login + RHACS notifier — see Mattermost & RHACS notifications
+# 9. Demo: POST /chat "Network Audit" to Rosey (or the script below)
+export ROSEY_URL="https://$(oc get route rosey-regrets -n test-range -o jsonpath='{.spec.host}')"
+./scripts/trigger-network-audit.sh
 ```
 
 **OpenShift AI version:** This PoC targets **OpenShift AI 3.5** (`stable-3.5`) on **OpenShift 4.20**. Discovery picks `stable-3.5` / `fast-3.5` / `eus-3.5` from the catalog (`RHOAI_TARGET_VERSION`, default `3.5`).
 
-Enable **User Workload Monitoring** (MaaS prerequisite):
+**User Workload Monitoring** is a MaaS prerequisite. `check-prereqs.sh` warns if it is off; the observability chart also enables it. To set it yourself:
 
 ```bash
 oc get configmap cluster-monitoring-config -n openshift-monitoring || \
   oc create configmap cluster-monitoring-config -n openshift-monitoring \
     --from-literal=config.yaml=$'enableUserWorkload: true\n'
 ```
+
+**Kueue is not required.** The DataScienceCluster keeps `kueue.managementState: Removed`. Do not install the Kueue operator unless you later change that.
 
 **Model Catalog:** Investigator Gemma and MaaS Granite are `LLMInferenceService` CRs whose `spec.model.uri` is the catalog ModelCar image (`oci://registry.redhat.io/rhelai1/modelcar-gemma-2-9b-it-fp8:1.5` and `oci://registry.redhat.io/rhelai1/modelcar-granite-3-1-8b-instruct-fp8-dynamic:1.5`). OpenShift pulls them with the **cluster pull secret** (same path as deploying from **AI hub → Models Catalog** in the dashboard). Rogue MiniCPM GGUF still comes from Hugging Face inside the agent pod.
 
@@ -89,7 +109,7 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 
 This PoC demonstrates how a platform team can:
 
-1. Provision **OpenShift AI 3.5** on **3× NVIDIA L4** Tensor Core GPUs
+1. Provision **OpenShift AI 3.5** on **one AWS `g6.12xlarge`** (**4× NVIDIA L4** on a single node)
 2. Deploy contrasting agents on a **time-sliced L4** (`nvidia.com/gpu.shared`):
    - **Helpful Hank** — standard technical assistant
    - **Rosey Regrets** — misaligned recon agent (nmap, masscan, rustscan, naabu, dig)
@@ -132,7 +152,9 @@ Remediated Rosey + Remediated Sam roll out in test-range (telemetry on, MaaS onl
 
 ## Architecture
 
-### GPU map (3× NVIDIA L4, 24GB)
+### GPU map (1× g6.12xlarge = 4× NVIDIA L4, 24GB each)
+
+Do **not** use **3× `g6.4xlarge`** (1× L4 per node). Helm time-slices `devices: ["0"]`; on three single-GPU nodes that would share every L4 and leave no dedicated `nvidia.com/gpu` for Gemma and Granite.
 
 NVIDIA time-slicing does **not** isolate VRAM. Four MiniCPM 2B GGUFs (~2GB each) share GPU 0; Gemma 9B FP8 and Granite 8B FP8 each need a full L4.
 
@@ -141,8 +163,7 @@ NVIDIA time-slicing does **not** isolate VRAM. Four MiniCPM 2B GGUFs (~2GB each)
 | GPU 0 | `nvidia.com/gpu.shared: "1"` (4 slices) | Hank, Rosey, Sam, builder |
 | GPU 1 | `nvidia.com/gpu: "1"` | Gemma 2 9B FP8 investigator (Model Catalog ModelCar) |
 | GPU 2 | `nvidia.com/gpu: "1"` | Granite 8B FP8 MaaS (Model Catalog ModelCar) |
-
-If the three L4s are on **separate nodes**, label the shared node `nvidia.com/device-plugin.config=shared-l4` instead of `devices: ["0"]` in the time-slicing ConfigMap.
+| GPU 3 | `nvidia.com/gpu: "1"` | Spare dedicated L4 |
 
 ### High-level platform diagram
 
@@ -229,6 +250,12 @@ acs-ai-overwatch/
 │   ├── remediated-rosey/              # MaaS, no scanners
 │   ├── remediated-sam/                # MaaS + telemetry
 │   └── scripts/                       # pull-model, install-agent-runtime, recon tools
+├── configs/                           # Vendored workshop kustomize (pre-GitOps GPU/NFD)
+│   ├── 00-cluster-setup/05-aws-gpu-machineset/
+│   ├── 01-nvidia-gpu-operator/        # Skip 03 ClusterPolicy — Helm owns time-slicing
+│   ├── 02-nvidia-gpu-workload/        # Optional CUDA smoke
+│   ├── 03-rhoai-operator-dependencies/
+│   └── 04-rhoai-setup/                # Skip 01 default-dsc — Helm owns DSC
 ├── gitops/
 │   ├── argocd/
 │   │   ├── kustomization.yaml
@@ -251,6 +278,12 @@ acs-ai-overwatch/
 
 ## Prerequisites
 
+Confirm the cluster is ready (`oc login` first):
+
+```bash
+./scripts/check-prereqs.sh
+```
+
 ### Cluster Requirements
 
 | Requirement | Notes |
@@ -258,9 +291,9 @@ acs-ai-overwatch/
 | **OpenShift 4.20** | Verify channel compatibility for operators on your cluster version |
 | **Fresh cluster for OpenShift AI 3.5** | No prior RHOAI 2.25 install; see [Fresh cluster deployment](#fresh-cluster-deployment-openshift-ai-35) |
 | **OpenShift GitOps Operator** | Argo CD control plane in `openshift-gitops` |
-| **OpenShift Pipelines** | Installed by the umbrella chart when `components.pipelines.enabled` is true (PoC overlay). See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
+| **OpenShift Pipelines** | Installed by the umbrella chart when `components.pipelines.enabled` is true (PoC overlay). See [OpenShift Pipelines](#openshift-pipelines-tekton) |
 | **Kueue** | Left **Removed** on the PoC DataScienceCluster unless you later set `Managed` |
-| **Worker nodes with NVIDIA L4 GPUs** | Default values assume 3× L4 with time-slicing |
+| **Worker nodes with NVIDIA L4 GPUs** | **1× `g6.12xlarge` (4× L4)**. Not 3× `g6.4xlarge`. |
 | **Dynamic block storage (`gp3-csi`)** | All PVCs including Quay, Mattermost, RHACS, Rosey — override `storage.defaultStorageClass` if needed |
 | **Operator catalogs** | `redhat-operators`, `certified-operators` |
 
@@ -278,161 +311,48 @@ acs-ai-overwatch/
 - Ability to create Secrets for Quay credentials, Mattermost bootstrap, and optional Hugging Face tokens
 - Network access from build pods to Quay, from rogue agents to Hugging Face (MiniCPM GGUF), and from investigator/MaaS to `registry.redhat.io` (Model Catalog ModelCar images). The cluster pull secret must be able to pull `registry.redhat.io/rhelai1/*`.
 
-### OpenShift Pipelines (Tekton) prerequisite
+### OpenShift Pipelines (Tekton)
 
-The agent image build manifests (`pipelines/tekton/agents-build-pipeline.yaml`) define `Task` and `Pipeline` resources with `apiVersion: tekton.dev/v1`. They are **not** deployed by the Argo CD Applications in this repo. If the **Red Hat OpenShift Pipelines** operator is not installed, `oc apply` fails with:
+The PoC overlay sets `components.pipelines.enabled: true`. The umbrella chart then:
 
-```text
-no matches for kind "Task" in version "tekton.dev/v1"
-ensure CRDs are installed first
-```
+1. Subscribes **Red Hat OpenShift Pipelines** in `openshift-operators`
+2. Applies `Task` / `Pipeline` CRs from `gitops/helm/acs-ai-overwatch/files/agents-build-pipeline.yaml` into `acs-agent-builder` once the Tekton CRDs exist
 
-**When you need it:** GitOps-only deploy (operators, Quay, Mattermost) does **not** require Pipelines. Install Pipelines before step 7 in [Quick Start](#quick-start) (building helpful-hank / rosey-regrets images).
+You still **create PipelineRuns by hand** (and the `quay-build-robot` push secret). GitOps does not start builds.
 
-**Verify:**
+**Verify the operator (after the main Argo app has synced):**
 
 ```bash
-oc get crd tasks.tekton.dev pipelineruns.tekton.dev
 oc get csv -A | grep -i 'pipelines-operator'
+oc get crd tasks.tekton.dev pipelineruns.tekton.dev
+oc get pipeline,task -n acs-agent-builder
 ```
 
-**Install (cluster-admin)** — use a channel that matches your OpenShift version:
+**Fallback** if the GitOps Subscription is not used (`components.pipelines.enabled: false`): install from OperatorHub, then `oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml`.
 
-```bash
-# List channels (pick one, e.g. pipelines-1.14 or latest)
-oc get packagemanifest openshift-pipelines-operator-rh \
-  -n openshift-marketplace \
-  -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
+See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) for the Quay secret and PipelineRun.
 
-export PIPELINES_CHANNEL="<channel-from-above>"
+### Kueue (not required)
 
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: openshift-pipelines
-  namespace: openshift-operators
-spec: {}
----
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: openshift-pipelines-operator
-  namespace: openshift-operators
-spec:
-  channel: ${PIPELINES_CHANNEL}
-  name: openshift-pipelines-operator-rh
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
-  installPlanApproval: Automatic
-EOF
+OpenShift AI **3.5** rejects `spec.components.kueue.managementState: Managed` on the `DataScienceCluster`. This chart sets **`Removed`**, so **do not install** the Red Hat Kueue Operator for the PoC. `check-prereqs.sh` treats an absent Kueue operator as a pass.
 
-# Wait for CSV Succeeded, then:
-oc get crd | grep tekton
-```
-
-**Console:** OperatorHub → **Red Hat OpenShift Pipelines** → Install.
-
-After the operator is healthy, apply the pipeline:
-
-```bash
-oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml
-```
-
-See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) for Quay secrets and PipelineRun.
-
-### Red Hat Kueue Operator prerequisite
-
-OpenShift AI **3.5** rejects `spec.components.kueue.managementState: Managed` on the `DataScienceCluster`. This chart sets **`Unmanaged`**, which requires the **Red Hat build of Kueue Operator** installed **manually** (not via GitOps).
-
-**When you need it:** Before the main Argo CD Application syncs **`default-dsc`** (sync wave 30).
-
-**Verify:**
-
-```bash
-oc get csv -n openshift-kueue-operator
-oc get crd kueues.kueue.openshift.io
-oc get kueue cluster -n openshift-kueue-operator
-```
-
-**Install (cluster-admin) — OperatorHub (recommended):**
-
-1. Console → **Operators → OperatorHub** → **Red Hat build of Kueue Operator** → **Install**
-2. Enable **cluster monitoring** on namespace `openshift-kueue-operator`
-3. After CSV **Succeeded**, create the cluster `Kueue` CR (console **Kueue** tab → **Create Kueue**, or YAML):
-
-```yaml
-apiVersion: kueue.openshift.io/v1
-kind: Kueue
-metadata:
-  name: cluster
-  namespace: openshift-kueue-operator
-spec:
-  managementState: Managed
-```
-
-4. Label the workbench namespace when it exists:
-
-```bash
-oc label namespace rhods-notebooks kueue.openshift.io/managed=true --overwrite
-```
-
-**Install (cluster-admin) — CLI** (pick channel from your catalog):
-
-```bash
-oc get packagemanifest kueue-operator -n openshift-marketplace \
-  -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
-
-export KUEUE_CHANNEL="<channel-from-above>"
-
-cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: openshift-kueue-operator
-  labels:
-    openshift.io/cluster-monitoring: "true"
----
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: openshift-kueue-operator
-  namespace: openshift-kueue-operator
-spec: {}
----
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: kueue-operator
-  namespace: openshift-kueue-operator
-spec:
-  channel: ${KUEUE_CHANNEL}
-  installPlanApproval: Automatic
-  name: kueue-operator
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
-EOF
-
-oc get csv -n openshift-kueue-operator -w
-# Then apply the Kueue CR YAML above and label rhods-notebooks.
-```
-
-See [OpenShift AI 3.5 — Kueue](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) and [Red Hat build of Kueue on OCP](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/ai_workloads/red-hat-build-of-kueue).
+If you later want Kueue, install the operator from OperatorHub and change `rhoai.datascienceCluster.components.kueue.managementState` away from `Removed` (OpenShift AI 3.5 docs: [managing workloads with Kueue](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3-latest/html/managing_resources/managing-workloads-with-kueue)).
 
 ---
 
 ## PoC deployment phases
 
-This repo is intentionally **layered**. The **baseline** (Phases 0–1) deploys GitOps, operators, and the Mattermost **workload** (server + bootstrap Job). **Phases 2–5** add agents, full RHACS, investigator/MaaS/builder, and observability. **Using Mattermost** (login, webhook, alerts) is documented near the end in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — after RHACS and agents are in place.
+This repo is **layered in values files**, but the default GitOps path always merges `values-poc.yaml`. That overlay turns on Hank/Rosey/Sam, RHACS Central, investigator, MaaS, builder, Pipelines, and (via a fourth Argo Application) observability. **Using Mattermost** (login, webhook, alerts) is documented in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — after RHACS and agent images are healthy.
 
-### What “baseline working” means
+### What “GitOps converged” means
 
 | Check | Command |
 |-------|---------|
 | Argo apps Synced | `oc get application -n openshift-gitops \| grep acs-ai-overwatch` |
 | Cluster ConfigMap | `oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config` |
-| Mattermost pod (deployed, not yet used) | `oc get pods -n monitoring -l app.kubernetes.io/name=mattermost` |
-| RHACS operator only (no Central yet) | `oc get csv -n rhacs-operator` |
+| Mattermost pod | `oc get pods -n monitoring -l app.kubernetes.io/name=mattermost` |
+| RHACS Central (PoC overlay) | `oc get central -n stackrox` |
+| Observability collector | `oc get deploy -n acs-ai-overwatch-observability acs-otel-collector` |
 
 ### Phase 0 — GitOps bootstrap (default)
 
@@ -443,21 +363,19 @@ This repo is intentionally **layered**. The **baseline** (Phases 0–1) deploys 
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ConfigMap `acs-ai-overwatch-cluster-config` |
 | 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, `SecurityPolicy` CRs, etc. |
-| (opt-in) | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow (commented out in kustomization) |
-| (opt-in 4) | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow — see [Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
+| 4 | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow + Grafana — see [Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-on-by-default) |
 
 ```bash
 oc apply -k gitops/argocd/
 ```
 
-**Not** applied by default: `application.yaml` and `application-observability.yaml` (commented out in kustomization).
+All four Applications in `gitops/argocd/kustomization.yaml` are applied by default, including observability.
 
 #### Manual steps (if necessary)
 
 | When | Action |
 |------|--------|
-| Before first Argo sync | Run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops-setup) (`make cluster-admin-pre-gitops`) — details in [`scripts/cluster-admin/README.md`](scripts/cluster-admin/README.md) |
-| Before `default-dsc` syncs | Install [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite) from OperatorHub (not in GitOps) |
+| Before first Argo sync | Run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops-setup) then `make platform-prep` (GPU MachineSet + NFD instance) — [`scripts/cluster-admin/README.md`](scripts/cluster-admin/README.md), [`configs/README.md`](configs/README.md) |
 | Using a fork | Set `spec.source.repoURL` in each `gitops/argocd/application*.yaml` |
 | Storage class differs from `gp3-csi` | Set `storage.defaultStorageClass` in `values.yaml` (see [Storage](#storage)) |
 | Enabling Quay | Set `quayStorage.registryCredentials.password` and review MinIO credentials before production |
@@ -483,9 +401,9 @@ oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/
 **Login, webhook verification, and RHACS alert delivery** are covered in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — do that **after** Phase 3 (RHACS) is healthy, immediately before the demo.
 
 ---
-### Phase 2 — Agents (opt-in)
+### Phase 2 — Agents (PoC overlay)
 
-Requires Quay (or another registry), Tekton pipeline, and enabling component flags in `values-poc.yaml`:
+`values-poc.yaml` already enables Hank, Rosey, Sam, investigator, MaaS, builder, and pipelines. Agent Deployments sync as soon as the cluster ConfigMap exists; they stay **ImagePullBackOff** until images are in Quay.
 
 ```yaml
 components:
@@ -504,7 +422,7 @@ components:
 | **Kubernetes** | `NetworkPolicy` selects `app.kubernetes.io/component=agent` pods **without** `acs-ai-overwatch.io/telemetry=enabled` and allows DNS egress only | Immediate on sync (no RHACS Central required) |
 | **RHACS (ACS)** | `SecurityPolicy` CRs — DEPLOY-stage telemetry label policy; Mattermost notifier on violation; optional admission **block** (not scale-to-zero) | Phase 3 bootstrap configures SecuredCluster + notifier; policies sync as CRs |
 
-Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** and **Sneaky Sam** omit the telemetry label entirely and are isolated by the NetworkPolicy — demonstrating the guardrail.
+Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. **Sneaky Sam** omits the telemetry label entirely and is isolated by the NetworkPolicy — demonstrating the guardrail.
 
 **RHACS telemetry policy (Phase 3) — deploy alert, not scale-down:** The policy uses lifecycle stage **DEPLOY** only (no `RUNTIME` / `SCALE_TO_ZERO`). When Sneaky Sam is synced, RHACS evaluates the Deployment, fires **`test-range-agent-telemetry-required`**, and the **Mattermost Notifier** posts to Town Square (human-in-the-loop user is on that channel). With admission enforcement enabled, the Deployment is **blocked** at create/update — the notification describes a **non-compliant deploy attempt**, not a pod being scaled down later.
 
@@ -516,20 +434,20 @@ See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](
 
 | When | Action |
 |------|--------|
-| Before Tekton builds | Install [OpenShift Pipelines](#openshift-pipelines-tekton-prerequisite) (OperatorHub — not deployed by this repo) |
-| Using in-cluster Quay | Enable `quayStorage.enabled: true`, set registry password, wait for QuayRegistry Ready |
-| Building images | Apply pipeline manifests and create a PipelineRun (not in default GitOps): `oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml` |
-| Before agent pods start | Build and push images to Quay (Tekton or `docker build`); enable `components.agentsHelpfulHank` and per-agent flags only after images exist |
-| Rosey “Network Audit” demo | Requires Phase 4 — chat with **`rosey-regrets`** in Rosey HTTP `/chat` (see [PoC Demo Walkthrough](#poc-demo-walkthrough-after-setup)) |
-| Sneaky Sam telemetry demo | Enable `agentsSneakySam.enabled: true`; Mattermost alert needs Phase 3 SecuredCluster + notifier |
+| Before Tekton builds | Wait for the GitOps Pipelines Subscription (`components.pipelines.enabled`) to reach CSV **Succeeded** |
+| Using in-cluster Quay | `quayStorage.enabled: true` in `values-poc.yaml`; set registry password; wait for QuayRegistry Ready |
+| Building images | Create `quay-build-robot` in `acs-agent-builder`, then `oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml` (edit `git-url` for a fork) |
+| Before agent pods become Ready | Images must exist in Quay; Deployments are already enabled in the PoC overlay |
+| Rosey “Network Audit” demo | `POST /chat` with `{"message":"Network Audit"}` (see [PoC Demo Walkthrough](#poc-demo-walkthrough-after-setup)) |
+| Sneaky Sam telemetry demo | Already enabled in `values-poc.yaml`; Mattermost alert needs Phase 3 SecuredCluster + notifier |
 
 Agent Deployments and NetworkPolicy sync via GitOps; image builds and operator prerequisites do not.
 
-### Phase 3 — Full RHACS Central + SecuredCluster (opt-in, **off by default**)
+### Phase 3 — Full RHACS Central + SecuredCluster (on in `values-poc.yaml`)
 
-**Baseline:** `components.acsPolicies.enabled: true` installs the RHACS **operator**, `test-range` namespace, **`SecurityPolicy` CRs**, and agent SCCs — **not** Central or sensors.
+**Base chart:** `components.acsPolicies.enabled: true` installs the RHACS **operator**, `test-range` namespace, **`SecurityPolicy` CRs**, and agent SCCs — **not** Central or sensors.
 
-**Full stack (opt-in):** set in `values.yaml` or `values-poc.yaml`:
+**PoC overlay** (`values-poc.yaml`) turns Central + bootstrap **on**:
 
 ```yaml
 acs:
@@ -587,7 +505,7 @@ Kagenti and NVIDIA OpenShell are **removed**. The PoC overlay (`values-poc.yaml`
 
 Chat is HTTP `POST /chat` (or OpenAI `/v1/chat/completions`), not a Rosey HTTP `/chat`.
 
-### Phase 5 — Shared observability (Option C: OTEL → Tempo + MLflow + Grafana) (opt-in, **off by default**)
+### Phase 5 — Shared observability (Option C: OTEL → Tempo + MLflow + Grafana) (on by default)
 
 **Architecture (Option C):**
 
@@ -599,7 +517,7 @@ Chat is HTTP `POST /chat` (or OpenAI `/v1/chat/completions`), not a Rosey HTTP `
 | **MLflow** | LLM/agent trace store (RHOAI `mlflowoperator` component) |
 | **Grafana (user workload)** | Shared dashboard for agent trace overview |
 
-**Prerequisites:** RHOAI operator + `default-dsc` from the main chart (Phase 0). Enable agent instrumentation in the main chart before Phase 5.
+**Prerequisites:** RHOAI operator + `default-dsc` from the main chart (Phase 0). Agent OTEL env (`observability.agentInstrumentation.enabled: true`) is the default.
 
 **Internal sync waves** (within the observability chart):
 
@@ -613,38 +531,7 @@ Chat is HTTP `POST /chat` (or OpenAI `/v1/chat/completions`), not a Rosey HTTP `
 | 60 | OTEL collector Deployment/Service |
 | 70 | Bootstrap Job → writes `acs-ai-overwatch-observability-config` |
 
-To enable Phase 5:
-
-1. Uncomment in `gitops/argocd/kustomization.yaml`:
-   ```yaml
-   - application-observability.yaml
-   ```
-2. Enable the chart in `gitops/helm/acs-ai-overwatch-observability/values.yaml` (or use `values-phase5.yaml`):
-   ```yaml
-   enabled: true
-   ```
-3. Commit, push, apply:
-   ```bash
-   oc apply -k gitops/argocd/
-   oc logs -n acs-ai-overwatch-observability job/observability-bootstrap -f
-   ```
-4. **Optional — agent OTLP env** (after bootstrap ConfigMap exists), in main chart values:
-   ```yaml
-   observability:
-     agentInstrumentation:
-       enabled: true
-   ```
-   Refresh the main Argo Application so Helm `lookup` reads the integration ConfigMap. Agent images already include the OTEL SDK — this step only injects the collector endpoint env vars.
-
-5. Rebuild agent images (Tekton pipeline or `docker build`) so pods run the `acs_agent.server` runtime with instrumentation baked in.
-
-6. **Optional — agent OTEL + Phase 5**:
-   ```yaml
-   # gitops/helm/acs-ai-overwatch-observability/values.yaml
-   phase5:
-     integration:
-       enabled: true
-   ```
+Phase 5 is included in `gitops/argocd/kustomization.yaml` and the observability chart ships with `enabled: true`. Compliant agents (Hank, Rosey, investigator, builder, Remediated Rosey/Sam) get `OTEL_*` env on deploy. **Sneaky Sam** still omits `acs-ai-overwatch.io/telemetry=enabled` for the RHACS DEPLOY demo.
 
 **Verify:**
 
@@ -662,26 +549,36 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-observability-config \
   -o jsonpath='{.data.grafanaUserWorkloadUrl}{"\n"}'
 ```
 
-**Rollback:** set `enabled: false`, remove the Application from kustomization, delete the Argo app:
+**Disable telemetry:**
+
+```yaml
+# gitops/helm/acs-ai-overwatch/values.yaml
+observability:
+  agentInstrumentation:
+    enabled: false
+```
+
+```yaml
+# gitops/helm/acs-ai-overwatch-observability/values.yaml
+enabled: false
+```
+
+Optionally remove `application-observability.yaml` from `gitops/argocd/kustomization.yaml` and delete the Argo app:
 
 ```bash
 oc delete application acs-ai-overwatch-observability -n openshift-gitops --ignore-not-found
 ```
 
-Set `observability.agentInstrumentation.enabled: false` in the main chart to stop injecting OTEL env on agents.
-
 #### Manual steps (if necessary)
 
 | When | Action |
 |------|--------|
-| Agent OTEL traces | Set `observability.agentInstrumentation.enabled: true` |
-| Agent OTLP env injection | After observability bootstrap ConfigMap exists, set `observability.agentInstrumentation.enabled: true` and **hard-refresh** main Argo app (Helm `lookup`) |
-| Traces from running agents | Rebuild agent images (Tekton) — instrumentation env is injected at deploy time; images must include OTEL SDK |
-| Agent + shared collector | Set `observability.agentInstrumentation.enabled: true` in the main chart |
+| Traces from running agents | Rebuild agent images (Tekton) — OTEL env is injected at deploy time; images must include the OTEL SDK |
+| Collector endpoint after bootstrap | Hard-refresh the main Argo app so Helm `lookup` picks up `acs-ai-overwatch-observability-config` (fallback endpoint is already in values) |
 | Viewing traces | Open Grafana user-workload URL from ConfigMap `acs-ai-overwatch-observability-config` (written by bootstrap Job) |
-| Rollback | Disable chart, remove Application from kustomization, set `agentInstrumentation.enabled: false` on main chart |
+| Disable | Set chart `enabled: false`, set `agentInstrumentation.enabled: false`, optionally remove the Application from kustomization |
 
-Tempo, MLflow, OTEL collector, and dashboard ConfigMaps deploy via GitOps; image rebuilds and cross-app refresh are the usual manual follow-ups.
+Tempo, MLflow, OTEL collector, and dashboard ConfigMaps deploy via GitOps; image rebuilds are the usual follow-up if agent images predate the OTEL runtime.
 
 ### Recommended order summary
 
@@ -690,7 +587,7 @@ Phase 0–1 (baseline)     → bootstrap → discovery → main chart (operators
 Phase 2 (agents)       → Tekton/binary build + components.agentsHelpfulHank + per-agent flags
 Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (+ SecurityPolicy CRs)
 Phase 4 (investigator/MaaS/builder) → values-poc.yaml component flags
-Phase 5 (observability)→ application-observability + enabled: true (+ agentInstrumentation optional)
+Phase 5 (observability)→ application-observability (on by default; set agentInstrumentation.enabled: false to stop OTEL env)
 Mattermost + alerts    → login, webhook bridge, notifier verify (before demo)
 Demo                   → PoC Demo Walkthrough (After Setup)
 ```
@@ -712,6 +609,8 @@ oc login
 chmod +x scripts/cluster-admin/*.sh
 make cluster-admin-pre-gitops
 # equivalent: ./scripts/cluster-admin/install-pre-gitops.sh
+make platform-prep
+# equivalent: ./scripts/cluster-admin/05-apply-platform-prep.sh
 ```
 
 ### What gets created
@@ -723,8 +622,9 @@ make cluster-admin-pre-gitops
 | 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `gitRepoUrl`, `gitRepoUrl`, …) |
 | 4 | `04-apply-discovery-prerequisites.sh` | ServiceAccount **`cluster-discovery`**, discovery RBAC, ConfigMap **`cluster-discovery-script`** |
+| 5 | `05-apply-platform-prep.sh` | AWS GPU MachineSet + NFD/GPU operators + **NFD instance** (not workshop ClusterPolicy or DSC) |
 
-Manual prerequisites (OperatorHub, not GitOps): [Kueue Operator](#red-hat-kueue-operator-prerequisite) (before `default-dsc`), [OpenShift Pipelines](#openshift-pipelines-tekton-prerequisite) (before agent builds).
+Manual prerequisites (OperatorHub, not GitOps): none for the PoC. OpenShift Pipelines is subscribed by the umbrella chart when `components.pipelines.enabled` is true. Kueue is **Removed** on `default-dsc`.
 
 ### Verify before Argo CD
 
@@ -771,7 +671,7 @@ Only the cluster ConfigMap (step 3):
 oc apply -k gitops/argocd/
 ```
 
-Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch`. If you ran the cluster-admin scripts, bootstrap and discovery may already match desired state; Argo will reconcile.
+Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch` → `acs-ai-overwatch-observability`. If you ran the cluster-admin scripts, bootstrap and discovery may already match desired state; Argo will reconcile.
 
 ---
 
@@ -783,8 +683,10 @@ Use this checklist on a **new** OpenShift cluster with **OpenShift GitOps** alre
 
 ```bash
 oc login
+./scripts/check-prereqs.sh
 chmod +x scripts/cluster-admin/*.sh
 make cluster-admin-pre-gitops
+make platform-prep
 ```
 
 ### 2. Configure storage for this cluster
@@ -793,9 +695,9 @@ Confirm `storage.defaultStorageClass` matches your cluster before enabling Quay 
 
 Optional: `make cluster-values` or `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` for `values-cluster.yaml`.
 
-### 3. Install Red Hat Kueue Operator (OpenShift AI 3.5)
+### 3. Enable User Workload Monitoring (MaaS)
 
-Required before `default-dsc` applies. **Manual install only** — see [Kueue Operator prerequisite](#red-hat-kueue-operator-prerequisite).
+If `./scripts/check-prereqs.sh` warns that UWM is off, create `cluster-monitoring-config` as shown in [Quick Start](#quick-start). The observability Application also patches this.
 
 ### 4. Set Git remote in Argo Applications
 
@@ -804,6 +706,7 @@ If using a fork, update `spec.source.repoURL` in:
 - `gitops/argocd/application-gitops-bootstrap.yaml`
 - `gitops/argocd/application-cluster-discovery.yaml`
 - `gitops/argocd/application.yaml`
+- `gitops/argocd/application-observability.yaml`
 
 ### 5. Register and sync Argo CD Applications
 
@@ -811,7 +714,7 @@ If using a fork, update `spec.source.repoURL` in:
 oc apply -k gitops/argocd/
 ```
 
-Sync in order (or wait for sync-waves): **bootstrap → cluster-discovery → acs-ai-overwatch**.
+Sync in order (or wait for sync-waves): **bootstrap → cluster-discovery → acs-ai-overwatch → acs-ai-overwatch-observability**.
 
 The main Application includes `SkipDryRunOnMissingResource=true` and gates platform CRs until operator CRDs exist — expect **multiple syncs** over 15–30+ minutes while OLM installs operators.
 
@@ -821,7 +724,7 @@ The main Application includes `SkipDryRunOnMissingResource=true` and gates platf
 # OperatorGroup must be empty spec (not targetNamespaces)
 oc get operatorgroup redhat-ods-operator -n redhat-ods-operator -o yaml | grep -A2 '^spec:'
 
-# CSV must be 3.4.x, not 2.25.x
+# CSV must be 3.5.x, not 2.25.x
 oc get csv -n redhat-ods-operator | grep rhods
 
 # CRD must serve v2
@@ -833,12 +736,12 @@ oc get dsc default-dsc
 oc get dsc default-dsc -o jsonpath='{.apiVersion}{" "}{.status.phase}{"\n"}'
 ```
 
-Expected: `rhods-operator.3.4.*` **Succeeded**, `datasciencecluster.opendatahub.io/v2`, DSC phase **Ready** (may take several minutes).
+Expected: `rhods-operator` **3.5.x Succeeded**, `datasciencecluster.opendatahub.io/v2`, DSC phase **Ready** (may take several minutes).
 
 If the Subscription channel is wrong on a fresh cluster:
 
 ```bash
-# List channels your catalog actually exposes (pick one ending in -3.4 for OpenShift AI 3.5)
+# List channels your catalog actually exposes (pick one ending in -3.5)
 oc get packagemanifest rhods-operator -n openshift-marketplace \
   -o jsonpath='{range .status.channels[*]}{.name}{"\n"}{end}'
 
@@ -848,15 +751,15 @@ oc patch subscription rhods-operator -n redhat-ods-operator --type merge \
 
 Use `fast-3.5` or `eus-3.5` instead if that is what your catalog lists and you intend that stream.
 
-### 7. Install OpenShift Pipelines (before agent builds)
+### 7. Build agent images
 
-See [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite), then apply `pipelines/tekton/agents-build-pipeline.yaml`.
+Wait for OpenShift Pipelines CSV **Succeeded**, create `quay-build-robot` in `acs-agent-builder`, then start a PipelineRun (see [Quick Start](#quick-start) step 6). GitOps already applied the Task/Pipeline CRs.
 
-### 8. Enable PoC components and sync again
+### 8. PoC components
 
-Commit/push changes to `values.yaml` (e.g. `components.agentsHelpfulHank`, `components.acsPolicies`, `acs.central.enabled`) and sync `acs-ai-overwatch`.
+`values-poc.yaml` already enables agents, RHACS Central, investigator, MaaS, builder, and pipelines. After images exist, hard-refresh `acs-ai-overwatch` if pods are still ImagePullBackOff.
 
-Follow [Step-by-step deployment](#step-by-step-deployment) for Phases 2–4, then [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) before the demo.
+Follow [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) before the demo.
 
 ---
 
@@ -871,7 +774,7 @@ Configuration is merged in this order (Argo CD main Application and `make helm-t
 | **ConfigMap** `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` | Apps domain, Quay host, git `repoUrl`, **default StorageClass**, **OLM operator channels** | **`scripts/cluster-admin/03-apply-cluster-configmap.sh`** or discovery Job |
 | `values-cluster.yaml` (optional) | Same fields as ConfigMap | `make cluster-values` (local/CI override) |
 
-Argo CD registers three Applications via `oc apply -k gitops/argocd/` (see [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [Cluster-Aware Configuration](#cluster-aware-configuration)).
+Argo CD registers **four** Applications via `oc apply -k gitops/argocd/` (see [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [Cluster-Aware Configuration](#cluster-aware-configuration)).
 
 Main Application Helm stanza:
 
@@ -880,7 +783,7 @@ helm:
   valueFiles:
     - values.yaml
     - values-poc.yaml
-    - values-cluster.yaml   # optional; ignoreMissingValueFiles: true
+        - values-cluster.yaml   # optional local file (`ignoreMissingValueFiles: true`)
 ```
 
 ### Computed URLs in templates
@@ -913,13 +816,13 @@ Three Argo CD Applications (see `gitops/argocd/kustomization.yaml`), ordered by 
 | 0 | `acs-ai-overwatch-gitops-bootstrap` | Creates namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` so Argo can create ServiceAccounts |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ServiceAccount + script ConfigMap, then PostSync Job writes **`acs-ai-overwatch-cluster-config`** |
 | 2 | `acs-ai-overwatch` | Main chart; reads that ConfigMap via Helm `lookup` + `serverDryRun` |
-| (opt-in) | `acs-ai-overwatch-observability` | **Not in kustomization by default** |
-| (opt-in 4) | `acs-ai-overwatch-observability` | **Not in kustomization by default** — see [Phase 5 — Shared observability](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-opt-in-off-by-default) |
+| 4 | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow + Grafana — see [Phase 5 — Shared observability](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-on-by-default) |
 
 **Workflow:**
 
 ```bash
 make cluster-admin-pre-gitops   # or install-pre-gitops.sh
+make platform-prep              # GPU MachineSet + NFD; Helm still owns ClusterPolicy/DSC
 oc apply -k gitops/argocd/
 # 1) Wait for cluster-discovery Job to succeed
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
@@ -982,7 +885,9 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 
 | Target | Command |
 |--------|---------|
+| `check-prereqs` | Runs `scripts/check-prereqs.sh` against the current `oc login` |
 | `cluster-admin-pre-gitops` | Runs `scripts/cluster-admin/install-pre-gitops.sh` (before Argo CD) |
+| `platform-prep` | Runs `scripts/cluster-admin/05-apply-platform-prep.sh` (AWS GPU MachineSet + NFD instance) |
 | `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
 | `cleanup-poc-repo` | Runs `scripts/cleanup-poc-repo.sh` → baseline GitOps (after PoC) |
 | `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
@@ -1063,14 +968,16 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Quay MinIO secret key | `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` | **Change default before sync** |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials — **change defaults before sync** |
 | Quay object storage size | `quayStorage.quayRegistry.minio.volumeSize` | Default 500Gi MinIO PVC on gp3-csi |
-| Red Hat Kueue Operator | OperatorHub (manual) | Before `default-dsc`; see [Kueue prerequisite](#red-hat-kueue-operator-prerequisite) |
-| OpenShift Pipelines | OperatorHub / OLM Subscription | Required before `oc apply -f pipelines/tekton/`; see [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite) |
+| OpenShift Pipelines | Umbrella chart Subscription when `components.pipelines.enabled` | Wait for CSV **Succeeded**, then create a PipelineRun |
+| GPU MachineSet + NFD instance | `make platform-prep` / `configs/` | Helm does not create `NodeFeatureDiscovery`; skip workshop ClusterPolicy/DSC |
+| Kueue | **Not installed** | DSC keeps `kueue.managementState: Removed` |
 
 ### Recommended Pre-Sync Commands
 
 ```bash
 oc login ...
 make cluster-admin-pre-gitops
+make platform-prep
 oc apply -k gitops/argocd/
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 make helm-template   # optional local render; add -f values-cluster.yaml if generated
@@ -1093,13 +1000,14 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 1. Clone/fork the repository, log in, and confirm `storage.defaultStorageClass` matches your cluster (`oc get storageclass`).
 
-2. Set `spec.source.repoURL` in `gitops/argocd/application.yaml` and `application-cluster-discovery.yaml` to your Git remote (if different from the default fork).
+2. Set `spec.source.repoURL` in every `gitops/argocd/application*.yaml` to your Git remote (if different from the default).
 
 3. Run cluster-admin bootstrap (recommended):
 
    ```bash
-   make cluster-admin-pre-gitops
-   ```
+make cluster-admin-pre-gitops
+make platform-prep
+```
 
 4. Register Applications:
 
@@ -1126,8 +1034,8 @@ helm template acs-ai-overwatch gitops/helm/acs-ai-overwatch \
 
 Argo CD is configured with:
 
-- **Two Applications:** discovery (sync-wave `0`) then main (sync-wave `1`)
-- **Automated sync** with prune and self-heal on both
+- **Four Applications:** bootstrap (wave `0`), discovery (wave `1`), main chart (wave `2`), observability (wave `4`)
+- **Automated sync** with prune and self-heal
 - **CreateNamespace=true** so chart-managed namespaces are created on sync
 - **Helm value files (main app):** `values.yaml`, `values-poc.yaml`, optional `values-cluster.yaml` (`ignoreMissingValueFiles: true`)
 - **Cluster ConfigMap** for `cluster.appsDomain` when values are empty (see [Cluster-Aware Configuration](#cluster-aware-configuration))
@@ -1140,7 +1048,7 @@ The umbrella Helm chart (`gitops/helm/acs-ai-overwatch`) is deployed by a single
 | Wave | Key | Examples |
 |------|-----|----------|
 | 0 | `namespace` | `mattermost`, `quay`, `redhat-ods-applications`, `stackrox`, `test-range`, `cluster-metadata` |
-| 10 | `operators` | OLM `Subscription` / `OperatorGroup` (RHACS, RHOAI, GPU, NFD, Quay) |
+| 10 | `operators` | OLM `Subscription` / `OperatorGroup` (RHACS, RHOAI, GPU, NFD, Quay, Pipelines) |
 | 20 | `storage` | GPU time-slicing `ConfigMap` |
 | 30 | `platformCRs` | `QuayRegistry`, `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy` |
 | 40 | `secrets` | Quay pull secrets, Mattermost bootstrap secrets |
@@ -1277,7 +1185,9 @@ components:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `cluster.gpu.count` | `3` | GPU count (documentation) |
+| `cluster.gpu.count` | `4` | Physical L4s (1× g6.12xlarge) |
+| `cluster.gpu.nodes` | `1` | GPU MachineSet replicas |
+| `cluster.gpu.instanceType` | `g6.12xlarge` | AWS GPU instance (4× L4) |
 | `cluster.gpu.model` | `L4` | GPU model |
 | `cluster.gpu.vendor` | `nvidia` | GPU vendor |
 | `clusterMetadata.enabled` | `true` | Creates ConfigMap `cluster-metadata` in `acs-ai-overwatch-system` |
@@ -1285,20 +1195,21 @@ components:
 
 ### Component Feature Flags
 
-| Flag | Default | Enables |
-|------|---------|---------|
-| `components.bootstrapOperators` | `false` | Reserved |
-| `components.gpuConfig` | `false` | Reserved |
-| `components.acsPolicies` | `false` | ACS operator, test-range namespace, policy ConfigMap, agent SCCs |
-| `components.agentsHelpfulHank` | `false` | Helpful Hank Deployment/Service/Route |
-| `components.agentsHelpfulHank` | `true` (base) | `helpful-hank` Deployment + Service |
-| `components.agentsRoseyRogue` | `false` | Reserved legacy toggle |
-| `components.agentsRoseyRegrets` | `false` | `rosey-regrets` Deployment + PVC |
-| `components.agentsRoseyRegretsSlm` | `false` | `rosey-regrets` + SLM PVC (recommended demo agent) |
-| `components.slmVllm` | `false` | Qwen3-0.6B vLLM `Deployment` for SLM agents |
-| `components.agentsSneakySam` | `false` | `sneaky-sam` demo agent (telemetry violator) |
-| `components.pipelines` | `false` | Reserved (Tekton YAML applied separately) |
-| `agentTelemetryPolicy.enabled` | `true` | NetworkPolicy + RHACS telemetry policy ConfigMap |
+Base `values.yaml` vs PoC overlay `values-poc.yaml` (Argo merges overlay last):
+
+| Flag | Base | PoC overlay | Enables |
+|------|------|-------------|---------|
+| `components.acsPolicies` | `true` | (unchanged) | RHACS operator, `test-range`, `SecurityPolicy` CRs, agent SCCs |
+| `components.agentsHelpfulHank` | `true` | `true` | `helpful-hank` |
+| `components.agentsRoseyRegrets` | `false` | `true` | `rosey-regrets` |
+| `components.agentsSneakySam` | `false` | `true` | `sneaky-sam` (telemetry violator) |
+| `components.investigator` | `false` | `true` | Gemma investigator + OGX |
+| `components.maas` | `false` | `true` | Granite MaaS gateway |
+| `components.agentBuilder` | `false` | `true` | Agentic builder |
+| `components.pipelines` | `false` | `true` | OpenShift Pipelines Subscription + Task/Pipeline CRs |
+| `acs.central` / `acs.bootstrap` | `false` | `true` | RHACS Central + SecuredCluster bootstrap |
+| `agentTelemetryPolicy.enabled` | `true` | (unchanged) | NetworkPolicy + RHACS telemetry policy |
+| `observability.agentInstrumentation.enabled` | `true` | (unchanged) | Inject `OTEL_*` env on compliant agents |
 
 ---
 
@@ -1306,7 +1217,7 @@ components:
 
 ### 1. GPU Accelerators (`accelerators`)
 
-Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator** with **time-slicing** so each physical L4 advertises multiple logical `nvidia.com/gpu` devices.
+Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator** with **time-slicing on GPU 0** of the single `g6.12xlarge` (`nvidia.com/gpu.shared`, 4 slices). GPU 1 and GPU 2 stay dedicated `nvidia.com/gpu` for Gemma and Granite; GPU 3 is spare.
 
 | Resource | Namespace | Template |
 |----------|-----------|----------|
@@ -1320,11 +1231,13 @@ Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator** with *
 ```yaml
 accelerators:
   timeSlicing:
-    replicasPerGpu: 2    # 3 physical GPUs × 2 = 6 half-GPU slices
+    replicasPerGpu: 4    # GPU 0 only; advertises nvidia.com/gpu.shared
     migStrategy: none
 ```
 
-The GPU Operator ClusterPolicy references ConfigMap `time-slicing-config` with key `any`.
+The GPU Operator ClusterPolicy references ConfigMap `time-slicing-config` with key `any`. Helm does **not** create a `NodeFeatureDiscovery` CR; apply that with `make platform-prep` ([`configs/README.md`](configs/README.md)). GPU pods tolerate `nvidia.com/gpu` NoSchedule (AWS MachineSet taint).
+
+Do **not** apply workshop `configs/01-nvidia-gpu-operator/03-nvidia-gpu-instance` — it would replace time-slicing.
 
 ### 2. Quay Registry (`quayStorage`)
 
@@ -1336,30 +1249,31 @@ Deploys on-cluster Quay on **`gp3-csi`** (same StorageClass as other workloads).
 2. `QuayRegistry` CR — Postgres and Clair on `gp3-csi`; blob storage via MinIO (S3-compatible) on `gp3-csi`
 3. Pull credentials Secret in `ai-workbenches`
 
-Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to build agent images. Alternatively use an **external registry** and disable in-cluster Quay (see [Storage](#storage)).
+`values-poc.yaml` enables in-cluster Quay (`quayStorage.enabled: true`) so agent images can be built. Alternatively use an **external registry** and disable in-cluster Quay (see [Storage](#storage)).
 
-### 3. OpenShift AI (`rhoai`) — target **3.4**
+### 3. OpenShift AI (`rhoai`) — target **3.5**
 
 Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`stable-3.5`** (override to match your catalog) and a **DataScienceCluster** using **`datasciencecluster.opendatahub.io/v2`** (required for 3.x; do not use `v1` from 2.25).
 
 | Setting | Default | Notes |
 |---------|---------|-------|
-| `rhoai.targetVersion` | `3.4` | Documentation marker |
+| `rhoai.targetVersion` | `3.5` | Documentation marker |
 | `rhoai.operator.subscription.channel` | `stable-3.5` | Must match catalog: `oc get packagemanifest rhods-operator -n openshift-marketplace` |
-| `rhoai.datascienceCluster.apiVersion` | `.../v2` | Required for 3.4; **`v1` is 2.25 only** |
+| `rhoai.datascienceCluster.apiVersion` | `.../v2` | Required for 3.x; **`v1` is 2.25 only** |
 
 | Component | managementState | Purpose |
 |-----------|-----------------|---------|
 | dashboard | Managed | OpenShift AI dashboard |
-| kserve | Managed | Model serving |
-| kueue | Unmanaged | Queue scheduling via [Red Hat Kueue Operator](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/managing_openshift_ai/managing-workloads-with-kueue) (`Managed` rejected in 3.4) |
-| **workbenches** | **Managed** | Developer workbench provisioning |
-| **modelregistry** | **Managed** | Model registry in `rhoai-model-registries` |
+| kserve (+ `modelsAsService`) | Managed | Model serving and MaaS |
+| ogx | Managed | Investigator OGX server |
+| kueue | **Removed** | Not used on this PoC |
+| workbenches | Managed | Developer workbench provisioning |
+| modelregistry | Managed | Model registry in `rhoai-model-registries` |
 | ray, aipipelines, feast, training, trustyai, llamastack | Removed | Reduced footprint |
 
-**Note:** The standalone **CodeFlare operator** was removed in OpenShift AI 3.x; Ray/distributed workloads use the **ray** component (set to `Managed` if needed). See [Red Hat OpenShift AI 3.5 docs](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/installing_and_uninstalling_openshift_ai_self-managed/installing-and-deploying-openshift-ai_install).
+**Note:** The standalone **CodeFlare operator** was removed in OpenShift AI 3.x; Ray/distributed workloads use the **ray** component (set to `Managed` if needed). See [Red Hat OpenShift AI 3.5 docs](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3-latest/html/installing_and_uninstalling_openshift_ai_self-managed/installing-and-deploying-openshift-ai_install).
 
-**Kueue (3.4):** Chart default is `kueue.managementState: Unmanaged`. Install the [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite) **before** syncing `default-dsc`.
+**Kueue:** Chart default is `kueue.managementState: Removed`. Do not install the Kueue operator unless you change that. See [Kueue (not required)](#kueue-not-required).
 
 **Workbench namespace (DSC default):** `rhods-notebooks` — set once at install; cannot be changed after the operator is deployed.
 
@@ -1367,7 +1281,7 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 
 **Model registry namespace:** `rhoai-model-registries` (created when `modelregistry.managementState: Managed` on `default-dsc`).
 
-**HardwareProfile:** `l4-timeslice-half-gpu`
+**HardwareProfile:** `l4-shared-timeslice` (`nvidia.com/gpu.shared`) and `l4-full` (`nvidia.com/gpu`).
 
 Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
 
@@ -1451,9 +1365,9 @@ Enable baseline ACS artifacts with `components.acsPolicies.enabled: true` (opera
 | Mode | Flags | What gets deployed |
 |------|-------|-------------------|
 | **Baseline (default)** | `acs.central.enabled: false`, `acs.bootstrap.enabled: false` | RHACS operator Subscription, `test-range` NS, `SecurityPolicy` CRs, agent SCCs |
-| **Full stack (opt-in)** | both `true` | Above + `Central` CR, bootstrap Job (init bundle, `SecuredCluster`, Mattermost notifier) |
+| **Full stack (PoC overlay)** | both `true` in `values-poc.yaml` | Above + `Central` CR, bootstrap Job (init bundle, `SecuredCluster`, Mattermost notifier) |
 
-See [Phase 3 — Full RHACS](#phase-3--full-rhacs-central--securedcluster-opt-in-off-by-default).
+See [Phase 3 — Full RHACS](#phase-3--full-rhacs-central--securedcluster-on-in-values-pocyaml).
 
 ### RHACS Operator
 
@@ -1501,8 +1415,8 @@ Separate **`SecurityPolicy`** resources when `agentTelemetryPolicy.enabled` and 
 
 | Policy | Targets | Mattermost | Admission |
 |--------|---------|------------|-----------|
-| `test-range-agent-telemetry-required` | All `app.kubernetes.io/component=agent` in `test-range` **except** `sneaky-sam` / `sneaky-sam` | Yes | Block (default) |
-| `test-range-sneaky-sam-telemetry-violation` | `sneaky-sam`, `sneaky-sam` only | Yes | Alert-only (demo) |
+| `test-range-agent-telemetry-required` | All `app.kubernetes.io/component=agent` in `test-range` **except** `sneaky-sam` | Yes | Block (default) |
+| `test-range-sneaky-sam-telemetry-violation` | `sneaky-sam` only | Yes | Alert-only (demo) |
 
 **Policy name:** `test-range-agent-telemetry-required`  
 **Scope:** namespace `test-range`, workloads labeled `app.kubernetes.io/component=agent`  
@@ -1537,9 +1451,9 @@ agentTelemetryPolicy:
 
 ## Tekton Image Build Pipeline
 
-**Prerequisite:** [OpenShift Pipelines (Tekton)](#openshift-pipelines-tekton-prerequisite) must be installed on the cluster (CSV `Succeeded`, `tasks.tekton.dev` CRD present). The umbrella chart installs the OpenShift Pipelines operator when `components.pipelines.enabled` is true, then applies Task/Pipeline CRs into `acs-agent-builder`.
+**Prerequisite:** The umbrella chart installs OpenShift Pipelines when `components.pipelines.enabled` is true (PoC overlay), then applies Task/Pipeline CRs into `acs-agent-builder` once `tasks.tekton.dev` exists. See [OpenShift Pipelines](#openshift-pipelines-tekton).
 
-Location: `pipelines/tekton/agents-build-pipeline.yaml`
+Location: `pipelines/tekton/agents-build-pipeline.yaml` (also embedded at `gitops/helm/acs-ai-overwatch/files/agents-build-pipeline.yaml`).
 
 ### Resources
 
@@ -1566,55 +1480,61 @@ build-rosey-regrets
 
 ### OpenShift BuildConfigs (alternative to Tekton)
 
-The `test-range` namespace includes **BuildConfigs** that push to the internal OpenShift registry (used when Tekton/Quay builds fail):
+When `components.pipelines.enabled` is true, **BuildConfigs** and **ImageStreams** are created in **`acs-agent-builder`** (not `test-range`):
 
-| BuildConfig | Source | ImageStream |
-|-------------|--------|---------------|
-| `rosey-regrets` | Binary (`--from-dir=.`) or Git@main | `rosey-regrets:latest` |
-| `rosey-regrets` | Binary | `rosey-regrets:latest` |
-| `helpful-hank`, `sneaky-sam` | Git@main or Binary | matching ImageStream |
+| BuildConfig | Dockerfile |
+|-------------|------------|
+| `helpful-hank` | `agents/helpful-hank/Dockerfile` |
+| `rosey-regrets` | `agents/rosey-regrets/Dockerfile` |
+| `sneaky-sam` | `agents/sneaky-sam/Dockerfile` |
+| `acs-investigator` | `agents/investigator/Dockerfile` |
+| `acs-agent-builder` | `agents/builder/Dockerfile` |
+| `remediated-rosey` | `agents/remediated-rosey/Dockerfile` |
+| `remediated-sam` | `agents/remediated-sam/Dockerfile` |
 
 ```bash
 # From repository root — includes latest agent code without a git push
-oc start-build rosey-regrets --from-dir=. --follow -n test-range
-oc start-build rosey-regrets --from-dir=. --follow -n test-range
-oc rollout restart deploy/rosey-regrets deploy/rosey-regrets -n test-range
+oc start-build rosey-regrets --from-dir=. --follow -n acs-agent-builder
+oc rollout restart deploy/rosey-regrets -n test-range
 ```
 
-### Apply Pipeline
+### Apply Pipeline (manual fallback)
+
+GitOps already applies these CRs when Pipelines CRDs exist. Only run this if `oc get pipeline -n acs-agent-builder` is empty:
 
 ```bash
-# Fails with "no matches for kind Task" if OpenShift Pipelines is not installed
-oc get crd tasks.tekton.dev || echo "Install OpenShift Pipelines first (see Prerequisites)"
+oc get crd tasks.tekton.dev || echo "Wait for the OpenShift Pipelines operator CSV"
 oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml
 ```
 
 ### Create Quay Push Secret
 
+The PipelineRun mounts secret **`quay-build-robot`** in **`acs-agent-builder`**. The in-cluster Quay service hostname matches `pipelines.imageRegistry.host` (`quay-quay-app.quay.svc.cluster.local:80`):
+
 ```bash
 oc create secret docker-registry quay-build-robot \
-  -n acs-ai-overwatch-system \
-  --docker-server=quay-quay-registry.quay.svc.cluster.local:443 \
+  -n acs-agent-builder \
+  --docker-server=quay-quay-app.quay.svc.cluster.local:80 \
   --docker-username=<robot-account> \
   --docker-password=<token>
 ```
 
-Ensure organization `acs-agents` (or your chosen org) exists in Quay with repositories `helpful-hank`, `rosey-regrets`, and `sneaky-sam`.
+Ensure organization `acs-agents` exists in Quay with repositories for Hank, Rosey, Sam, investigator, builder, and the remediated images.
 
 ### Run Pipeline
 
-Edit and create from the example PipelineRun:
+Edit `git-url` in `pipelines/tekton/agents-build-pipelinerun.yaml` if this is a fork, then:
 
 ```bash
-oc create -n acs-ai-overwatch-system \
-  -f pipelines/tekton/agents-build-pipelinerun.example.yaml
+oc create -n acs-agent-builder \
+  -f pipelines/tekton/agents-build-pipelinerun.yaml
 ```
 
 Monitor:
 
 ```bash
-oc get pipelinerun -n acs-ai-overwatch-system
-tkn pipelinerun logs -f -n acs-ai-overwatch-system -l app.kubernetes.io/part-of=acs-ai-overwatch
+oc get pipelinerun -n acs-agent-builder
+tkn pipelinerun logs -f -n acs-agent-builder -l app.kubernetes.io/part-of=acs-ai-overwatch
 ```
 
 ### Buildah Notes
@@ -1636,12 +1556,14 @@ Follow these steps **in order** — they mirror [PoC deployment phases](#poc-dep
 
 ```bash
 oc login
+./scripts/check-prereqs.sh
 chmod +x scripts/cluster-admin/*.sh
 make cluster-admin-pre-gitops
+make platform-prep
 oc apply -k gitops/argocd/
 ```
 
-Wait for sync waves: **bootstrap → cluster-discovery → acs-ai-overwatch**. Confirm discovery and operators:
+Wait for sync waves: **bootstrap → cluster-discovery → acs-ai-overwatch → observability**. Confirm discovery and operators:
 
 ```bash
 oc get job -n acs-ai-overwatch-system cluster-discovery
@@ -1657,33 +1579,17 @@ oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/
 
 ### Step 2 — Build agent images (Phase 2)
 
-Install OpenShift Pipelines if needed, apply the Tekton pipeline, then build and push images to Quay:
+Wait for OpenShift Pipelines CSV **Succeeded**. GitOps already applied Task/Pipeline CRs. Create the Quay push secret and a PipelineRun (edit `git-url` for a fork):
 
 ```bash
-oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml
+oc create secret docker-registry quay-build-robot -n acs-agent-builder \
+  --docker-server=quay-quay-app.quay.svc.cluster.local:80 \
+  --docker-username=<robot-account> --docker-password=<token>
 oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml
-# Or binary build: oc start-build rosey-regrets --from-dir=. --follow -n test-range
+# Alternative: oc start-build rosey-regrets --from-dir=. --follow -n acs-agent-builder
 ```
 
-Enable agent component flags in `values-poc.yaml`, commit, sync:
-
-```yaml
-components:
-  agentsHelpfulHank:
-    enabled: true
-  agentsRoseyRegrets:
-    enabled: true
-  agentsSneakySam:
-    enabled: false   # true for Demo A (telemetry guardrail)
-  investigator:
-    enabled: true
-  maas:
-    enabled: true
-  agentBuilder:
-    enabled: true
-  pipelines:
-    enabled: true
-```
+`values-poc.yaml` already enables Hank, Rosey, Sam, investigator, MaaS, builder, and pipelines. Pods stay ImagePullBackOff until images exist.
 
 Verify workloads in `test-range`:
 
@@ -1693,18 +1599,7 @@ oc get pods,svc,pvc,networkpolicy -n test-range
 
 ### Step 3 — Full RHACS (Phase 3)
 
-Enable Central + bootstrap in `values-poc.yaml`, sync, wait for Central and SecuredCluster:
-
-```yaml
-acs:
-  central:
-    enabled: true
-  bootstrap:
-    enabled: true
-components:
-  acsPolicies:
-    enabled: true
-```
+`values-poc.yaml` already enables Central + bootstrap. Wait for Central and SecuredCluster:
 
 ```bash
 oc logs -n stackrox job/acs-platform-bootstrap
@@ -1731,9 +1626,16 @@ Complete [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) be
 
 Use **[PoC Demo Walkthrough (After Setup)](#poc-demo-walkthrough-after-setup)** for the presenter script.
 
-**Demo A — Telemetry guardrail (Sneaky Sam):** Set `components.agentsSneakySam.enabled: true`, sync. With Phase 3 admission, RHACS posts a deploy-time violation to Mattermost Town Square. Log in as **`human-in-the-loop`** (password in `mattermost.bootstrap.hitlPassword`).
+**Demo A — Telemetry guardrail (Sneaky Sam):** `components.agentsSneakySam.enabled` is already `true` in `values-poc.yaml`. With Phase 3 admission, RHACS posts a deploy-time violation to Mattermost Town Square. Log in as **`human-in-the-loop`** (password in `mattermost.bootstrap.hitlPassword`).
 
-**Demo B — Network audit (Rosey Regrets):** In Rosey HTTP `/chat`, select **`rosey-regrets`** and send `Network Audit` or a recon prompt. Expect RHACS runtime violation → Mattermost Town Square. Alternative: `./scripts/trigger-network-audit.sh`.
+**Demo B — Network audit (Rosey Regrets):** `POST /chat` with `{"message":"Network Audit"}` to the `rosey-regrets` Route, or:
+
+```bash
+export ROSEY_URL="https://$(oc get route rosey-regrets -n test-range -o jsonpath='{.spec.host}')"
+./scripts/trigger-network-audit.sh
+```
+
+Expect RHACS runtime violation → Mattermost Town Square.
 
 ---
 
@@ -1745,7 +1647,8 @@ See [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [`scr
 
 | Script | Purpose |
 |--------|---------|
-| `install-pre-gitops.sh` | Runs steps 01–04 (with optional flags) |
+| `install-pre-gitops.sh` | Runs steps 00–04 (with optional flags) |
+| `05-apply-platform-prep.sh` | AWS GPU MachineSet + NFD/GPU operators + NFD instance |
 | `01-grant-openshift-gitops-rbac.sh` | Argo CD controller `cluster-admin` binding |
 | `02-bootstrap-namespaces.sh` | Labeled PoC namespaces |
 | `03-apply-cluster-configmap.sh` | `acs-ai-overwatch-cluster-config` ConfigMap |
@@ -1778,9 +1681,7 @@ Resets the **local Git repo** to the portable baseline — no cluster-specific s
 | Action | Target |
 |--------|--------|
 | Restore baseline overlay | `gitops/helm/acs-ai-overwatch/values-poc.yaml` (Quay, RHACS Central, agents **off**) |
-| Disable opt-in Argo apps | `gitops/argocd/kustomization.yaml` (Phase 4/5 Applications commented out) |
-
-| Ensure Phase 5 off | `gitops/helm/acs-ai-overwatch-observability/values.yaml` → `enabled: false` if set |
+| Restore Argo kustomization | `gitops/argocd/kustomization.yaml` (includes observability Application) |
 | Remove local discovery output | `gitops/helm/acs-ai-overwatch/values-cluster.yaml` (gitignored) |
 | Clear scratch workspace | `scratch/` (gitignored) |
 
@@ -1801,12 +1702,10 @@ Triggers the Rosey Regrets **Network Audit** command via HTTP `POST /chat`.
 
 | Environment Variable | Required | Default |
 |---------------------|----------|---------|
-| `GIT_REPO_URL` | Yes | ConfigMap `gitRepoUrl` or `values-cluster.yaml` |
-| `KAGENTI_API_TOKEN` | Yes | — |
-| `ROSEY_AGENT_NAME` | No | `rosey-regrets` — set to `rosey-regrets` for the SLM demo |
+| `ROSEY_URL` | No | `http://rosey-regrets.test-range.svc.cluster.local` |
 | `NETWORK_AUDIT_COMMAND` | No | `Network Audit` |
-| `KAGENTI_COMMANDS_PATH_TEMPLATE` | No | `/api/v1/agents/{agent}/commands` |
-| `KAGENTI_TLS_INSECURE` | No | `false` |
+
+From a workstation, point `ROSEY_URL` at the Route (`https://$(oc get route rosey-regrets -n test-range -o jsonpath='{.spec.host}')`).
 
 ### `agents/scripts/pull-model.sh`
 
@@ -1818,8 +1717,9 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 
 | Namespace | Primary Contents |
 |-----------|------------------|
-| `openshift-gitops` | Argo CD Application |
-| `acs-ai-overwatch-system` | Cluster metadata ConfigMap; Tekton pipeline namespace |
+| `openshift-gitops` | Argo CD Applications |
+| `acs-ai-overwatch-system` | Cluster metadata + discovery ConfigMaps |
+| `acs-agent-builder` | Agentic builder, Tekton Tasks/Pipelines/PipelineRuns, BuildConfigs |
 | `monitoring` | Mattermost server, bootstrap Job, ACS webhook ConfigMap |
 | `quay` | QuayRegistry instance |
 | `ai-workbenches` | Quay pull Secrets for workbenches |
@@ -1830,8 +1730,11 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `rhods-notebooks` | Default DSC workbench namespace |
 | `rhoai-model-registries` | Model registry (when `modelregistry: Managed`) |
 | `ai-workbenches` | Optional OpenShift AI workbench |
-| `rhacs-operator` | RHACS operator subscription |
-| `test-range` | Agents, PVC, ACS policy ConfigMap, agent SCCs/SA |
+| `acs-investigator` | Gemma investigator + OGX |
+| `acs-maas` | Granite MaaS gateway |
+| `acs-ai-overwatch-observability` | Shared OTEL collector |
+| `tempo` | TempoMonolithic trace backend |
+| `stackrox` | RHACS Central |
 
 ---
 
@@ -1917,7 +1820,7 @@ ensure CRDs are installed first
 
 **Common causes:**
 
-1. **API version / operator mismatch** — This repo targets **OpenShift AI 3.5** only (`datasciencecluster.opendatahub.io/v2`, channel such as `stable-3.5`). On a fresh cluster you should see `rhods-operator.3.4.*` **Succeeded**. If you see **2.25.x**, the cluster had a prior 2.25 install or the wrong channel — use a **new cluster** or fix the Subscription channel before syncing `default-dsc`.
+1. **API version / operator mismatch** — This repo targets **OpenShift AI 3.5** only (`datasciencecluster.opendatahub.io/v2`, channel such as `stable-3.5`). On a fresh cluster you should see `rhods-operator` **3.5.x Succeeded**. If you see **2.25.x**, the cluster had a prior 2.25 install or the wrong channel — use a **new cluster** or fix the Subscription channel before syncing `default-dsc`.
 
    ```bash
    oc get csv -n redhat-ods-operator | grep rhods
@@ -1939,24 +1842,24 @@ Managed is no longer supported as a managementState
 
 **Cause:** OpenShift AI **3.5** no longer allows `spec.components.kueue.managementState: Managed` (embedded Kueue was removed).
 
-**Fix:** Install the [Red Hat Kueue Operator](#red-hat-kueue-operator-prerequisite), then ensure the chart uses **`Unmanaged`** (default in `values.yaml`):
+**Fix:** This chart already sets **`Removed`**. If something patched the live DSC to `Managed`, restore `Removed`:
 
 ```yaml
 rhoai:
   datascienceCluster:
     components:
       kueue:
-        managementState: Unmanaged
+        managementState: Removed
 ```
 
 Push/sync, or patch on cluster:
 
 ```bash
 oc patch datasciencecluster default-dsc --type merge \
-  -p '{"spec":{"components":{"kueue":{"managementState":"Unmanaged","defaultClusterQueueName":"default","defaultLocalQueueName":"default"}}}}'
+  -p '{"spec":{"components":{"kueue":{"managementState":"Removed"}}}}'
 ```
 
-To skip Kueue entirely (no operator): set `managementState: Removed` and `rhoai.hardwareProfile.enabled: false` in `values-poc.yaml`.
+Do **not** set `Unmanaged` unless you have installed the Red Hat Kueue Operator. See [Kueue (not required)](#kueue-not-required).
 
 `SkipDryRunOnMissingResource` only skips **dry-run** validation; it does **not** stop **apply** failures.
 
@@ -1980,7 +1883,7 @@ ResolutionFailed: True
      -o jsonpath='{range .status.channels[*]}{.name}{"  "}{.currentCSV}{"\n"}{end}'
    ```
 
-2. Pick a **3.4** channel from that list (e.g. `stable-3.5`, `fast-3.5`, `eus-3.5`) and set it on the Subscription:
+2. Pick a **3.5** channel from that list (e.g. `stable-3.5`, `fast-3.5`, `eus-3.5`) and set it on the Subscription:
 
    ```bash
    oc patch subscription rhods-operator -n redhat-ods-operator --type merge \
@@ -1989,7 +1892,7 @@ ResolutionFailed: True
 
    Or override in Helm/Argo: `rhoai.operator.subscription.channel` in `values.yaml` (or your cluster values file), then sync `acs-ai-overwatch`.
 
-3. If **no channel ending in `-3.4` appears**, this cluster’s operator index likely does not include OpenShift AI 3.5 yet. OpenShift AI 3.5 requires **OpenShift Container Platform 4.19.9+** (see [supported configurations](https://access.redhat.com/articles/rhoai-supported-configs-3.x)). Check:
+3. If **no channel ending in `-3.5` appears**, this cluster’s operator index likely does not include OpenShift AI 3.5 yet. OpenShift AI 3.5 requires **OpenShift Container Platform 4.19.9+** (see [supported configurations](https://access.redhat.com/articles/rhoai-supported-configs-3.x)). Check:
 
    ```bash
    oc version
@@ -2005,7 +1908,7 @@ ResolutionFailed: True
    oc get csv -n redhat-ods-operator | grep rhods
    ```
 
-   Expect `rhods-operator.3.4.*` with phase **Succeeded** before syncing `default-dsc`.
+   Expect `rhods-operator` **3.5.x** with phase **Succeeded** before syncing `default-dsc`.
 
 **Chart behavior (current):** `platformResources.waitForCrds: true` (default) omits `DataScienceCluster`, `HardwareProfile`, `ClusterPolicy`, and `QuayRegistry` from the manifest until Helm `lookup` sees each CRD on the cluster. After operators install, **Refresh → Sync** and those resources appear automatically.
 
@@ -2175,13 +2078,14 @@ Ensure Mattermost pod is Ready before bootstrap runs.
 
 ### Tekton: `no matches for kind "Task" in version "tekton.dev/v1"`
 
-**Cause:** **Red Hat OpenShift Pipelines** is not installed; Tekton CRDs are missing.
+**Cause:** **Red Hat OpenShift Pipelines** CRDs are not registered yet (GitOps Subscription still installing, or `components.pipelines.enabled` is false).
 
-**Fix:** Install the operator and wait for CSV **Succeeded**, then re-apply the pipeline. Full steps: [OpenShift Pipelines prerequisite](#openshift-pipelines-tekton-prerequisite).
+**Fix:** Wait for the Pipelines CSV **Succeeded**, then refresh the main Argo app so Helm applies Task/Pipeline CRs. Fallback: [OpenShift Pipelines](#openshift-pipelines-tekton).
 
 ```bash
 oc get crd tasks.tekton.dev
 oc get csv -A | grep pipelines-operator
+oc get pipeline,task -n acs-agent-builder
 ```
 
 ### Agent ImagePullBackOff
@@ -2298,27 +2202,27 @@ Files under `scratch/` are **not** deployed by the Helm chart. They contain refe
 
 ```bash
 oc login ...
+make check-prereqs
 make cluster-admin-pre-gitops
+make platform-prep
 
-# Register GitOps Applications
+# Register GitOps Applications (bootstrap, discovery, main, observability)
 oc apply -k gitops/argocd/
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
+oc annotate application acs-ai-overwatch -n openshift-gitops \
+  argocd.argoproj.io/refresh=hard --overwrite
 
 # Optional: local values file
 make cluster-values
 make helm-template
 make helm-template-discovery
 
-# Apply Tekton pipeline
-oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml
-
-# Build agent images (example PipelineRun)
+# Build agent images (Task/Pipeline CRs come from GitOps; this starts a run)
 oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml
 
 # End-to-end demo (after setup) — see "PoC Demo Walkthrough (After Setup)"
-# Mattermost login + alerts — see "Mattermost & RHACS notifications"
+export ROSEY_URL="https://$(oc get route rosey-regrets -n test-range -o jsonpath='{.spec.host}')"
 ./scripts/trigger-network-audit.sh
-# In Rosey HTTP `/chat`: rosey-regrets → "Network Audit"
 
 # Check test-range workloads
 oc get all,pvc,cm -n test-range

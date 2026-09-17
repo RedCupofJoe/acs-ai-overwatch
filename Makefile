@@ -1,9 +1,19 @@
-.PHONY: cluster-values cluster-admin-pre-gitops cleanup-poc-repo helm-template helm-template-discovery
+.PHONY: cluster-values cluster-admin-pre-gitops platform-prep cleanup-poc-repo helm-template helm-template-discovery check-prereqs
+
+# Check OpenShift cluster prerequisites (oc login required).
+check-prereqs:
+	@chmod +x scripts/check-prereqs.sh
+	@./scripts/check-prereqs.sh
 
 # Cluster-admin bootstrap before Argo CD (namespaces, ConfigMap, GitOps RBAC, discovery SA).
 cluster-admin-pre-gitops:
 	@chmod +x scripts/cluster-admin/*.sh
 	@./scripts/cluster-admin/install-pre-gitops.sh
+
+# AWS GPU MachineSet + NFD instance (vendored workshop configs/). Does not apply ClusterPolicy or DSC.
+platform-prep:
+	@chmod +x scripts/cluster-admin/*.sh
+	@./scripts/cluster-admin/05-apply-platform-prep.sh
 
 # Discover cluster.appsDomain, routes, and git remote from current oc login.
 cluster-values:

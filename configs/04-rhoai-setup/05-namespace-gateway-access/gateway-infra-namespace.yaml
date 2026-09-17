@@ -1,0 +1,7 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: redhat-ai-gateway-infra
+  labels:
+    # maas-api-route HTTPRoute lives in this namespace.
+    maas.opendatahub.io/gateway-access: 'true'

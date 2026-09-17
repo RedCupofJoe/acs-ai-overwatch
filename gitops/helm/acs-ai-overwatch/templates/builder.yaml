@@ -108,6 +108,7 @@ spec:
         {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.builder.name }}
+      {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
         {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.builder) | nindent 8 }}
       containers:
@@ -148,6 +149,7 @@ spec:
               value: {{ .Values.agents.agentServicePort | quote }}
             - name: AGENT_SA
               value: {{ .Values.agents.serviceAccountName | quote }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "acs-agent-builder") | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.builder.servicePort }}

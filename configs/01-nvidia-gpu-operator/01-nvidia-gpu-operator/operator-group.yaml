@@ -1,0 +1,9 @@
+# Name matches gitops/helm/acs-ai-overwatch (values.accelerators.gpuOperator.operatorGroup.name).
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: nvidia-gpu-operator
+  namespace: nvidia-gpu-operator
+spec:
+  targetNamespaces:
+    - nvidia-gpu-operator
