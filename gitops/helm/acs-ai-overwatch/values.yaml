@@ -532,8 +532,9 @@ pipelines:
   gitUrl: ""
   gitRevision: main
   imageRegistry:
-    host: quay-quay-app.quay.svc.cluster.local:80
-    organization: acs-agents
+    # Internal registry ImageStream host (kubelet can pull this; not Quay Service DNS).
+    host: image-registry.openshift-image-registry.svc:5000
+    organization: acs-agent-builder
   operator:
     namespace: openshift-operators
     subscription:

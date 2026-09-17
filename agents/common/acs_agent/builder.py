@@ -13,54 +13,20 @@ from fastapi import FastAPI
 app = FastAPI(title="ACS Agentic Builder", version="0.5.0")
 
 
-def _pipeline_run(target: dict[str, Any]) -> dict[str, Any]:
-    registry = os.getenv("IMAGE_REGISTRY", "quay-quay-app.quay.svc.cluster.local:80")
-    org = os.getenv("IMAGE_ORG", "acs-agents")
-    tag = os.getenv("IMAGE_TAG", "latest")
-    git_url = os.getenv("GIT_REPO_URL", "")
-    git_revision = os.getenv("GIT_REVISION", "main")
-    dest = target.get("to") or "remediated-rosey"
-    dockerfile = (
-        "agents/remediated-rosey/Dockerfile"
-        if "rosey" in dest
-        else "agents/remediated-sam/Dockerfile"
+def _runtime_image(dest: str) -> str:
+    registry = os.getenv(
+        "IMAGE_REGISTRY", "image-registry.openshift-image-registry.svc:5000"
     )
+    org = os.getenv("IMAGE_ORG") or os.getenv("BUILDER_NAMESPACE", "acs-agent-builder")
+    tag = os.getenv("IMAGE_TAG", "latest")
+    return f"{registry}/{org}/{dest}:{tag}"
+
+
+def _build_request(dest: str) -> dict[str, Any]:
     return {
-        "apiVersion": "tekton.dev/v1",
-        "kind": "PipelineRun",
-        "metadata": {
-            "generateName": f"remediate-{dest}-",
-            "namespace": os.getenv("BUILDER_NAMESPACE", "acs-agent-builder"),
-            "labels": {
-                "app.kubernetes.io/part-of": "acs-ai-overwatch",
-                "acs-ai-overwatch.io/remediated": "true",
-                "acs-ai-overwatch.io/target": dest,
-            },
-        },
-        "spec": {
-            "pipelineRef": {"name": "build-remediated-agents"},
-            "params": [
-                {"name": "git-url", "value": git_url},
-                {"name": "git-revision", "value": git_revision},
-                {"name": "dockerfile", "value": dockerfile},
-                {
-                    "name": "image",
-                    "value": f"{registry}/{org}/{dest}:{tag}",
-                },
-                {"name": "push-tls-verify", "value": "false"},
-            ],
-            "workspaces": [
-                {
-                    "name": "shared-source",
-                    "volumeClaimTemplate": {
-                        "spec": {
-                            "accessModes": ["ReadWriteOnce"],
-                            "resources": {"requests": {"storage": "10Gi"}},
-                        }
-                    },
-                }
-            ],
-        },
+        "apiVersion": "build.openshift.io/v1",
+        "kind": "BuildRequest",
+        "metadata": {"name": dest},
     }
 
 
@@ -118,23 +84,20 @@ async def k8s_apply(method: str, path: str, body: dict[str, Any] | None = None) 
         return response.json()
 
 
-async def create_pipeline_run(manifest: dict[str, Any]) -> dict[str, Any]:
-    namespace = manifest["metadata"].get("namespace", "acs-agent-builder")
+async def start_buildconfig(dest: str) -> dict[str, Any]:
+    namespace = os.getenv("BUILDER_NAMESPACE", "acs-agent-builder")
     return await k8s_apply(
         "POST",
-        f"/apis/tekton.dev/v1/namespaces/{namespace}/pipelineruns",
-        manifest,
+        f"/apis/build.openshift.io/v1/namespaces/{namespace}/buildconfigs/{dest}/instantiate",
+        _build_request(dest),
     )
 
 
 def _remediated_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
     namespace = os.getenv("TEST_RANGE_NAMESPACE", "test-range")
-    registry = os.getenv("IMAGE_REGISTRY", "quay-quay-app.quay.svc.cluster.local:80")
-    org = os.getenv("IMAGE_ORG", "acs-agents")
-    tag = os.getenv("IMAGE_TAG", "latest")
     port = int(os.getenv("AGENTS_SERVICE_PORT", "8000"))
     sa = os.getenv("AGENT_SA", "acs-agent")
-    image = f"{registry}/{org}/{dest}:{tag}"
+    image = _runtime_image(dest)
     labels = {
         "app.kubernetes.io/name": dest,
         "app.kubernetes.io/component": "agent",
@@ -232,11 +195,10 @@ async def rebuild(spec: dict[str, Any]) -> dict[str, Any]:
     results = []
     for target in spec.get("targets") or []:
         dest = str(target.get("to") or "remediated-rosey")
-        manifest = _pipeline_run(target)
         item: dict[str, Any] = {"target": dest}
         try:
-            created = await create_pipeline_run(manifest)
-            item["pipelineRun"] = created.get("metadata", {}).get("name") or (
+            created = await start_buildconfig(dest)
+            item["build"] = created.get("metadata", {}).get("name") or (
                 f"dry-run-{uuid.uuid4().hex[:8]}"
             )
             item["status"] = "submitted"
@@ -257,8 +219,8 @@ async def rebuild(spec: dict[str, Any]) -> dict[str, Any]:
                 rollouts.append({"kind": body.get("kind"), "error": str(exc)})
         item["rollout"] = rollouts
         results.append(item)
-    summary = "**Agentic builder** submitted OpenShift PipelineRuns: " + ", ".join(
-        f"{item.get('target')}={item.get('pipelineRun') or item.get('error')}" for item in results
+    summary = "**Agentic builder** submitted OpenShift builds: " + ", ".join(
+        f"{item.get('target')}={item.get('build') or item.get('error')}" for item in results
     )
     try:
         await notify_mattermost(summary)

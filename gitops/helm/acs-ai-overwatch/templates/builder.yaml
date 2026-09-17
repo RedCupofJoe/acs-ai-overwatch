@@ -30,7 +30,7 @@ rules:
     resources: ["pipelineruns", "taskruns", "pipelines", "tasks"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["build.openshift.io"]
-    resources: ["buildconfigs", "builds"]
+    resources: ["buildconfigs", "buildconfigs/instantiate", "builds"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["image.openshift.io"]
     resources: ["imagestreams", "imagestreamtags"]
