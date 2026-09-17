@@ -40,7 +40,7 @@ spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       containers:
         - name: remediated-rosey
-          image: {{ .Values.agents.images.remediatedRosey }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "remediated-rosey" "explicit" .Values.agents.images.remediatedRosey) }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -105,7 +105,7 @@ spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       containers:
         - name: remediated-sam
-          image: {{ .Values.agents.images.remediatedSam }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "remediated-sam" "explicit" .Values.agents.images.remediatedSam) }}
           imagePullPolicy: Always
           env:
             - name: HOST

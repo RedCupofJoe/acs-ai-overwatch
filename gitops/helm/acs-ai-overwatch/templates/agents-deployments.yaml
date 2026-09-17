@@ -26,11 +26,11 @@ spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
-        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.helpfulHank) | nindent 8 }}
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" (include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "helpful-hank" "explicit" .Values.agents.images.helpfulHank))) | nindent 8 }}
       containers:
         {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
         - name: helpful-hank
-          image: {{ .Values.agents.images.helpfulHank }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "helpful-hank" "explicit" .Values.agents.images.helpfulHank) }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -106,11 +106,11 @@ spec:
       serviceAccountName: {{ .Values.agents.roseyServiceAccountName }}
       {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
-        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.roseyRegrets) | nindent 8 }}
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" (include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "rosey-regrets" "explicit" .Values.agents.images.roseyRegrets))) | nindent 8 }}
       containers:
         {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
         - name: rosey-regrets
-          image: {{ .Values.agents.images.roseyRegrets }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "rosey-regrets" "explicit" .Values.agents.images.roseyRegrets) }}
           imagePullPolicy: Always
           env:
             - name: HOST
@@ -190,11 +190,11 @@ spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
-        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.sneakySam) | nindent 8 }}
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" (include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "sneaky-sam" "explicit" .Values.agents.images.sneakySam))) | nindent 8 }}
       containers:
         {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
         - name: sneaky-sam
-          image: {{ .Values.agents.images.sneakySam }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "sneaky-sam" "explicit" .Values.agents.images.sneakySam) }}
           imagePullPolicy: Always
           env:
             - name: HOST

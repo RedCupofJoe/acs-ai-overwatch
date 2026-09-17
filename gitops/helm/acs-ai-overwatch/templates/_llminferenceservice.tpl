@@ -54,6 +54,13 @@ spec:
     {{- end }}
     containers:
       - name: main
+        # Appended to the KServe vLLM launcher ($@ / VLLM_ADDITIONAL_ARGS).
+        # Model cards default max_model_len far beyond an L4 (Granite 131072 needs ~20Gi KV).
+        args:
+          - --max-model-len
+          - {{ $llm.maxModelLen | default "4096" | quote }}
+          - --gpu-memory-utilization
+          - {{ $llm.gpuMemoryUtilization | default "0.90" | quote }}
         resources:
           requests:
             cpu: "2"

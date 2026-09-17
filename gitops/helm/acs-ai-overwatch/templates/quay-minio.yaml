@@ -21,7 +21,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ $name }}-data
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage" "skipHealth" true) | nindent 2 }}
   namespace: {{ $ns }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

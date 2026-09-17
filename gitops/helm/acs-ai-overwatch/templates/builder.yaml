@@ -85,6 +85,26 @@ subjects:
     name: {{ .Values.builder.name }}
     namespace: {{ .Values.builder.namespace }}
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.builder.name }}-cross-namespace-image-pullers
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.builder.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:image-puller
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: system:serviceaccounts:{{ .Values.agents.namespace }}
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: system:serviceaccounts:{{ .Values.investigator.namespace }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -110,11 +130,11 @@ spec:
       serviceAccountName: {{ .Values.builder.name }}
       {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
       initContainers:
-        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" .Values.agents.images.builder) | nindent 8 }}
+        {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" (include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "acs-agent-builder" "explicit" .Values.agents.images.builder))) | nindent 8 }}
       containers:
         {{- include "acs-ai-overwatch.llamaCppSidecar" (dict "root" .) | nindent 8 }}
         - name: builder
-          image: {{ .Values.agents.images.builder }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "acs-agent-builder" "explicit" .Values.agents.images.builder) }}
           imagePullPolicy: Always
           env:
             - name: HOST

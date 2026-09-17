@@ -160,6 +160,8 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.acs.central.namespace }}
   egress:
+    - to:
+        - podSelector: {}
     - ports:
         - protocol: UDP
           port: 53
@@ -226,6 +228,19 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-dns
+      ports:
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
     - ports:
         - protocol: TCP
           port: 443
@@ -233,6 +248,8 @@ spec:
           port: 80
         - protocol: TCP
           port: 6443
+        - protocol: TCP
+          port: 5000
     - to:
         - namespaceSelector:
             matchLabels:

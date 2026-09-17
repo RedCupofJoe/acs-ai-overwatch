@@ -549,6 +549,9 @@ agents:
   gpuResource: nvidia.com/gpu.shared
   gpuCount: "1"
   images:
+    # Defaults below are rewritten at render time to the OpenShift internal
+    # ImageStream (kubelet cannot resolve in-cluster Quay Service DNS). Set a
+    # Quay Route or other resolvable host here to override.
     helpfulHank: quay-quay-app.quay.svc.cluster.local:80/acs-agents/helpful-hank:latest
     roseyRegrets: quay-quay-app.quay.svc.cluster.local:80/acs-agents/rosey-regrets:latest
     sneakySam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/sneaky-sam:latest

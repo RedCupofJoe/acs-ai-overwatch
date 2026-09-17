@@ -3,11 +3,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ .Values.agentsRoseyRegrets.pvc.name }}
-  annotations:
-    {{- if .Values.argocd.syncWaves.enabled }}
-    argocd.argoproj.io/sync-wave: {{ index .Values.argocd.syncWaves "pvcs" | quote }}
-    {{- end }}
-    argocd.argoproj.io/sync-options: SkipHealthCheck=true
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents" "skipHealth" true) | nindent 2 }}
   namespace: {{ .Values.agentsRoseyRegrets.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}

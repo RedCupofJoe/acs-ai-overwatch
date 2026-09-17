@@ -61,10 +61,16 @@ app.kubernetes.io/part-of: {{ .Values.global.partOf }}
 {{- define "acs-ai-overwatch.argocdSyncWaveAnnotations" -}}
 {{- $root := .root -}}
 {{- $waveKey := .wave -}}
-{{- if $root.Values.argocd.syncWaves.enabled }}
-{{- $wave := index $root.Values.argocd.syncWaves $waveKey -}}
+{{- $skipHealth := .skipHealth -}}
+{{- if or $root.Values.argocd.syncWaves.enabled $skipHealth }}
 annotations:
-  argocd.argoproj.io/sync-wave: {{ $wave | quote }}
+{{- if $root.Values.argocd.syncWaves.enabled }}
+  argocd.argoproj.io/sync-wave: {{ index $root.Values.argocd.syncWaves $waveKey | quote }}
+{{- end }}
+{{- if $skipHealth }}
+  {{- /* WaitForFirstConsumer PVCs stay Pending until a pod mounts them; SkipHealthCheck is not honored as a wave gate. */}}
+  argocd.argoproj.io/ignore-healthcheck: "true"
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -206,6 +212,23 @@ annotations:
 {{- printf "quay-quay.apps.%s" $domain -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+  Agent runtime image for kubelet pull.
+  Kubelet uses node DNS and cannot resolve *.svc.cluster.local, so the in-cluster
+  Quay Service hostname is not a valid pull URL. BuildConfigs write ImageStreams
+  in builder.namespace; the OpenShift internal registry is in node /etc/hosts.
+  Leave agents.images.* at the default Quay Service host to use ImageStreams, or
+  set a resolvable override (Quay Route / external registry).
+*/}}
+{{- define "acs-ai-overwatch.agentImage" -}}
+{{- $explicit := .explicit | default "" -}}
+{{- if and $explicit (not (contains "quay-quay-app.quay.svc" $explicit)) -}}
+{{- $explicit -}}
+{{- else -}}
+image-registry.openshift-image-registry.svc:5000/{{ .root.Values.builder.namespace }}/{{ .stream }}:latest
 {{- end -}}
 {{- end }}
 

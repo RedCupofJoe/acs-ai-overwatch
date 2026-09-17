@@ -13,7 +13,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: ogx-postgres
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "secrets") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
   namespace: {{ .Values.investigator.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -24,7 +24,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: ogx-postgres
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "pvcs") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage" "skipHealth" true) | nindent 2 }}
   namespace: {{ .Values.investigator.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -35,11 +35,63 @@ spec:
     requests:
       storage: {{ .Values.investigator.ogx.postgres.storage }}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ .Values.investigator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: ogx-postgres
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: ogx-postgres
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: ogx-postgres
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+runAsUser:
+  type: MustRunAs
+  uid: 70
+seLinuxContext:
+  type: RunAsAny
+fsGroup:
+  type: MustRunAs
+  ranges:
+    - min: 70
+      max: 70
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+    - min: 70
+      max: 70
+seccompProfiles:
+  - runtime/default
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+users:
+  - system:serviceaccount:{{ .Values.investigator.namespace }}:ogx-postgres
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ogx-postgres
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
   namespace: {{ .Values.investigator.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -54,9 +106,17 @@ spec:
       labels:
         app.kubernetes.io/name: ogx-postgres
     spec:
+      serviceAccountName: ogx-postgres
+      securityContext:
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: postgres
           image: {{ .Values.investigator.ogx.postgres.image }}
+          securityContext:
+            runAsUser: 70
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
           env:
             - name: POSTGRES_DB
               value: {{ .Values.investigator.ogx.postgres.database | quote }}
@@ -67,8 +127,18 @@ spec:
                 secretKeyRef:
                   name: ogx-postgres
                   key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           ports:
             - containerPort: 5432
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 5
+            periodSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -81,7 +151,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ogx-postgres
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
   namespace: {{ .Values.investigator.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
@@ -171,7 +241,7 @@ spec:
       serviceAccountName: {{ .Values.investigator.name }}
       containers:
         - name: investigator
-          image: {{ .Values.agents.images.investigator }}
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "acs-investigator" "explicit" .Values.agents.images.investigator) }}
           imagePullPolicy: Always
           env:
             - name: HOST
