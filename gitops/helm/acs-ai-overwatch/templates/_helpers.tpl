@@ -128,15 +128,18 @@ annotations:
 {{- end }}
 
 {{- define "acs-ai-overwatch.appsDomain" -}}
-{{- if .Values.cluster.appsDomain -}}
-{{- .Values.cluster.appsDomain -}}
-{{- else if .Values.clusterDiscovery.enabled -}}
+{{- $fromValues := .Values.cluster.appsDomain -}}
+{{- if .Values.clusterDiscovery.enabled -}}
 {{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
 {{- if and $cm $cm.data.appsDomain -}}
 {{- $cm.data.appsDomain -}}
+{{- else if $fromValues -}}
+{{- $fromValues -}}
 {{- else -}}
 {{- fail (printf "cluster.appsDomain is unset. Sync Argo CD Application %q first (writes ConfigMap %s/%s), then refresh this Application. Or run: ./scripts/discover-cluster-values.sh" .Values.clusterDiscovery.discoveryApplicationName .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName) -}}
 {{- end -}}
+{{- else if $fromValues -}}
+{{- $fromValues -}}
 {{- else -}}
 {{- fail "cluster.appsDomain is unset. Enable clusterDiscovery or run ./scripts/discover-cluster-values.sh" -}}
 {{- end -}}
@@ -161,16 +164,14 @@ annotations:
 {{- end }}
 
 {{- define "acs-ai-overwatch.mattermostRouteHost" -}}
-{{- if .Values.mattermost.route.host -}}
-{{- .Values.mattermost.route.host -}}
-{{- else if .Values.clusterDiscovery.enabled -}}
-{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- $cm := dict -}}
+{{- if .Values.clusterDiscovery.enabled -}}
+{{- $cm = lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- end -}}
 {{- if and $cm $cm.data.mattermostRouteHost -}}
 {{- $cm.data.mattermostRouteHost -}}
-{{- else -}}
-{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
-{{- printf "mattermost-%s.%s" .Values.mattermost.namespace $domain -}}
-{{- end -}}
+{{- else if .Values.mattermost.route.host -}}
+{{- .Values.mattermost.route.host -}}
 {{- else -}}
 {{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
 {{- printf "mattermost-%s.%s" .Values.mattermost.namespace $domain -}}
@@ -183,15 +184,14 @@ annotations:
 {{- end }}
 
 {{- define "acs-ai-overwatch.mattermostSiteUrl" -}}
-{{- if .Values.mattermost.siteUrl -}}
-{{- .Values.mattermost.siteUrl -}}
-{{- else if .Values.clusterDiscovery.enabled -}}
-{{- $cm := lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- $cm := dict -}}
+{{- if .Values.clusterDiscovery.enabled -}}
+{{- $cm = lookup "v1" "ConfigMap" .Values.clusterDiscovery.namespace .Values.clusterDiscovery.configMapName -}}
+{{- end -}}
 {{- if and $cm $cm.data.mattermostSiteUrl -}}
 {{- $cm.data.mattermostSiteUrl -}}
-{{- else -}}
-{{- printf "https://%s" (include "acs-ai-overwatch.mattermostRouteHost" .) -}}
-{{- end -}}
+{{- else if .Values.mattermost.siteUrl -}}
+{{- .Values.mattermost.siteUrl -}}
 {{- else -}}
 {{- printf "https://%s" (include "acs-ai-overwatch.mattermostRouteHost" .) -}}
 {{- end -}}
