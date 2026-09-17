@@ -30,6 +30,7 @@ platformResources:
     llmInferenceService: llminferenceservices.serving.kserve.io
     ogxServer: ogxservers.ogx.io
     tektonPipeline: pipelines.tekton.dev
+    gateway: gateways.gateway.networking.k8s.io
 
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
@@ -351,6 +352,17 @@ rhoai:
         managementState: Removed
         argoWorkflowsControllers:
           managementState: Removed
+  # KServe LLMInferenceService router.gateway{} defaults to this Gateway.
+  # Workshop overlay: configs/04-rhoai-setup/03-inference-gateway.
+  inferenceGateway:
+    enabled: true
+    name: openshift-ai-inference
+    namespace: openshift-ingress
+    gatewayClassName: data-science-gateway-class
+    listenerName: http
+    port: 80
+    protocol: HTTP
+    routeLabel: inference.opendatahub.io/gateway-access
   dashboardConfig:
     enabled: true
     name: odh-dashboard-config

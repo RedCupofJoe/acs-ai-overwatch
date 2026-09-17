@@ -10,4 +10,7 @@ metadata:
     {{- include "gitops-bootstrap.labels" $ | nindent 4 }}
     argocd.argoproj.io/managed-by: {{ $managedBy | quote }}
     app.kubernetes.io/part-of: {{ $.Values.global.partOf }}
+    {{- if or (eq . "acs-investigator") (eq . "acs-maas") }}
+    inference.opendatahub.io/gateway-access: "true"
+    {{- end }}
 {{- end }}

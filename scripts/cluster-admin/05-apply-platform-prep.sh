@@ -293,6 +293,11 @@ else
   cluster_admin_info "Skipping workshop DataScienceCluster (Helm default-dsc is applied by Argo CD)."
 fi
 
+# LLMInferenceService router.gateway{} expects this Gateway (Helm also owns it).
+if [[ "${WITH_RHOAI_OPERATOR}" == true || "${WITH_CONNECTIVITY_LINK}" == true ]]; then
+  apply_overlay "${CONFIGS}/04-rhoai-setup/03-inference-gateway"
+fi
+
 cat <<EOF
 
 Platform prep finished (dry-run=${DRY_RUN}).

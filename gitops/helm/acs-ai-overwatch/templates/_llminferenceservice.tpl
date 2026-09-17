@@ -44,7 +44,8 @@ spec:
   router:
     route: {}
     gateway: {}
-    scheduler: {}
+    # Omit scheduler: {} — that injects llm-d EPP (InferencePool + extra image).
+    # Single-replica Gemma/Granite route HTTPRoute directly to the vLLM workload.
   template:
     {{- if $root.Values.accelerators.gpuTaintToleration.enabled }}
     tolerations:

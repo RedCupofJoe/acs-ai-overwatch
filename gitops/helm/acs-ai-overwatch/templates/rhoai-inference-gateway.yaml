@@ -1,0 +1,22 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.inferenceGateway.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.gateway)) }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.rhoai.inferenceGateway.name }}
+  namespace: {{ .Values.rhoai.inferenceGateway.namespace }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.rhoai.inferenceGateway.gatewayClassName }}
+  listeners:
+    - name: {{ .Values.rhoai.inferenceGateway.listenerName }}
+      port: {{ .Values.rhoai.inferenceGateway.port }}
+      protocol: {{ .Values.rhoai.inferenceGateway.protocol }}
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              {{ .Values.rhoai.inferenceGateway.routeLabel }}: "true"
+{{- end }}

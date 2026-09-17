@@ -7,6 +7,7 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     argocd.argoproj.io/managed-by: openshift-gitops
+    {{ .Values.rhoai.inferenceGateway.routeLabel }}: "true"
 ---
 {{- if .Values.investigator.ogx.postgres.enabled }}
 apiVersion: v1
