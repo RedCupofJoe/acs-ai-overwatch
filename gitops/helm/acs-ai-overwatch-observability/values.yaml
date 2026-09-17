@@ -20,7 +20,7 @@ argocd:
     bootstrap: "70"
 
 platformResources:
-  waitForCrds: true
+  waitForCrds: false
   crds:
     tempoMonolithic: tempomonoliths.tempo.grafana.com
     mlflow: mlflows.mlflow.opendatahub.io
@@ -44,6 +44,7 @@ tempo:
   operator:
     namespace: openshift-tempo-operator
     operatorGroupName: tempo-product
+    # AllNamespaces only — OwnNamespace fails the CSV (UnsupportedOperatorGroup).
     subscription:
       name: tempo-product
       channel: stable
