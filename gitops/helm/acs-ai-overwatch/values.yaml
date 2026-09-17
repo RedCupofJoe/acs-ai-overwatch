@@ -639,7 +639,8 @@ maas:
 builder:
   namespace: acs-agent-builder
   name: acs-agent-builder
-  servicePort: 8080
+  # Must not share 8080 with the llama.cpp sidecar (same pod network namespace).
+  servicePort: 8000
   gpuResource: nvidia.com/gpu
   gpuCount: "1"
 
