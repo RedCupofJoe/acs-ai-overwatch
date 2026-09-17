@@ -236,11 +236,15 @@ image-registry.openshift-image-registry.svc:5000/{{ .root.Values.builder.namespa
 http://127.0.0.1:{{ .Values.agents.llamaCpp.port }}/v1
 {{- end }}
 
+{{- define "acs-ai-overwatch.kserveWorkloadBase" -}}
+https://{{ .name }}-kserve-workload-svc.{{ .namespace }}.svc.cluster.local:{{ default "8000" .port }}
+{{- end }}
+
 {{- define "acs-ai-overwatch.investigatorLlmApiBase" -}}
 {{- if .Values.investigator.llm.apiBase -}}
 {{- .Values.investigator.llm.apiBase -}}
 {{- else if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.investigator.llm.backend) -}}
-http://{{ .Values.investigator.llm.name }}.{{ .Values.investigator.namespace }}.svc.cluster.local/v1
+{{ include "acs-ai-overwatch.kserveWorkloadBase" (dict "name" .Values.investigator.llm.name "namespace" .Values.investigator.namespace "port" .Values.investigator.llm.kserveWorkloadPort) }}/v1
 {{- else -}}
 http://{{ .Values.investigator.llm.name }}.{{ .Values.investigator.namespace }}.svc.cluster.local:{{ .Values.investigator.llm.servicePort }}/v1
 {{- end -}}
@@ -254,7 +258,7 @@ http://{{ .Values.maas.gatewayService }}.{{ .Values.maas.namespace }}.svc.cluste
 {{- if .Values.maas.llm.apiBase -}}
 {{- .Values.maas.llm.apiBase -}}
 {{- else if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.maas.llm.backend) -}}
-http://{{ .Values.maas.llm.name }}.{{ .Values.maas.namespace }}.svc.cluster.local
+{{ include "acs-ai-overwatch.kserveWorkloadBase" (dict "name" .Values.maas.llm.name "namespace" .Values.maas.namespace "port" .Values.maas.llm.kserveWorkloadPort) }}
 {{- else -}}
 http://{{ .Values.maas.llm.name }}.{{ .Values.maas.namespace }}.svc.cluster.local:{{ .Values.maas.llm.servicePort }}
 {{- end -}}
@@ -740,6 +744,27 @@ echo "ACS bootstrap complete."
 {{- else -}}
 {{- .Values.observability.otlp.endpoint -}}
 {{- end -}}
+{{- end }}
+
+{{- define "acs-ai-overwatch.dnsEgress" -}}
+- ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+- to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-dns
+  ports:
+    - protocol: UDP
+      port: 5353
+    - protocol: TCP
+      port: 5353
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
 {{- end }}
 
 {{- define "acs-ai-overwatch.otelEgress" -}}

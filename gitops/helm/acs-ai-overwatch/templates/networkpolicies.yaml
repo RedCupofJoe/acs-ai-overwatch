@@ -175,11 +175,7 @@ spec:
   egress:
     - to:
         - podSelector: {}
-    - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+    {{- include "acs-ai-overwatch.dnsEgress" . | nindent 4 }}
     - to:
         - namespaceSelector:
             matchLabels:
@@ -321,11 +317,9 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.builder.namespace }}
   egress:
-    - ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+    - to:
+        - podSelector: {}
+    {{- include "acs-ai-overwatch.dnsEgress" . | nindent 4 }}
     - ports:
         - protocol: TCP
           port: 443

@@ -251,6 +251,8 @@ spec:
               value: {{ .Values.investigator.servicePort | quote }}
             - name: LLM_API_BASE
               value: {{ include "acs-ai-overwatch.investigatorLlmApiBase" . | quote }}
+            - name: LLM_TLS_VERIFY
+              value: "false"
             - name: LLM_MODEL
               value: {{ .Values.investigator.llm.servedModelName | quote }}
             - name: BUILDER_URL

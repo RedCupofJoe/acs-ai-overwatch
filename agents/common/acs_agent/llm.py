@@ -23,6 +23,7 @@ def _llm_request_kwargs() -> dict[str, Any]:
 
 def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:
     trust_env = os.getenv("LLM_TRUST_PROXY", "").strip().lower() in {"1", "true", "yes"}
+    verify = os.getenv("LLM_TLS_VERIFY", "true").strip().lower() not in {"0", "false", "no"}
     headers = {}
     api_key = os.getenv("LLM_API_KEY", "").strip()
     if api_key:
@@ -30,6 +31,7 @@ def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=kwargs.pop("timeout", 180.0),
         trust_env=trust_env,
+        verify=verify,
         headers=headers or None,
         **kwargs,
     )

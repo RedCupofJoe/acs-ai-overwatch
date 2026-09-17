@@ -615,6 +615,8 @@ investigator:
     vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
     vllmModelPath: /mnt/models
     servicePort: 8080
+    # KServe ClusterIP {name}-kserve-workload-svc:8000 is HTTPS (self-signed).
+    kserveWorkloadPort: 8000
 
 # Models-as-a-Service: Granite 8B FP8 on the remaining dedicated L4 (namespace acs-maas).
 # Weights come from the OpenShift AI Model Catalog (ModelCar on registry.redhat.io), not Hugging Face.
@@ -646,6 +648,7 @@ maas:
     vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
     vllmModelPath: /mnt/models
     servicePort: 8080
+    kserveWorkloadPort: 8000
 
 # In-cluster agentic builder (OpenShift Pipelines + Buildah).
 builder:
