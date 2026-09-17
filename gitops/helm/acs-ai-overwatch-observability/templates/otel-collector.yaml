@@ -62,9 +62,10 @@ spec:
   template:
     metadata:
       labels:
+        {{- include "observability.labels" . | nindent 8 }}
+        # Must win over observability.labels' app.kubernetes.io/name (chart name).
         app.kubernetes.io/name: {{ .Values.otelCollector.name }}
         app.kubernetes.io/component: otel-collector
-        {{- include "observability.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ .Values.otelCollector.name }}
       containers:
