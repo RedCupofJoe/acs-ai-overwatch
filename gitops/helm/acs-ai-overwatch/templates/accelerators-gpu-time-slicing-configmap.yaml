@@ -14,6 +14,8 @@ data:
       migStrategy: {{ .Values.accelerators.timeSlicing.migStrategy }}
     sharing:
       timeSlicing:
+        # rename and devices are ignored by this GPU Operator device-plugin;
+        # keep renameByDefault false so Gemma/Granite can still request nvidia.com/gpu.
         renameByDefault: false
         failRequestsGreaterThanOne: false
         resources:

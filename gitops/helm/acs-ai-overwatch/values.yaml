@@ -76,8 +76,9 @@ cluster:
     instanceType: g6.12xlarge
     model: L4
     vendor: nvidia
-    # GPU 0 is time-sliced as nvidia.com/gpu.shared (Hank, Rosey, Sam, builder).
-    # GPU 1 and GPU 2 stay dedicated nvidia.com/gpu (investigator Gemma, MaaS Granite).
+    # Intended: GPU 0 time-sliced as nvidia.com/gpu.shared; GPU 1/2 dedicated.
+    # This GPU Operator device-plugin ignores timeSlicing rename + devices, so
+    # all 4 L4s become nvidia.com/gpu slices. Agents request nvidia.com/gpu.
     # GPU 3 is spare dedicated nvidia.com/gpu.
     sharedIndex: "0"
     sharedReplicas: 4
@@ -254,8 +255,10 @@ accelerators:
     # ConfigMap consumed by ClusterPolicy devicePlugin.config
     configMapName: time-slicing-config
     configKey: any
-    # Slice only GPU 0 on the single g6.12xlarge (4× L4). GPUs 1–3 stay nvidia.com/gpu.
-    # Do not use 3× g6.4xlarge: devices ["0"] would time-slice every node's only GPU.
+    # Intended: slice only GPU 0 as nvidia.com/gpu.shared. This k8s-device-plugin
+    # logs "Ignoring" for rename and devices, then slices every GPU as nvidia.com/gpu.
+    # Do not set renameByDefault: that would drop dedicated nvidia.com/gpu and
+    # unschedule Gemma/Granite. Agents therefore request nvidia.com/gpu.
     replicasPerGpu: 4
     devices:
       - "0"
@@ -364,7 +367,7 @@ rhoai:
         displayName: "L4 time-slice (shared MiniCPM agents)"
         gpu:
           displayName: "NVIDIA L4 shared (time-sliced)"
-          identifier: nvidia.com/gpu.shared
+          identifier: nvidia.com/gpu
           resourceType: Accelerator
           minCount: "1"
           maxCount: "4"
@@ -536,7 +539,7 @@ agents:
   agentServicePort: 8000
   gitRepoUrl: ""
   llamaCpp:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     imagePullPolicy: IfNotPresent
     port: 8080
     servedModelName: minicpm-abliterated
@@ -544,9 +547,11 @@ agents:
     contextSize: "4096"
   huggingface:
     modelRepo: tinyopsec/Huihui-MiniCPM5-2B-abliterated-GGUF
-    modelFile: ""
+    # Single quant (~1.5Gi). snapshot_download of the whole repo is ~20Gi and
+    # evicts pods (emptyDir models sizeLimit 8Gi).
+    modelFile: model_q4_k_m.gguf
     cacheMountPath: /models
-  gpuResource: nvidia.com/gpu.shared
+  gpuResource: nvidia.com/gpu
   gpuCount: "1"
   images:
     # Defaults below are rewritten at render time to the OpenShift internal
@@ -635,7 +640,7 @@ builder:
   namespace: acs-agent-builder
   name: acs-agent-builder
   servicePort: 8080
-  gpuResource: nvidia.com/gpu.shared
+  gpuResource: nvidia.com/gpu
   gpuCount: "1"
 
 # ACS (RHACS) policy/operator settings for test-range.

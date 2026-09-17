@@ -2,11 +2,11 @@
 # Install allowlisted recon tools for the Rosey Regrets lab image (UBI9).
 set -euo pipefail
 
-dnf install -y --setopt=install_weak_deps=0 \
-  nmap nmap-ncat traceroute bind-utils iproute tar gzip unzip curl \
-  || dnf install -y --setopt=install_weak_deps=0 \
-    nmap nmap-ncat traceroute bind-utils iproute tar gzip unzip curl \
-    --enablerepo='*'
+# UBI already ships curl-minimal (conflicts with curl), tar, gzip, unzip, iproute.
+# nmap / ncat / bind-utils / traceroute are optional; missing RPMs must not fail the image.
+set +e
+dnf install -y --setopt=install_weak_deps=0 nmap nmap-ncat bind-utils traceroute
+set -e
 
 install_github_bin() {
   local url="$1"

@@ -23,4 +23,4 @@ RUN chmod 0755 /usr/local/bin/install-agent-runtime /usr/local/bin/agent-entrypo
 
 USER 1001
 ENTRYPOINT ["/usr/local/bin/agent-entrypoint"]
-CMD ["python3", "-m", "acs_agent.investigator"]
+CMD ["/opt/app-root/bin/python3", "-m", "acs_agent.investigator"]
