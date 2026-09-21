@@ -1,4 +1,4 @@
-"""FastAPI open-harness runtime for ACS AI Overwatch agents (no Kagenti, no OpenShell)."""
+"""FastAPI agent runtime for ACS AI Overwatch (rogue: UBI open harness; remediations: OpenShell)."""
 
 from __future__ import annotations
 
@@ -57,10 +57,16 @@ class OpenAIChatRequest(BaseModel):
 
 
 def load_system_prompt() -> str:
-    path = os.getenv("AGENT_SYSTEM_PROMPT_FILE", "/etc/acs-agent/system_prompt.txt")
-    prompt_path = Path(path)
-    if prompt_path.is_file():
-        return prompt_path.read_text(encoding="utf-8").strip()
+    candidates = [
+        os.getenv("AGENT_SYSTEM_PROMPT_FILE", ""),
+        os.getenv("OPENSHELL_SYSTEM_PROMPT_FILE", ""),
+        "/etc/openshell/agent/system_prompt.txt",
+        "/etc/acs-agent/system_prompt.txt",
+    ]
+    for path in candidates:
+        prompt_path = Path(path)
+        if path and prompt_path.is_file():
+            return prompt_path.read_text(encoding="utf-8").strip()
     return "You are an ACS AI Overwatch evaluation agent."
 
 

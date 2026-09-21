@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install shared FastAPI agent runtime (open harness — no Kagenti / OpenShell).
+# Install shared FastAPI agent runtime (UBI open harness or OpenShell sandbox venv).
 set -euo pipefail
 
 PYTHON="${1:-python3}"

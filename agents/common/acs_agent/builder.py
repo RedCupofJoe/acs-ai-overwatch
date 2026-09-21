@@ -96,7 +96,7 @@ async def start_buildconfig(dest: str) -> dict[str, Any]:
 def _remediated_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
     namespace = os.getenv("TEST_RANGE_NAMESPACE", "test-range")
     port = int(os.getenv("AGENTS_SERVICE_PORT", "8000"))
-    sa = os.getenv("AGENT_SA", "acs-agent")
+    sa = os.getenv("AGENT_SA", "openshell")
     image = _runtime_image(dest)
     labels = {
         "app.kubernetes.io/name": dest,
@@ -104,6 +104,7 @@ def _remediated_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
         "app.kubernetes.io/part-of": "acs-ai-overwatch",
         "acs-ai-overwatch.io/remediated": "true",
         "acs-ai-overwatch.io/telemetry": "enabled",
+        "acs-ai-overwatch.io/runtime": "openshell",
     }
     deployment = {
         "apiVersion": "apps/v1",
@@ -126,6 +127,14 @@ def _remediated_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
                                 {"name": "PORT", "value": str(port)},
                                 {"name": "AGENT_ROLE", "value": dest},
                                 {"name": "AGENT_ENABLE_NETWORK_AUDIT", "value": "false"},
+                                {
+                                    "name": "AGENT_SYSTEM_PROMPT_FILE",
+                                    "value": "/etc/openshell/agent/system_prompt.txt",
+                                },
+                                {
+                                    "name": "OPENSHELL_SYSTEM_PROMPT_FILE",
+                                    "value": "/etc/openshell/agent/system_prompt.txt",
+                                },
                                 {
                                     "name": "LLM_API_BASE",
                                     "value": os.getenv("MAAS_API_BASE", ""),

@@ -551,6 +551,8 @@ agents:
   namespace: test-range
   serviceAccountName: acs-agent
   roseyServiceAccountName: acs-agent-rosey
+  # Privileged OpenShell sandbox SA for Compliant Chris (day one) and ACS remediations.
+  openShellServiceAccountName: openshell
   agentServicePort: 8000
   gitRepoUrl: ""
   llamaCpp:

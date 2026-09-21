@@ -168,7 +168,7 @@ spec:
             - name: AGENTS_SERVICE_PORT
               value: {{ .Values.agents.agentServicePort | quote }}
             - name: AGENT_SA
-              value: {{ .Values.agents.serviceAccountName | quote }}
+              value: {{ .Values.agents.openShellServiceAccountName | quote }}
             {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "acs-agent-builder") | nindent 12 }}
           ports:
             - name: http

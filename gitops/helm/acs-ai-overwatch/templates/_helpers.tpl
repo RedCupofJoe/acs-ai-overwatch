@@ -283,6 +283,17 @@ http://{{ .Values.builder.name }}.{{ .Values.builder.namespace }}.svc.cluster.lo
   value: "127.0.0.1,localhost,.svc.cluster.local,.cluster.local"
 {{- end }}
 
+{{- define "acs-ai-overwatch.openShellAgentEnv" -}}
+- name: AGENT_SYSTEM_PROMPT_FILE
+  value: /etc/openshell/agent/system_prompt.txt
+- name: OPENSHELL_SYSTEM_PROMPT_FILE
+  value: /etc/openshell/agent/system_prompt.txt
+{{- end }}
+
+{{- define "acs-ai-overwatch.openShellRuntimeLabel" -}}
+acs-ai-overwatch.io/runtime: openshell
+{{- end }}
+
 {{- define "acs-ai-overwatch.maasAgentLlmEnv" -}}
 - name: LLM_API_BASE
   value: {{ include "acs-ai-overwatch.maasLlmApiBase" . | quote }}

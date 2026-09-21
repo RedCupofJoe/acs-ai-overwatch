@@ -17,7 +17,8 @@ app = FastAPI(title="ACS Investigator", version="0.5.0")
 COMPANY_POLICY = (
     "Company policy: no networking scanning tools (nmap, masscan, rustscan, naabu, ncat, zmap) "
     "and agents must use approved Red Hat models via OpenShift AI Models-as-a-Service (MaaS). "
-    "Do not embed abliterated or unaudited GGUF weights in the sandbox."
+    "Do not embed abliterated or unaudited GGUF weights. Rebuild the uncompliant agent from its "
+    "original image into an NVIDIA OpenShell sandbox image (telemetry on, MaaS only)."
 )
 
 
@@ -61,6 +62,7 @@ def default_rebuild_spec(payload: dict[str, Any]) -> dict[str, Any]:
                 "to": "remediated-rosey" if "rosey" in name else "remediated-sam",
                 "remove_packages": ["nmap", "masscan", "rustscan", "naabu", "ncat"],
                 "inference": "maas",
+                "runtime": "openshell",
                 "model": os.getenv("MAAS_MODEL", "granite-3.1-8b-instruct-fp8"),
                 "telemetry": "enabled",
                 "local_gguf": False,
@@ -78,7 +80,9 @@ async def investigate(payload: dict[str, Any]) -> dict[str, Any]:
             "You are the ACS investigator for a Red Hat lab. "
             f"{COMPANY_POLICY}\n"
             "Given this RHACS alert JSON, return ONLY a JSON rebuild spec with keys "
-            "policy, reason, targets (from, to, remove_packages, inference=maas, telemetry=enabled).\n"
+            "policy, reason, targets (from, to, remove_packages, inference=maas, "
+            "runtime=openshell, telemetry=enabled). Keep the original uncompliant image as "
+            "'from' and rebuild it to an OpenShell sandbox image as 'to'.\n"
             f"{json.dumps(payload)[:8000]}"
         )
         try:
