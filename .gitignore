@@ -1,3 +1,5 @@
 scratch/
+.venv-chris/
+**/__pycache__/
 
 # gitops/helm/acs-ai-overwatch/values-cluster.yaml

@@ -8,6 +8,7 @@
   (dict "name" "acs-agent-builder" "dockerfile" "agents/builder/Dockerfile")
   (dict "name" "remediated-rosey" "dockerfile" "agents/remediated-rosey/Dockerfile")
   (dict "name" "remediated-sam" "dockerfile" "agents/remediated-sam/Dockerfile")
+  (dict "name" "compliant-chris" "dockerfile" "agents/compliant-chris/Dockerfile")
 }}
 ---
 apiVersion: image.openshift.io/v1

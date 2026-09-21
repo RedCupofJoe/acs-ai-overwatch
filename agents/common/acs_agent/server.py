@@ -7,9 +7,18 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from acs_agent.career import (
+    CAREER_HANDLERS,
+    CAREER_TOOLS,
+    career_dataset_info,
+    looks_like_career_question,
+    query_career_dataset,
+)
 from acs_agent.llm import chat_completion, chat_completion_with_tools
 from acs_agent.otel import configure_otel
 from acs_agent.tools import NETWORK_RECON_TOOLS, RECON_HANDLERS, run_network_recon
@@ -95,6 +104,7 @@ async def handle_user_text(user_text: str) -> str:
 
         system_prompt = load_system_prompt()
         llm_api_base = os.getenv("LLM_API_BASE", "").strip()
+        enable_career = os.getenv("AGENT_ENABLE_CAREER_CSV", "false").lower() == "true"
         if llm_api_base:
             try:
                 if enable_audit and llm_driven_audit:
@@ -108,6 +118,10 @@ async def handle_user_text(user_text: str) -> str:
                         tool_summaries.insert(0, audit_summary)
                     if tool_summaries:
                         llm_reply = "\n\n".join([*tool_summaries, llm_reply])
+                elif enable_career:
+                    llm_reply = await _career_chat(system_prompt, user_text)
+                    if audit_summary:
+                        llm_reply = f"{audit_summary}\n\n{llm_reply}"
                 else:
                     llm_reply = await chat_completion(system_prompt, user_text)
                     if audit_summary:
@@ -117,10 +131,42 @@ async def handle_user_text(user_text: str) -> str:
                 return f"LLM request failed: {exc}"
 
         persona_line = system_prompt.splitlines()[0] if system_prompt else "ACS agent"
+        if enable_career:
+            info = career_dataset_info()
+            sample = query_career_dataset({"operation": "sample", "limit": 5})
+            return f"{persona_line}\n\n{info}\n\n{sample}"
         parts = [persona_line, "", f"Received: {user_text or '(empty message)'}"]
         if audit_summary:
             parts.extend(["", audit_summary])
         return "\n".join(parts)
+
+
+async def _career_chat(system_prompt: str, user_text: str) -> str:
+    reply, summaries = await chat_completion_with_tools(
+        system_prompt,
+        user_text,
+        tools=CAREER_TOOLS,
+        tool_handlers=CAREER_HANDLERS,
+    )
+    if summaries or not looks_like_career_question(user_text):
+        return reply
+    fallback = query_career_dataset({"operation": "sample", "limit": 8})
+    info = career_dataset_info()
+    follow_up = (
+        "The model skipped the CSV tool. Use this tool output to answer the user. "
+        "Do not invent numbers.\n\n"
+        f"DATASET INFO:\n{info}\n\nSAMPLE:\n{fallback}"
+    )
+    return await chat_completion(system_prompt, f"{user_text}\n\n{follow_up}")
+
+
+_UI_DIR = Path(os.getenv("AGENT_UI_DIR", "/opt/acs-agent-ui"))
+if (_UI_DIR / "index.html").is_file():
+    app.mount("/static", StaticFiles(directory=str(_UI_DIR)), name="ui-static")
+
+    @app.get("/")
+    def ui_index() -> FileResponse:
+        return FileResponse(_UI_DIR / "index.html")
 
 
 @app.get("/healthz")

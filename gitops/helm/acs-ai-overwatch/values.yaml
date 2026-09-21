@@ -446,6 +446,8 @@ components:
     enabled: false
   agentsSneakySam:
     enabled: false
+  agentsCompliantChris:
+    enabled: false
   investigator:
     enabled: false
   maas:
@@ -577,6 +579,7 @@ agents:
     builder: quay-quay-app.quay.svc.cluster.local:80/acs-agents/acs-agent-builder:latest
     remediatedRosey: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-rosey:latest
     remediatedSam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-sam:latest
+    compliantChris: quay-quay-app.quay.svc.cluster.local:80/acs-agents/compliant-chris:latest
   rosey:
     networkAuditCommand: "Network Audit"
     outputMountPath: /agent-reference-information

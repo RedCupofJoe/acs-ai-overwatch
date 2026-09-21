@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compliant Chris</title>
+  <style>
+    :root {
+      --bg: #0b1215;
+      --panel: #121c21;
+      --ink: #e8eef2;
+      --muted: #8aa0ab;
+      --line: #24343b;
+      --acs: #c9190b;
+      --ok: #3dcc87;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 500px at 10% -10%, #1a2a22 0%, var(--bg) 55%);
+      color: var(--ink);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: baseline;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--line);
+      background: #0e1619;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.82rem; }
+    .badge {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ok);
+      border: 1px solid #245c40;
+      padding: 0.25rem 0.5rem;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      min-height: 0;
+    }
+    #log {
+      overflow: auto;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .msg {
+      max-width: 46rem;
+      padding: 0.75rem 0.9rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 0.95rem;
+    }
+    .msg.user { border-left: 3px solid var(--acs); }
+    .msg.agent { border-left: 3px solid var(--ok); }
+    .msg .who {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    aside {
+      border-left: 1px solid var(--line);
+      padding: 1rem;
+      background: #0e1619;
+      overflow: auto;
+    }
+    aside h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+    }
+    button.prompt {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin: 0 0 0.45rem;
+      padding: 0.55rem 0.65rem;
+      background: var(--panel);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.82rem;
+    }
+    button.prompt:hover { border-color: #4a6670; }
+    aside .note { color: var(--muted); font-size: 0.75rem; line-height: 1.4; margin-top: 1rem; }
+    aside a { color: #8ec8ff; }
+    form {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.85rem 1.25rem 1.1rem;
+      border-top: 1px solid var(--line);
+      background: #0e1619;
+    }
+    input[type="text"] {
+      flex: 1;
+      background: var(--panel);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0.7rem 0.8rem;
+      font: inherit;
+    }
+    input[type="text"]:focus { outline: 1px solid #4a6670; }
+    button.send {
+      background: var(--acs);
+      color: white;
+      border: 0;
+      border-radius: 4px;
+      padding: 0 1.1rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.send:disabled { opacity: 0.5; cursor: wait; }
+    @media (max-width: 840px) {
+      main { grid-template-columns: 1fr; }
+      aside { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Compliant Chris</h1>
+      <p>Approved MaaS agent · student placement CSV</p>
+    </div>
+    <span class="badge">telemetry on</span>
+  </header>
+  <main>
+    <section id="log" aria-live="polite"></section>
+    <aside>
+      <h2>Ask</h2>
+      <button class="prompt" type="button" data-q="What share of students were placed?">Placement rate</button>
+      <button class="prompt" type="button" data-q="Average salary_lpa by branch for students with placed=1">Salary by branch</button>
+      <button class="prompt" type="button" data-q="Compare placement rate for internships=0 versus internships greater than 0">Internships vs none</button>
+      <button class="prompt" type="button" data-q="Look up student S0 and summarize their profile">Lookup S0</button>
+      <p class="note">
+        Tool calls query
+        <a href="https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction">maxfactor71/student.placement.salary.prediction</a>
+        on Hugging Face (9,000 campus placement rows). Inference is Granite via OpenShift AI MaaS.
+      </p>
+    </aside>
+  </main>
+  <form id="ask">
+    <input id="q" type="text" autocomplete="off" placeholder="Ask about placement, branch, salary…">
+    <button class="send" type="submit">Send</button>
+  </form>
+  <script>
+    const log = document.getElementById("log");
+    const form = document.getElementById("ask");
+    const input = document.getElementById("q");
+    const send = form.querySelector(".send");
+
+    function add(role, text) {
+      const el = document.createElement("article");
+      el.className = "msg " + role;
+      el.innerHTML = '<div class="who">' + (role === "user" ? "You" : "Chris") + "</div>";
+      el.append(document.createTextNode(text));
+      log.appendChild(el);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    add("agent", "I only use the approved MaaS model and the placement CSV tool. Ask about placement, branch, or salary — or pick a prompt on the right.");
+
+    async function ask(text) {
+      const message = (text || "").trim();
+      if (!message) return;
+      add("user", message);
+      send.disabled = true;
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        add("agent", data.reply || "(empty reply)");
+      } catch (err) {
+        add("agent", "Request failed: " + err);
+      } finally {
+        send.disabled = false;
+        input.focus();
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = input.value;
+      input.value = "";
+      ask(value);
+    });
+    document.querySelectorAll("button.prompt").forEach((btn) => {
+      btn.addEventListener("click", () => ask(btn.dataset.q));
+    });
+  </script>
+</body>
+</html>

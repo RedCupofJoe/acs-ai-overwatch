@@ -1,4 +1,4 @@
-{{- if or .Values.components.maas.enabled .Values.components.remediatedRosey.enabled .Values.components.remediatedSam.enabled .Values.components.agentBuilder.enabled }}
+{{- if or .Values.components.maas.enabled .Values.components.remediatedRosey.enabled .Values.components.remediatedSam.enabled .Values.components.agentBuilder.enabled .Values.components.agentsCompliantChris.enabled }}
 apiVersion: v1
 kind: Secret
 metadata:

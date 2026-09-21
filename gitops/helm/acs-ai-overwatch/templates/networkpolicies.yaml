@@ -127,6 +127,26 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.maas.namespace }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-range-maas-clients
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      acs-ai-overwatch.io/maas-client: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.maas.namespace }}
 {{- end }}
 ---
 {{- if and .Values.components.investigator.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
@@ -312,6 +332,13 @@ spec:
           podSelector:
             matchLabels:
               acs-ai-overwatch.io/remediated: "true"
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agents.namespace }}
+          podSelector:
+            matchLabels:
+              acs-ai-overwatch.io/maas-client: "true"
     - from:
         - namespaceSelector:
             matchLabels:

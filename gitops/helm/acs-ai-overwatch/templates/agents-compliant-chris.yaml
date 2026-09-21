@@ -1,0 +1,86 @@
+{{- if and .Values.components.agentsCompliantChris.enabled (include "acs-ai-overwatch.clusterConfigReady" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliant-chris
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: compliant-chris
+    acs-ai-overwatch.io/maas-client: "true"
+    {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: compliant-chris
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: compliant-chris
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        acs-ai-overwatch.io/maas-client: "true"
+        {{- include "acs-ai-overwatch.agentTelemetryLabel" (dict "root" . "compliant" true) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      containers:
+        - name: compliant-chris
+          image: {{ include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "compliant-chris" "explicit" .Values.agents.images.compliantChris) }}
+          imagePullPolicy: Always
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.agents.agentServicePort | quote }}
+            - name: AGENT_ROLE
+              value: compliant-chris
+            - name: AGENT_ENABLE_NETWORK_AUDIT
+              value: "false"
+            - name: AGENT_ENABLE_CAREER_CSV
+              value: "true"
+            - name: AGENT_UI_DIR
+              value: /opt/acs-agent-ui
+            - name: CAREER_CSV_PATH
+              value: /opt/acs-agent/data/student_placement.csv
+            - name: CAREER_CSV_SOURCE
+              value: "https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction"
+            {{- include "acs-ai-overwatch.maasAgentLlmEnv" . | nindent 12 }}
+            {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "compliant-chris") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.agentServicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliant-chris
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    app.kubernetes.io/name: compliant-chris
+spec:
+  selector:
+    app.kubernetes.io/name: compliant-chris
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.agentServicePort }}
+---
+{{- include "acs-ai-overwatch.agentRoute" (dict "root" . "name" "compliant-chris") }}
+{{- end }}

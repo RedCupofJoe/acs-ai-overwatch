@@ -1,22 +1,37 @@
 # ACS AI Overwatch
 
-**ACS AI Overwatch** is a GitOps repository for an OpenShift Proof of Concept that combines:
+**ACS AI Overwatch** is a **security demonstration** on OpenShift: **Red Hat Advanced Cluster Security (ACS / RHACS)** finds and tracks **shadow AI agents and workloads**, then an in-cluster rebuild pipeline turns those agents into **compliant** ones.
+
+Shadow Agentic IT is the same problem as shadow IT, applied to agents. Teams stand up unsanctioned chatbots and tool-using pods—often with unapproved models, no telemetry, and extra capabilities (scanners, host networking, missing labels). Platform and security teams need to **see** those workloads, **alert** humans, and **replace** them with agents that use approved Models-as-a-Service (MaaS), emit telemetry, and drop recon tools.
+
+This GitOps repository shows that loop end to end:
+
+| Stage | What happens |
+|-------|----------------|
+| **Plant shadow agents** | Helpful Hank (benign), **Rosey Regrets** (recon tools + local MiniCPM GGUF), **Sneaky Sam** (no telemetry label) in `test-range` |
+| **Track with RHACS** | Runtime policy on recon processes (`nmap`, `masscan`, `rustscan`, `naabu`, …); deploy-time policy requiring `acs-ai-overwatch.io/telemetry=enabled` |
+| **Notify** | RHACS notifier → Mattermost Town Square (human-in-the-loop) and the ACS investigator |
+| **Investigate** | Gemma 2 9B (OpenShift AI Model Catalog) writes a rebuild spec: no scanners, approved Granite via MaaS |
+| **Rebuild** | Agentic builder starts OpenShift **BuildConfigs** for **Remediated Rosey** and **Remediated Sam**; they roll out with telemetry on and no GGUF sidecar |
+| **Approved greenfield** | **Compliant Chris** — already on MaaS Granite, telemetry on, a simple chat UI, and an allowlisted tool against a Hugging Face campus-placement CSV |
+
+The stack underneath that story:
 
 - **Red Hat OpenShift 4.20** and **OpenShift AI 3.5** (`stable-3.5`) with OGX and Models-as-a-Service
-- **Red Hat Advanced Cluster Security (ACS / RHACS)** for runtime and deploy-time policy
+- **RHACS** for runtime and deploy-time `SecurityPolicy` CRs (GitOps)
 - **UBI + llama.cpp** open harness for rogue agents (no NVIDIA OpenShell, no Kagenti)
-- **Mattermost** as a Slack-compatible notification sink for ACS violations
-- **Quay** as the on-cluster container registry for agent images
-- **Tekton (OpenShift Pipelines)** for in-cluster agent builds, including automatic remediation
+- **Mattermost** as the Slack-compatible sink for ACS violations
+- **OpenShift internal registry ImageStreams** (and optional Quay) for agent images
+- **OpenShift BuildConfigs** for compliant rebuilds (Tekton Tasks remain in-tree; privileged buildah PipelineRuns are not the live remediation path)
 
-The repository is designed to be deployed through **OpenShift GitOps (Argo CD)** using:
+Deploy through **OpenShift GitOps (Argo CD)**:
 
 1. **`acs-ai-overwatch-gitops-bootstrap`** — namespaces with `argocd.argoproj.io/managed-by`
 2. **`acs-ai-overwatch-cluster-discovery`** — in-cluster Job writes cluster settings to a ConfigMap
 3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
 4. **`acs-ai-overwatch-observability`** — OTEL collector → Tempo + MLflow + Grafana (on by default)
 
-Kagenti and NVIDIA OpenShell are **removed**. Agents are plain OpenShift Deployments. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift Pipelines.
+Kagenti and NVIDIA OpenShell are **removed**. Agents are plain OpenShift Deployments. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift builds.
 
 ### Quick Start
 
@@ -49,15 +64,15 @@ oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
 oc annotate application acs-ai-overwatch -n openshift-gitops \
   argocd.argoproj.io/refresh=hard --overwrite
 
-# 6. After OpenShift Pipelines CSV is Succeeded, push agent images.
-#    GitOps already installs the operator (values-poc components.pipelines) and applies
-#    Task/Pipeline CRs. PipelineRuns are not GitOps — you create them. Until images
-#    exist in Quay, Hank/Rosey/Sam/investigator/builder stay ImagePullBackOff.
-oc create secret docker-registry quay-build-robot -n acs-agent-builder \
-  --docker-server=quay-quay-app.quay.svc.cluster.local:80 \
-  --docker-username=<robot-account> --docker-password=<token>
-# Edit git-url in the PipelineRun if this repo is a fork, then:
-oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml
+# 6. After OpenShift Pipelines CSV is Succeeded, build agent images with BuildConfigs
+#    (ImageStreams in acs-agent-builder). Until images exist, Hank/Rosey/Sam/
+#    investigator/builder stay ImagePullBackOff. From the repo root:
+oc start-build helpful-hank --from-dir=. --follow -n acs-agent-builder
+oc start-build rosey-regrets --from-dir=. --follow -n acs-agent-builder
+oc start-build sneaky-sam --from-dir=. --follow -n acs-agent-builder
+oc start-build acs-investigator --from-dir=. --follow -n acs-agent-builder
+oc start-build acs-agent-builder --from-dir=. --follow -n acs-agent-builder
+oc start-build compliant-chris --from-dir=. --follow -n acs-agent-builder
 
 # 7. values-poc.yaml already enables RHACS Central, Hank/Rosey/Sam, investigator, MaaS, builder
 # 8. Mattermost login + RHACS notifier — see Mattermost & RHACS notifications
@@ -96,7 +111,7 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 10. [Deployment Methods](#deployment-methods)
 11. [AI Agents](#ai-agents)
 12. [ACS / RHACS Security](#acs--rhacs-security)
-13. [Tekton Image Build Pipeline](#tekton-image-build-pipeline)
+13. [Compliant rebuild pipeline](#compliant-rebuild-pipeline)
 14. [Step-by-step deployment](#step-by-step-deployment)
 15. [Namespaces and Resource Map](#namespaces-and-resource-map)
 16. [Troubleshooting](#troubleshooting)
@@ -107,21 +122,31 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 
 ## Solution Overview
 
-This PoC demonstrates how a platform team can:
+This PoC is a security demo of **shadow Agentic IT**. RHACS is the control plane that **tracks** unsanctioned agents and workloads; the builder is the **pipeline** that turns a violation into a compliant Deployment.
 
-1. Provision **OpenShift AI 3.5** on **one AWS `g6.12xlarge`** (**4× NVIDIA L4** on a single node)
-2. Deploy contrasting agents on a **time-sliced L4** (`nvidia.com/gpu.shared`):
-   - **Helpful Hank** — standard technical assistant
-   - **Rosey Regrets** — misaligned recon agent (nmap, masscan, rustscan, naabu, dig)
-   - **Sneaky Sam** — telemetry-evading agent (DEPLOY policy demo)
-   - **Agentic builder** — OpenShift Pipelines client that rebuilds compliant images
-3. Run **Gemma 2 9B Instruct FP8** from the **OpenShift AI Model Catalog** (ModelCar) on a **dedicated L4** as the ACS investigator (`acs-investigator`)
-4. Publish **Granite 3.1 8B Instruct FP8** from the **OpenShift AI Model Catalog** (ModelCar) on the remaining **dedicated L4** as **MaaS** (`acs-maas`)
-5. Enforce **runtime guardrails** (recon processes) and **telemetry labels** with RHACS
-6. Route violations to **Mattermost** and **fan out** to the investigator
-7. Automatically rebuild **Remediated Rosey** and **Remediated Sam** (no scanners, approved Red Hat model via MaaS)
+### What “shadow AI” looks like here
 
-**Demo loop** (scan → alert → investigate → rebuild):
+| Workload | Shadow behavior | What RHACS sees |
+|----------|-----------------|-----------------|
+| **Helpful Hank** | Approved-looking assistant, but still a local unaudited MiniCPM GGUF | Has `acs-ai-overwatch.io/telemetry=enabled`; no recon processes |
+| **Rosey Regrets** | Same GGUF **plus** nmap/masscan/rustscan/naabu | Runtime policy `test-range-runtime-guardrails` (alert-only) |
+| **Sneaky Sam** | Same GGUF, **omits** the telemetry label | Deploy policy `test-range-sneaky-sam-telemetry-violation` (alert-only) |
+| **Remediated Rosey / Sam** | No scanners, no GGUF, Granite via MaaS, telemetry on | Compliant — the intended end state after ACS + rebuild |
+| **Compliant Chris** | Greenfield approved agent: MaaS only, telemetry on, Hugging Face placement CSV tool + UI | Nothing — the control case RHACS should stay quiet on |
+
+RHACS does **not** kill Rosey mid-demo. Enforcement is alert-only so the operator can watch Town Square, the investigator, and the rebuild. Admission can still **block** other agents that lack the telemetry label (`test-range-agent-telemetry-required`).
+
+### What the platform team provisions
+
+1. **OpenShift AI 3.5** on **one AWS `g6.12xlarge`** (**4× NVIDIA L4** on a single node)
+2. Contrasting agents on a **time-sliced L4** (`nvidia.com/gpu.shared`): Hank, Rosey, Sam, plus the **agentic builder**. **Compliant Chris** is CPU-only and talks to MaaS (no GPU, no GGUF).
+3. **Gemma 2 9B Instruct FP8** (Model Catalog ModelCar) on a **dedicated L4** as the ACS investigator (`acs-investigator`)
+4. **Granite 3.1 8B Instruct FP8** (Model Catalog ModelCar) on the remaining **dedicated L4** as **MaaS** (`acs-maas`)
+5. **RHACS** runtime + deploy `SecurityPolicy` CRs scoped to `test-range`
+6. **Mattermost** + webhook bridge (fan-out to the investigator)
+7. **BuildConfigs** that produce Remediated Rosey/Sam (no scanners, approved Red Hat model via MaaS)
+
+**Demo loop** (shadow agent → ACS track → alert → investigate → compliant rebuild):
 
 ```
 Operator POST /chat "Network Audit" to rosey-regrets
@@ -140,7 +165,7 @@ RHACS generic notifier → acs-mattermost-bridge → Mattermost Town Square
 Gemma 2 9B investigator writes a rebuild spec (no scanners, use MaaS Granite)
         │
         ▼
-Agentic builder creates Tekton PipelineRuns in acs-agent-builder
+Agentic builder instantiates BuildConfigs in acs-agent-builder
         │
         ▼
 Remediated Rosey + Remediated Sam roll out in test-range (telemetry on, MaaS only)
@@ -214,9 +239,18 @@ flowchart TB
     RSam --> Granite
   end
 
-  subgraph Security["RHACS"]
-    Policy["Runtime plus telemetry policies"]
-    Policy --> Mattermost
+  subgraph Approved["Approved"]
+    Chris["compliant-chris UI plus CSV tools"]
+    Chris --> Granite
+  end
+
+  subgraph Security["RHACS tracking"]
+    Policy["Runtime recon plus telemetry policies"]
+    Viol["Violations in test-range"]
+    MM["Mattermost Town Square"]
+    Policy --> Viol
+    Viol --> MM
+    Viol --> Inv
   end
 ```
 
@@ -224,15 +258,15 @@ flowchart TB
 
 | Namespace | Role |
 |---|---|
-| `test-range` | Rogue and remediated agents |
+| `test-range` | Rogue, remediated, and approved agents (Hank/Rosey/Sam, Remediated *, Compliant Chris) |
 | `acs-investigator` | Gemma investigator + OGX |
-| `acs-agent-builder` | Agentic builder + Tekton |
+| `acs-agent-builder` | Agentic builder + BuildConfigs / ImageStreams |
 | `acs-maas` | Granite MaaS gateway |
 | `monitoring` | Mattermost + ACS webhook bridge |
-| `quay` | On-cluster registry |
-| `stackrox` | RHACS Central |
+| `quay` | Optional on-cluster registry |
+| `stackrox` | RHACS Central (inventory of violations) |
 
-NetworkPolicies: rogue agents cannot call MaaS; remediated pods (`acs-ai-overwatch.io/remediated=true`) can. Investigator accepts ACS fan-out from `monitoring`. Builder accepts rebuild specs from the investigator.
+NetworkPolicies: rogue agents cannot call MaaS; remediated pods (`acs-ai-overwatch.io/remediated=true`) and **Compliant Chris** (`acs-ai-overwatch.io/maas-client=true`) can. Investigator accepts ACS fan-out from `monitoring`. Builder accepts rebuild specs from the investigator. RHACS policies are the **tracker**; NetworkPolicies are the **containment** layer.
 
 ## Repository Layout
 
@@ -249,6 +283,7 @@ acs-ai-overwatch/
 │   ├── builder/                       # OpenShift Pipelines agentic builder
 │   ├── remediated-rosey/              # MaaS, no scanners
 │   ├── remediated-sam/                # MaaS + telemetry
+│   ├── compliant-chris/               # MaaS + Hugging Face placement CSV UI
 │   └── scripts/                       # pull-model, install-agent-runtime, recon tools
 ├── configs/                           # Vendored workshop kustomize (pre-GitOps GPU/NFD)
 │   ├── 00-cluster-setup/05-aws-gpu-machineset/
@@ -330,7 +365,7 @@ oc get pipeline,task -n acs-agent-builder
 
 **Fallback** if the GitOps Subscription is not used (`components.pipelines.enabled: false`): install from OperatorHub, then `oc apply -n acs-agent-builder -f pipelines/tekton/agents-build-pipeline.yaml`.
 
-See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) for the Quay secret and PipelineRun.
+See [Compliant rebuild pipeline](#compliant-rebuild-pipeline) for BuildConfigs (live path) and optional Tekton.
 
 ### Kueue (not required)
 
@@ -428,7 +463,7 @@ Compliant agents (Hank, Rosey) carry `acs-ai-overwatch.io/telemetry: enabled`. *
 
 To notify without blocking admission, set `agentTelemetryPolicy.rhacs.enforcementActions: []` in values.
 
-See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](#ai-agents).
+See [Compliant rebuild pipeline](#compliant-rebuild-pipeline) and [AI Agents](#ai-agents).
 
 #### Manual steps (if necessary)
 
@@ -436,7 +471,7 @@ See [Tekton Image Build Pipeline](#tekton-image-build-pipeline) and [AI Agents](
 |------|--------|
 | Before Tekton builds | Wait for the GitOps Pipelines Subscription (`components.pipelines.enabled`) to reach CSV **Succeeded** |
 | Using in-cluster Quay | `quayStorage.enabled: true` in `values-poc.yaml`; set registry password; wait for QuayRegistry Ready |
-| Building images | Create `quay-build-robot` in `acs-agent-builder`, then `oc create -n acs-agent-builder -f pipelines/tekton/agents-build-pipelinerun.yaml` (edit `git-url` for a fork) |
+| Building images | `oc start-build <name> --from-dir=. --follow -n acs-agent-builder` (BuildConfigs). Optional Tekton PipelineRun still needs `quay-build-robot` and privileged SCC |
 | Before agent pods become Ready | Images must exist in Quay; Deployments are already enabled in the PoC overlay |
 | Rosey “Network Audit” demo | `POST /chat` with `{"message":"Network Audit"}` (see [PoC Demo Walkthrough](#poc-demo-walkthrough-after-setup)) |
 | Sneaky Sam telemetry demo | Already enabled in `values-poc.yaml`; Mattermost alert needs Phase 3 SecuredCluster + notifier |
@@ -1203,6 +1238,7 @@ Base `values.yaml` vs PoC overlay `values-poc.yaml` (Argo merges overlay last):
 | `components.agentsHelpfulHank` | `true` | `true` | `helpful-hank` |
 | `components.agentsRoseyRegrets` | `false` | `true` | `rosey-regrets` |
 | `components.agentsSneakySam` | `false` | `true` | `sneaky-sam` (telemetry violator) |
+| `components.agentsCompliantChris` | `false` | `true` | `compliant-chris` (MaaS + placement CSV UI) |
 | `components.investigator` | `false` | `true` | Gemma investigator + OGX |
 | `components.maas` | `false` | `true` | Granite MaaS gateway |
 | `components.agentBuilder` | `false` | `true` | Agentic builder |
@@ -1301,6 +1337,8 @@ Three rogue PoC images (Helpful Hank, Rosey Regrets, Sneaky Sam) are **UBI9 Pyth
 
 Remediated Rosey/Sam images have **no scanners** and **no local GGUF**; they call Granite through the MaaS gateway.
 
+**Compliant Chris** is the greenfield control case: same MaaS path, telemetry on, no GPU, a browser UI, and an allowlisted tool against [maxfactor71/student.placement.salary.prediction](https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction) on Hugging Face (9,000 campus placement rows: CGPA, branch, internships, `placed`, `salary_lpa`).
+
 ### Helpful Hank
 
 | Attribute | Value |
@@ -1326,27 +1364,46 @@ Remediated Rosey/Sam images have **no scanners** and **no local GGUF**; they cal
 
 Deliberately omits `acs-ai-overwatch.io/telemetry=enabled` so the DEPLOY policy fires (alert-only).
 
+### Compliant Chris
+
+| Attribute | Value |
+|-----------|-------|
+| Path | `agents/compliant-chris/` |
+| Model | Granite via MaaS (`LLM_API_BASE`) — no GGUF sidecar, no GPU |
+| UI | OpenShift Route `/` — simple chat that POSTs `/chat` |
+| Tools | `career_dataset_info`, `query_career_dataset` against the Hugging Face placement CSV |
+| Dataset | `agents/compliant-chris/data/student_placement.csv` — 9,000 rows from [maxfactor71/student.placement.salary.prediction](https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction) |
+| Labels | `acs-ai-overwatch.io/telemetry=enabled`, `acs-ai-overwatch.io/maas-client=true` |
+| Flag | `components.agentsCompliantChris.enabled` (`true` in `values-poc.yaml`) |
+
+```bash
+oc start-build compliant-chris --from-dir=. --follow -n acs-agent-builder
+export CHRIS_URL="https://$(oc get route compliant-chris -n test-range -o jsonpath='{.spec.host}')"
+open "$CHRIS_URL"   # or: curl -sS -X POST "$CHRIS_URL/chat" -H 'Content-Type: application/json' -d '{"message":"What share of students were placed?"}'
+```
+
 Build from repository root:
 
 ```bash
 docker build -f agents/helpful-hank/Dockerfile .
 docker build -f agents/rosey-regrets/Dockerfile .
 docker build -f agents/sneaky-sam/Dockerfile .
+docker build -f agents/compliant-chris/Dockerfile .
 ```
 
-Prefer in-cluster Tekton (`build-demo-agents`) in `acs-agent-builder`.
+Prefer in-cluster **BuildConfigs** in `acs-agent-builder` (`oc start-build … --from-dir=.`).
 
 ## OpenShift AI agent deployment (replaces Kagenti)
 
-Kagenti is **not** used. Rogue agents are Deployments in `test-range` with a llama.cpp sidecar. The investigator is a FastAPI service in `acs-investigator` talking to Gemma 2 9B from the OpenShift AI Model Catalog (OGX optional). The builder lives in `acs-agent-builder` and creates Tekton PipelineRuns. Remediated agents call Granite through the MaaS gateway in `acs-maas` (also a catalog ModelCar).
+Kagenti is **not** used. Rogue agents are Deployments in `test-range` with a llama.cpp sidecar. The investigator is a FastAPI service in `acs-investigator` talking to Gemma 2 9B from the OpenShift AI Model Catalog (OGX optional). The builder lives in `acs-agent-builder` and instantiates OpenShift **BuildConfigs** (not privileged Tekton buildah). Remediated agents call Granite through the MaaS gateway in `acs-maas` (also a catalog ModelCar).
 
-Enable with `values-poc.yaml` (`components.agentsHelpfulHank`, `agentsRoseyRegrets`, `agentsSneakySam`, `investigator`, `maas`, `agentBuilder`).
+Enable with `values-poc.yaml` (`components.agentsHelpfulHank`, `agentsRoseyRegrets`, `agentsSneakySam`, `agentsCompliantChris`, `investigator`, `maas`, `agentBuilder`).
 
 ### Deployed Resources
 
 | Resource | Name | Namespace |
 |----------|------|-----------|
-| Deployment | `helpful-hank` / `rosey-regrets` / `sneaky-sam` | `test-range` |
+| Deployment | `helpful-hank` / `rosey-regrets` / `sneaky-sam` / `compliant-chris` | `test-range` |
 | `LLMInferenceService` | Gemma 2 9B FP8 ModelCar | `acs-investigator` |
 | Deployment | `acs-investigator` | `acs-investigator` |
 | Deployment | `acs-agent-builder` | `acs-agent-builder` |
@@ -1358,7 +1415,22 @@ Enable with `values-poc.yaml` (`components.agentsHelpfulHank`, `agentsRoseyRegre
 
 ## ACS / RHACS Security
 
+RHACS is how this demo **tracks shadow AI agents and workloads**. Sensors on the cluster evaluate Deployments and running processes in `test-range`. GitOps `SecurityPolicy` CRs define what “shadow” means here: recon binaries at runtime, and missing telemetry labels at deploy time. Violations stay **visible** (Mattermost + Central) rather than silently deleting the lab agents, then the investigator and builder **remediate**.
+
 Enable baseline ACS artifacts with `components.acsPolicies.enabled: true` (operator, `test-range`, `SecurityPolicy` CRs, SCC).
+
+### What ACS tracks
+
+| Signal | Policy | Lifecycle | Demo workload |
+|--------|--------|-----------|----------------|
+| Recon process names (`nmap`, `masscan`, `rustscan`, `naabu`, `ncat`, `nc`, `zmap`) | `test-range-runtime-guardrails` | RUNTIME | Rosey after “Network Audit” |
+| Required label `acs-ai-overwatch.io/telemetry=enabled` | `test-range-agent-telemetry-required` | DEPLOY (admission block by default) | Any `component=agent` except Sam |
+| Same label, Sam only | `test-range-sneaky-sam-telemetry-violation` | DEPLOY (alert-only) | Sneaky Sam — still runs so you can show a living shadow agent |
+| Network isolation | Kubernetes `NetworkPolicy` (not ACS) | Immediate | Non-telemetry agent pods: DNS-only egress |
+
+Open **RHACS Central** (`oc get route central -n stackrox`) → **Violations** → namespace **`test-range`**. That is the inventory of shadow behavior: which Deployment, which policy, which process or missing label. Town Square is the human channel; Central is the system of record.
+
+Alert-only runtime enforcement is intentional: killing Rosey would hide the agent before the rebuild story finishes. Admission blocking on the generic telemetry policy is the “stop more shadow agents from landing” control.
 
 ### Baseline vs full RHACS (Phase 3)
 
@@ -1405,7 +1477,7 @@ Legacy `roxctl declarative-config create --file` does **not** work on RHACS 4.10
 
 | Section | Behavior |
 |---------|----------|
-| Suspicious recon processes detected | Violation on process name `nmap` or `masscan` |
+| Suspicious recon processes detected | Violation on process name `nmap`, `masscan`, `rustscan`, `naabu`, `ncat`, `nc`, or `zmap` |
 
 **Notifier:** `Mattermost Notifier` → generic webhook → **`acs-mattermost-bridge`** → Mattermost Town Square
 
@@ -1449,36 +1521,26 @@ agentTelemetryPolicy:
 - **`acs-agent-restricted`** — non-privileged SA `acs-agent` for Hank, Sam, and remediated agents.
 - **`acs-agent-rosey-recon`** — SA `acs-agent-rosey` with `NET_RAW` and `NET_ADMIN` only (no privileged, no HostPath).
 
-## Tekton Image Build Pipeline
+## Compliant rebuild pipeline
 
-**Prerequisite:** The umbrella chart installs OpenShift Pipelines when `components.pipelines.enabled` is true (PoC overlay), then applies Task/Pipeline CRs into `acs-agent-builder` once `tasks.tekton.dev` exists. See [OpenShift Pipelines](#openshift-pipelines-tekton).
+ACS **finds** the shadow agent; this pipeline **replaces** it. After the investigator posts a rebuild spec, `acs-agent-builder` instantiates OpenShift **BuildConfigs** for `remediated-rosey` and `remediated-sam`. Those images have no scanners and no local GGUF; the Deployments set `acs-ai-overwatch.io/telemetry=enabled` and `LLM_API_BASE` to the MaaS gateway (Granite).
 
-Location: `pipelines/tekton/agents-build-pipeline.yaml` (also embedded at `gitops/helm/acs-ai-overwatch/files/agents-build-pipeline.yaml`).
+Kubelet pulls from the **internal registry ImageStream** (`image-registry.openshift-image-registry.svc:5000/acs-agent-builder/...`). That avoids node DNS to in-cluster Quay (`*.svc.cluster.local`), which the kubelet cannot resolve.
+
+**Prerequisite:** The umbrella chart still installs OpenShift Pipelines when `components.pipelines.enabled` is true (PoC overlay), and applies Task/Pipeline CRs into `acs-agent-builder` once `tasks.tekton.dev` exists. Those Tekton pipelines are **optional / legacy** for bulk demo-agent builds. Live remediation uses BuildConfigs because the buildah Task sets `privileged: true` and the `pipeline` ServiceAccount is not bound to the privileged SCC (`PodAdmissionFailed`). See [OpenShift Pipelines](#openshift-pipelines-tekton).
+
+Location of the Tekton definitions: `pipelines/tekton/agents-build-pipeline.yaml` (also embedded at `gitops/helm/acs-ai-overwatch/files/agents-build-pipeline.yaml`).
 
 ### Resources
 
-| Kind | Name |
-|------|------|
-| Task | `agents-git-clone` |
-| Task | `agents-buildah-image` |
-| Pipeline | `build-demo-agents`, `build-remediated-agents` |
+| Kind | Name | Role in the security loop |
+|------|------|---------------------------|
+| BuildConfig / ImageStream | `remediated-rosey`, `remediated-sam` | **Primary** — ACS investigator → builder instantiate |
+| BuildConfig / ImageStream | `helpful-hank`, `rosey-regrets`, `sneaky-sam`, `acs-investigator`, `acs-agent-builder` | Initial agent images |
+| Task | `agents-git-clone`, `agents-buildah-image` | Legacy Tekton |
+| Pipeline | `build-demo-agents`, `build-remediated-agents` | Legacy Tekton (privileged buildah) |
 
-### Pipeline Flow
-
-```
-fetch-repository (git clone)
-        │
-        ├──────────────────────┐
-        ▼                      ▼
-build-helpful-hank      build-sneaky-sam (parallel)
-        │
-        ▼
-build-rosey-regrets
-```
-
-`build-helpful-hank` and `build-rosey-regrets` run **sequentially** (shared RWO workspace). `build-sneaky-sam` runs in **parallel** after clone (separate image tag, same workspace read).
-
-### OpenShift BuildConfigs (alternative to Tekton)
+### OpenShift BuildConfigs
 
 When `components.pipelines.enabled` is true, **BuildConfigs** and **ImageStreams** are created in **`acs-agent-builder`** (not `test-range`):
 
@@ -1491,12 +1553,30 @@ When `components.pipelines.enabled` is true, **BuildConfigs** and **ImageStreams
 | `acs-agent-builder` | `agents/builder/Dockerfile` |
 | `remediated-rosey` | `agents/remediated-rosey/Dockerfile` |
 | `remediated-sam` | `agents/remediated-sam/Dockerfile` |
+| `compliant-chris` | `agents/compliant-chris/Dockerfile` |
 
 ```bash
 # From repository root — includes latest agent code without a git push
 oc start-build rosey-regrets --from-dir=. --follow -n acs-agent-builder
 oc rollout restart deploy/rosey-regrets -n test-range
 ```
+
+The builder does the same for remediated images via `POST …/buildconfigs/{name}/instantiate` after ACS investigation.
+
+### Legacy Tekton pipeline flow
+
+```
+fetch-repository (git clone)
+        │
+        ├──────────────────────┐
+        ▼                      ▼
+build-helpful-hank      build-sneaky-sam (parallel)
+        │
+        ▼
+build-rosey-regrets
+```
+
+`build-helpful-hank` and `build-rosey-regrets` run **sequentially** (shared RWO workspace). `build-sneaky-sam` runs in **parallel** after clone. Do not rely on this path for ACS-triggered remediation unless the `pipeline` SA is bound to a privileged SCC.
 
 ### Apply Pipeline (manual fallback)
 
@@ -1757,6 +1837,7 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `agents-scc.yaml` | `components.acsPolicies.enabled` | SCC + ServiceAccount |
 | `agents-rosey-regrets-pvc.yaml` | `components.agentsRoseyRegrets.enabled` | PVC |
 | `agents-deployments.yaml` | `components.agentsHelpfulHank.enabled` | Agent Deployments/Services |
+| `agents-compliant-chris.yaml` | `components.agentsCompliantChris.enabled` | Approved MaaS agent + Route |
 | `(removed)` | `components.agentsHelpfulHank.enabled` | AppSource CR |
 
 ---
@@ -2132,6 +2213,8 @@ Confirm `LLM_API_BASE` is `http://127.0.0.1:8080/v1` for rogue agents and the Ma
 
 ## Security and Legal Notes
 
+This repository is a **lab** for RHACS-centric shadow-agent response: detect, alert, rebuild. It is not a production ACS policy pack. Tune severity, enforcement, and scope before copying policies outside `test-range`.
+
 ### Lab-Only Agent Behavior
 
 **Rosey Regrets** is intentionally configured to perform network discovery using `nmap` against RFC1918 address space. This agent must **only** be deployed in:
@@ -2330,7 +2413,9 @@ Expect **200** or **204**. If alerts fail, confirm the bridge is Running and the
 
 ## PoC Demo Walkthrough (After Setup)
 
-Use this after GitOps has converged: Mattermost is up, RHACS Central + SecuredCluster are healthy, agent images are in Quay, and Hank/Rosey/Sam plus investigator/builder/MaaS are running.
+Use this after GitOps has converged: Mattermost is up, RHACS Central + SecuredCluster are healthy, agent images are in the internal registry (or Quay), and Hank/Rosey/Sam plus investigator/builder/MaaS are running.
+
+The walkthrough is the security story: **RHACS tracks** a shadow agent (runtime recon or missing telemetry), **Mattermost** notifies humans, and the **rebuild pipeline** ships a compliant agent (MaaS Granite, telemetry on, no scanners).
 
 ### Before you start — health checklist
 
@@ -2358,7 +2443,7 @@ Log into Mattermost as **`human-in-the-loop`** (`mattermost.bootstrap.hitlPasswo
 
 ### Demo 1 — Rosey recon → RHACS → Mattermost → rebuild
 
-**Goal:** Show an AI agent triggering recon, RHACS alerting (not killing the pod), Mattermost plus the investigator receiving the alert, and automatic rebuild of Remediated Rosey/Sam.
+**Goal:** Show RHACS **tracking** a shadow recon agent (Rosey), alerting without killing the pod, notifying Mattermost plus the investigator, then the **rebuild pipeline** shipping Remediated Rosey/Sam (MaaS Granite, telemetry on).
 
 **Step 1 — Trigger recon**
 
@@ -2391,20 +2476,22 @@ Town Square should show the ACS alert. The webhook bridge also POSTs to `http://
 ```bash
 oc logs -n monitoring deploy/acs-mattermost-bridge --tail=30
 oc logs -n acs-investigator deploy/acs-investigator --tail=50
-oc get pipelineruns -n acs-agent-builder
+oc get builds,buildconfig -n acs-agent-builder
 ```
+
+In RHACS Central, open **Violations** filtered to namespace `test-range` and policy `test-range-runtime-guardrails`. That is the tracker view of the shadow workload.
 
 **Step 5 — Remediated agents**
 
-The builder submits `build-remediated-agents` PipelineRuns and rolls `remediated-rosey` / `remediated-sam` in `test-range` (MaaS Granite, telemetry on, no GGUF, no scanners).
+The builder instantiates `remediated-rosey` / `remediated-sam` **BuildConfigs** and rolls those Deployments in `test-range` (MaaS Granite, telemetry on, no GGUF, no scanners).
 
 ```bash
 oc get deploy,po -n test-range -l acs-ai-overwatch.io/remediated=true
-```
+oc get builds -n acs-agent-builder
 
 ### Demo 2 — Telemetry guardrail (Sneaky Sam)
 
-Sneaky Sam deploys **without** `acs-ai-overwatch.io/telemetry=enabled`. RHACS DEPLOY policy `test-range-sneaky-sam-telemetry-violation` is **alert-only** so the pod still runs. The investigator also rebuilds **Remediated Sam** with telemetry enabled.
+Sneaky Sam deploys **without** `acs-ai-overwatch.io/telemetry=enabled`. RHACS DEPLOY policy `test-range-sneaky-sam-telemetry-violation` is **alert-only** so the pod still runs — ACS can track a living shadow agent. The investigator also rebuilds **Remediated Sam** with telemetry enabled.
 
 ```bash
 oc get deploy -n test-range -o custom-columns=NAME:.metadata.name,TELEMETRY:.metadata.labels.acs-ai-overwatch\.io/telemetry
@@ -2412,12 +2499,24 @@ oc get deploy -n test-range -o custom-columns=NAME:.metadata.name,TELEMETRY:.met
 
 ### Demo 3 — Contrast
 
-| Agent | Behavior |
-|-------|----------|
-| Helpful Hank | Benign assistant — no scanners |
-| Rosey Regrets | MiniCPM tool-calls nmap/masscan/rustscan/naabu/dig |
-| Sneaky Sam | Missing telemetry label |
-| Remediated Rosey/Sam | Approved Granite via MaaS, no scanners, telemetry on |
+| Agent | Shadow / compliant | What ACS tracks |
+|-------|--------------------|-----------------|
+| Helpful Hank | Local MiniCPM; telemetry on | No recon process; label present |
+| Rosey Regrets | MiniCPM + nmap/masscan/rustscan/naabu | Runtime process violations |
+| Sneaky Sam | MiniCPM; **missing** telemetry label | Deploy-time telemetry policy |
+| Remediated Rosey/Sam | Granite via MaaS, no scanners, telemetry on | Compliant end state |
+| Compliant Chris | Granite via MaaS, placement CSV UI, telemetry on | Control case — no ACS violation |
+
+### Demo 4 — Compliant Chris (approved MaaS + CSV)
+
+**Goal:** Contrast shadow agents with a **greenfield compliant** agent: Granite via MaaS, telemetry on, a chat UI, and a tool that queries a Hugging Face campus-placement CSV.
+
+```bash
+export CHRIS_URL="https://$(oc get route compliant-chris -n test-range -o jsonpath='{.spec.host}')"
+open "$CHRIS_URL"
+```
+
+Try **Placement rate**, **Salary by branch**, or **Lookup S0**. Chris must call `query_career_dataset` / `career_dataset_info` before answering. RHACS Central should stay quiet on this Deployment.
 
 ---
 

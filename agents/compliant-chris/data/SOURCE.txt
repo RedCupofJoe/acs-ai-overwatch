@@ -1,0 +1,8 @@
+Hugging Face: maxfactor71/student.placement.salary.prediction
+https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction
+File: student_placement_salary_elite_v2.csv (copied as student_placement.csv)
+
+9,000 rows of campus placement records: CGPA, branch, internships, projects,
+skills, placed (0/1), company_type, job_role, salary_lpa.
+
+Used instead of the Kaggle career-success file, which requires a Kaggle login.

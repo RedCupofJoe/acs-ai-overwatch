@@ -20,6 +20,8 @@ components:
     enabled: true
   agentsSneakySam:
     enabled: true
+  agentsCompliantChris:
+    enabled: true
   investigator:
     enabled: true
   maas:
