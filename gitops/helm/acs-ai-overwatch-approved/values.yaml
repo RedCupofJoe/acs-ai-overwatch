@@ -1,0 +1,57 @@
+global:
+  partOf: acs-ai-overwatch
+
+# Actual deployment owns enforce-mode policies. The demo-trust overlay turns this off
+# so the misbehavior Application keeps the same policy names until the terminate step.
+securityPolicies:
+  enabled: true
+
+argocd:
+  syncWaves:
+    enabled: true
+    agents: "80"
+    acsPolicies: "97"
+
+platformResources:
+  waitForCrds: true
+  sandboxCrd: sandboxes.agents.x-k8s.io
+  securityPolicyCrd: securitypolicies.config.stackrox.io
+
+agents:
+  namespace: test-range
+  serviceAccountName: openshell
+  servicePort: 8000
+  builderNamespace: acs-agent-builder
+  imageStream: compliant-chris
+
+sandbox:
+  runtimeClass: ""
+
+maas:
+  namespace: acs-maas
+  gatewayService: maas-api
+  gatewayPort: 8080
+  apiKeySecret: maas-poc-api-key
+  model: granite-3.1-8b-instruct-fp8
+
+observability:
+  enabled: true
+  endpoint: acs-otel-collector.acs-ai-overwatch-observability.svc.cluster.local:4317
+
+acs:
+  namespace: stackrox
+  notifierName: Mattermost Notifier
+  runtimePolicyName: test-range-runtime-guardrails
+  telemetryPolicyName: test-range-agent-telemetry-required
+  sneakySamPolicyName: test-range-sneaky-sam-telemetry-violation
+  severity: HIGH_SEVERITY
+  disallowedProcesses:
+    - nmap
+    - masscan
+    - rustscan
+    - naabu
+    - ncat
+    - zmap
+  telemetryLabel:
+    key: acs-ai-overwatch.io/telemetry
+    value: enabled

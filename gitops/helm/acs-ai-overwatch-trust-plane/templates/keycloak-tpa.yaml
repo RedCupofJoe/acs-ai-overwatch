@@ -1,0 +1,217 @@
+{{- $domain := include "trust.appsDomain" . }}
+{{- $kc := .Values.tpa.keycloak }}
+{{- $host := printf "%s.%s" $kc.routeName $domain }}
+{{- if and $domain (include "trust.crdReady" (dict "root" . "crdName" $kc.crd)) }}
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: {{ $kc.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "identity") | nindent 2 }}
+  namespace: {{ $kc.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: rhtpa-postgres.{{ .Values.tpa.namespace }}.svc.cluster.local
+    port: 5432
+    database: {{ $kc.database }}
+    usernameSecret:
+      name: rhtpa-keycloak-db
+      key: username
+    passwordSecret:
+      name: rhtpa-keycloak-db
+      key: password
+  hostname:
+    hostname: {{ $host }}
+  http:
+    httpEnabled: true
+  proxy:
+    headers: xforwarded
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $kc.routeName }}
+  {{- include "trust.wave" (dict "root" . "wave" "identity") | nindent 2 }}
+  namespace: {{ $kc.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  host: {{ $host }}
+  to:
+    kind: Service
+    name: {{ $kc.serviceName }}
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rhtpa-realm-bootstrap
+  {{- include "trust.wave" (dict "root" . "wave" "identity") | nindent 2 }}
+  namespace: {{ $kc.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+data:
+  bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    URL="http://{{ $kc.serviceName }}.{{ $kc.namespace }}.svc.cluster.local:8080"
+    KCADM=/opt/keycloak/bin/kcadm.sh
+    for _ in $(seq 1 60); do
+      if "${KCADM}" config credentials --server "${URL}" --realm master --user "${ADMIN_USER}" --password "${ADMIN_PASSWORD}"; then
+        break
+      fi
+      sleep 10
+    done
+    "${KCADM}" create realms -s realm={{ $kc.realm }} -s enabled=true || true
+    "${KCADM}" create clients -r {{ $kc.realm }} \
+      -s clientId={{ $kc.frontendClientId }} \
+      -s publicClient=true \
+      -s protocol=openid-connect \
+      -s 'redirectUris=["*"]' || true
+    "${KCADM}" create clients -r {{ $kc.realm }} \
+      -s clientId={{ $kc.cliClientId }} \
+      -s publicClient=false \
+      -s protocol=openid-connect \
+      -s secret="${CLI_SECRET}" \
+      -s serviceAccountsEnabled=true || true
+    echo "realm {{ $kc.realm }} ready"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhtpa-realm-bootstrap
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ $kc.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kcadm
+          image: {{ $kc.cliImage }}
+          command: ["/bin/bash", "/scripts/bootstrap.sh"]
+          env:
+            - name: ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $kc.name }}-initial-admin
+                  key: username
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $kc.name }}-initial-admin
+                  key: password
+            - name: CLI_SECRET
+              value: {{ $kc.cliClientSecret | quote }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: rhtpa-realm-bootstrap
+            defaultMode: 0755
+{{- end }}
+{{- if and $domain (include "trust.crdReady" (dict "root" . "crdName" .Values.tpa.crd)) }}
+---
+apiVersion: rhtpa.redhat.com/v1alpha1
+kind: TrustedProfileAnalyzer
+metadata:
+  name: rhtpa
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.tpa.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  appDomain: {{ $domain | quote }}
+  oidc:
+    issuerUrl: {{ printf "https://%s/realms/%s" $host $kc.realm | quote }}
+    clients:
+      frontend:
+        clientId: {{ $kc.frontendClientId }}
+      cli:
+        clientId: {{ $kc.cliClientId }}
+        clientSecret:
+          valueFrom:
+            secretKeyRef:
+              name: oidc-cli
+              key: client-secret
+  storage:
+    type: s3
+    region: us-east-1
+    endpoint: http://rhtpa-minio.{{ .Values.tpa.namespace }}.svc.cluster.local:9000
+    bucket: {{ .Values.tpa.bucket }}
+    accessKey:
+      valueFrom:
+        secretKeyRef:
+          name: storage-credentials
+          key: user
+    secretKey:
+      valueFrom:
+        secretKeyRef:
+          name: storage-credentials
+          key: password
+  database:
+    sslMode: disable
+    host:
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-credentials
+          key: db.host
+    port:
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-credentials
+          key: db.port
+    name:
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-credentials
+          key: db.name
+    username:
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-credentials
+          key: db.user
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: postgresql-credentials
+          key: db.password
+  modules:
+    createDatabase:
+      enabled: true
+    migrateDatabase:
+      enabled: true
+    createImporters:
+      enabled: true
+      importers:
+        cve:
+          cve:
+            description: CVE list v5
+            period: 1d
+            source: https://github.com/CVEProject/cvelistV5
+            disabled: false
+        redhat-sboms:
+          sbom:
+            description: Red Hat SBOMs
+            period: 1d
+            source: https://access.redhat.com/security/data/sbom/beta/
+            disabled: true
+        redhat-csaf:
+          csaf:
+            description: Red Hat CSAF
+            period: 1d
+            source: redhat.com
+            disabled: true
+{{- end }}

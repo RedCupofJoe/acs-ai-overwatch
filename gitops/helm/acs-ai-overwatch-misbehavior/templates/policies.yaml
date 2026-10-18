@@ -1,0 +1,152 @@
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.runtimePolicyName }}
+  {{- include "misbehavior.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "misbehavior.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: misbehavior
+spec:
+  policyName: {{ .Values.acs.runtimePolicyName }}
+  description: >
+    Runtime recon tools in test-range. Monitor mode leaves the pod running.
+    Enforce mode kills the pod and scales the deployment to zero.
+  rationale: Show what a misconfigured agent can do before the trust plane is in place.
+  remediation: Rebuild onto OpenClaw inside OpenShell on Agent Sandbox after TPA clears the image.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - RUNTIME
+  categories:
+    - Security Best Practices
+    - Anomalous Activity
+  eventSource: DEPLOYMENT_EVENT
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+  enforcementActions:
+    {{- if eq .Values.enforcement.mode "enforce" }}
+    - KILL_POD_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+    {{- else }}
+    []
+    {{- end }}
+  policySections:
+    - sectionName: Suspicious recon processes detected
+      policyGroups:
+        - fieldName: Process Name
+          booleanOperator: OR
+          values:
+            {{- range .Values.acs.disallowedProcesses }}
+            - value: {{ . | quote }}
+            {{- end }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}
+---
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.telemetryPolicyName }}
+  {{- include "misbehavior.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "misbehavior.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: misbehavior
+spec:
+  policyName: {{ .Values.acs.telemetryPolicyName }}
+  description: >
+    Agent Deployments in test-range must carry {{ .Values.acs.telemetryLabel.key }}={{ .Values.acs.telemetryLabel.value }}.
+    Sneaky Sam is excluded here so the dedicated policy owns that demo.
+    Monitor mode does not block admission.
+  rationale: Missing telemetry is a deploy-time shadow-agent signal.
+  remediation: Rebuild with telemetry enabled, OpenClaw, OpenShell, and a SPIFFE identity.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - DEPLOY
+  categories:
+    - Security Best Practices
+    - DevOps Best Practices
+  eventSource: NOT_APPLICABLE
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+      label:
+        key: app.kubernetes.io/component
+        value: agent
+  enforcementActions:
+    {{- if eq .Values.enforcement.mode "enforce" }}
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+    {{- else }}
+    []
+    {{- end }}
+  policySections:
+    - sectionName: Missing telemetry compliance label
+      policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          negated: true
+          values:
+            - value: sneaky-sam
+        - fieldName: Required Label
+          booleanOperator: OR
+          values:
+            - value: {{ printf "%s=%s" .Values.acs.telemetryLabel.key .Values.acs.telemetryLabel.value | quote }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}
+---
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.sneakySamPolicyName }}
+  {{- include "misbehavior.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "misbehavior.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: misbehavior
+spec:
+  policyName: {{ .Values.acs.sneakySamPolicyName }}
+  description: >
+    Sneaky Sam omits {{ .Values.acs.telemetryLabel.key }}={{ .Values.acs.telemetryLabel.value }}.
+    Monitor mode lets the pod run. Enforce mode fails admission and scales it to zero.
+  rationale: The telemetry label is the deploy-time control for this shadow agent.
+  remediation: Terminate Sam and rebuild him with telemetry, OpenClaw, and a SPIFFE SVID.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - DEPLOY
+    {{- if eq .Values.enforcement.mode "enforce" }}
+    - RUNTIME
+    {{- end }}
+  categories:
+    - Security Best Practices
+    - DevOps Best Practices
+  eventSource: DEPLOYMENT_EVENT
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+  enforcementActions:
+    {{- if eq .Values.enforcement.mode "enforce" }}
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+    {{- else }}
+    []
+    {{- end }}
+  policySections:
+    - sectionName: Sneaky Sam missing telemetry compliance label
+      policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          values:
+            {{- range .Values.acs.sneakySamDeployments }}
+            - value: {{ . | quote }}
+            {{- end }}
+        - fieldName: Required Label
+          booleanOperator: OR
+          values:
+            - value: {{ printf "%s=%s" .Values.acs.telemetryLabel.key .Values.acs.telemetryLabel.value | quote }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}

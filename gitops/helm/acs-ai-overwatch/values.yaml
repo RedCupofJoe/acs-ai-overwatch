@@ -438,8 +438,10 @@ components:
     enabled: false
   acsPolicies:
     enabled: true
+  # Rogue agents and their alert-only policies are the optional misbehavior chart.
+  # Compliant Chris is the approved chart. These flags no longer render those workloads.
   agentsHelpfulHank:
-    enabled: true
+    enabled: false
   agentsRoseyRogue:
     enabled: false
   agentsRoseyRegrets:
@@ -447,6 +449,10 @@ components:
   agentsSneakySam:
     enabled: false
   agentsCompliantChris:
+    enabled: false
+  demoSecurityPolicies:
+    enabled: false
+  overwatchConsole:
     enabled: false
   investigator:
     enabled: false
@@ -551,8 +557,10 @@ agents:
   namespace: test-range
   serviceAccountName: acs-agent
   roseyServiceAccountName: acs-agent-rosey
-  # Privileged OpenShell sandbox SA for Compliant Chris (day one) and ACS remediations.
+  # Privileged OpenShell sandbox SA for approved Agent Sandbox workloads.
   openShellServiceAccountName: openshell
+  # Empty unless scripts/cluster-admin/enable-kata.sh sets kata or kata-remote.
+  sandboxRuntimeClass: ""
   agentServicePort: 8000
   gitRepoUrl: ""
   llamaCpp:
@@ -582,6 +590,7 @@ agents:
     remediatedRosey: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-rosey:latest
     remediatedSam: quay-quay-app.quay.svc.cluster.local:80/acs-agents/remediated-sam:latest
     compliantChris: quay-quay-app.quay.svc.cluster.local:80/acs-agents/compliant-chris:latest
+    overwatchConsole: quay-quay-app.quay.svc.cluster.local:80/acs-agents/overwatch-console:latest
   rosey:
     networkAuditCommand: "Network Audit"
     outputMountPath: /agent-reference-information
@@ -655,6 +664,12 @@ maas:
     vllmModelPath: /mnt/models
     servicePort: 8080
     kserveWorkloadPort: 8000
+
+# Trusted Profile Analyzer ingest used by the rebuild gate. The trust-plane chart
+# deploys the service; the builder refuses to publish an image when this URL is unset.
+tpa:
+  internalUrl: http://server.trusted-profile-analyzer.svc.cluster.local:8080
+  token: ""
 
 # In-cluster agentic builder (OpenShift Pipelines + Buildah).
 builder:

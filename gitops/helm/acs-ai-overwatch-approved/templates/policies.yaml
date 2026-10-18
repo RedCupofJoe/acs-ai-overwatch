@@ -1,0 +1,132 @@
+{{- if and (ne (toString .Values.securityPolicies.enabled) "false") (include "approved.crdReady" (dict "root" . "crdName" .Values.platformResources.securityPolicyCrd)) }}
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.runtimePolicyName }}
+  {{- include "approved.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: approved
+spec:
+  policyName: {{ .Values.acs.runtimePolicyName }}
+  description: Kill and scale to zero any test-range workload that runs a recon tool.
+  rationale: Approved agents run OpenClaw inside OpenShell. Recon tools are not part of that image.
+  remediation: Rebuild from the original image only after Trusted Profile Analyzer accepts the SBOM.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - RUNTIME
+  categories:
+    - Security Best Practices
+    - Anomalous Activity
+  eventSource: DEPLOYMENT_EVENT
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+  enforcementActions:
+    - KILL_POD_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+  policySections:
+    - sectionName: Suspicious recon processes detected
+      policyGroups:
+        - fieldName: Process Name
+          booleanOperator: OR
+          values:
+            {{- range .Values.acs.disallowedProcesses }}
+            - value: {{ . | quote }}
+            {{- end }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}
+---
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.telemetryPolicyName }}
+  {{- include "approved.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: approved
+spec:
+  policyName: {{ .Values.acs.telemetryPolicyName }}
+  description: >
+    Block agent Deployments in test-range that omit {{ .Values.acs.telemetryLabel.key }}={{ .Values.acs.telemetryLabel.value }}.
+  rationale: An actual deployment does not admit agents that skip telemetry.
+  remediation: Add the telemetry label and ship traces to the shared collector.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - DEPLOY
+  categories:
+    - Security Best Practices
+    - DevOps Best Practices
+  eventSource: NOT_APPLICABLE
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+      label:
+        key: app.kubernetes.io/component
+        value: agent
+  enforcementActions:
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+  policySections:
+    - sectionName: Missing telemetry compliance label
+      policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          negated: true
+          values:
+            - value: sneaky-sam
+        - fieldName: Required Label
+          booleanOperator: OR
+          values:
+            - value: {{ printf "%s=%s" .Values.acs.telemetryLabel.key .Values.acs.telemetryLabel.value | quote }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}
+---
+apiVersion: config.stackrox.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ .Values.acs.sneakySamPolicyName }}
+  {{- include "approved.wave" (dict "root" . "wave" "acsPolicies") | nindent 2 }}
+  namespace: {{ .Values.acs.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/component: acs-policy
+    acs-ai-overwatch.io/phase: approved
+spec:
+  policyName: {{ .Values.acs.sneakySamPolicyName }}
+  description: Block and scale down sneaky-sam when the telemetry label is missing.
+  rationale: The shadow agent is not part of an actual deployment.
+  remediation: Replace Sam with an approved Sandbox that carries telemetry and a SPIFFE SVID.
+  disabled: false
+  severity: {{ .Values.acs.severity }}
+  lifecycleStages:
+    - DEPLOY
+    - RUNTIME
+  categories:
+    - Security Best Practices
+    - DevOps Best Practices
+  eventSource: DEPLOYMENT_EVENT
+  scope:
+    - namespace: {{ .Values.agents.namespace }}
+  enforcementActions:
+    - FAIL_DEPLOYMENT_CREATE_ENFORCEMENT
+    - FAIL_DEPLOYMENT_UPDATE_ENFORCEMENT
+    - SCALE_TO_ZERO_ENFORCEMENT
+  policySections:
+    - sectionName: Sneaky Sam missing telemetry compliance label
+      policyGroups:
+        - fieldName: Deployment Name
+          booleanOperator: OR
+          values:
+            - value: sneaky-sam
+        - fieldName: Required Label
+          booleanOperator: OR
+          values:
+            - value: {{ printf "%s=%s" .Values.acs.telemetryLabel.key .Values.acs.telemetryLabel.value | quote }}
+  notifiers:
+    - {{ .Values.acs.notifierName }}
+{{- end }}

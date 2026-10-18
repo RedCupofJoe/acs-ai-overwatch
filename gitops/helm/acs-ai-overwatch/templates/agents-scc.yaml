@@ -1,4 +1,4 @@
-{{- if or .Values.components.agentsHelpfulHank.enabled .Values.components.agentsRoseyRegrets.enabled .Values.components.agentsSneakySam.enabled .Values.components.agentsCompliantChris.enabled .Values.components.remediatedRosey.enabled .Values.components.remediatedSam.enabled }}
+{{- if or .Values.components.agentsHelpfulHank.enabled .Values.components.agentsRoseyRegrets.enabled .Values.components.agentsSneakySam.enabled .Values.components.agentsCompliantChris.enabled .Values.components.remediatedRosey.enabled .Values.components.remediatedSam.enabled .Values.components.overwatchConsole.enabled }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

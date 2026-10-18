@@ -9,6 +9,7 @@
   (dict "name" "remediated-rosey" "dockerfile" "agents/remediated-rosey/Dockerfile")
   (dict "name" "remediated-sam" "dockerfile" "agents/remediated-sam/Dockerfile")
   (dict "name" "compliant-chris" "dockerfile" "agents/compliant-chris/Dockerfile")
+  (dict "name" "overwatch-console" "dockerfile" "agents/overwatch-console/Dockerfile")
 }}
 ---
 apiVersion: image.openshift.io/v1

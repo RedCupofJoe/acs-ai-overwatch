@@ -1,0 +1,67 @@
+{{- $runtime := include "trust.runtimeClass" . | trim }}
+{{- if include "trust.crdReady" (dict "root" . "crdName" .Values.agentSandbox.crd) }}
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: {{ .Values.agentSandbox.templateName }}
+  {{- include "trust.wave" (dict "root" . "wave" "sandbox") | nindent 2 }}
+  namespace: {{ .Values.agentSandbox.templateNamespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        acs-ai-overwatch.io/approved: "true"
+        acs-ai-overwatch.io/runtime: openshell
+        acs-ai-overwatch.io/harness: openclaw
+        acs-ai-overwatch.io/telemetry: enabled
+    spec:
+      serviceAccountName: openshell
+      {{- if $runtime }}
+      runtimeClassName: {{ $runtime }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: registry.access.redhat.com/ubi9/ubi:latest
+          command: ["/bin/bash", "-c", "sleep infinity"]
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: agent-sandbox-router
+  {{- include "trust.wave" (dict "root" . "wave" "sandbox") | nindent 2 }}
+  namespace: {{ .Values.agentSandbox.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  to:
+    kind: Service
+    name: {{ .Values.agentSandbox.routerService }}
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
+{{- if and .Values.trustPlane.kata.enabled (include "trust.crdReady" (dict "root" . "crdName" .Values.sandboxedContainers.crd)) }}
+---
+apiVersion: kataconfiguration.openshift.io/v1
+kind: KataConfig
+metadata:
+  name: {{ .Values.sandboxedContainers.kataConfigName }}
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  enablePeerPods: {{ eq .Values.trustPlane.kata.platform "aws" }}
+{{- end }}

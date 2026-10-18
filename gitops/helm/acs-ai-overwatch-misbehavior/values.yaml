@@ -1,0 +1,73 @@
+global:
+  partOf: acs-ai-overwatch
+
+# monitor: agents can violate policy. enforce: ACS kills or scales them (demo script).
+enforcement:
+  mode: monitor
+
+argocd:
+  syncWaves:
+    enabled: true
+    security: "55"
+    agents: "80"
+    acsPolicies: "97"
+
+agents:
+  namespace: test-range
+  serviceAccountName: acs-agent
+  roseyServiceAccountName: acs-agent-rosey
+  agentServicePort: 8000
+  builderNamespace: acs-agent-builder
+  llamaCpp:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    imagePullPolicy: IfNotPresent
+    port: 8080
+    servedModelName: minicpm-abliterated
+    ngl: "99"
+    contextSize: "4096"
+  huggingface:
+    modelRepo: tinyopsec/Huihui-MiniCPM5-2B-abliterated-GGUF
+    modelFile: model_q4_k_m.gguf
+    cacheMountPath: /models
+  gpuResource: nvidia.com/gpu
+  gpuCount: "1"
+  gpuTaintToleration: true
+  rosey:
+    outputMountPath: /agent-reference-information
+    networkAuditCommand: "Network Audit"
+    networkAuditCidr: "10.0.0.0/24"
+    networkAuditTimeoutSec: "45"
+    autoNetworkAudit: false
+    llmDrivenNetworkAudit: true
+
+storage:
+  defaultStorageClass: gp3-csi
+
+agentsRoseyRegrets:
+  pvc:
+    name: agent-reference-information
+    size: 20Gi
+
+observability:
+  enabled: true
+  endpoint: acs-otel-collector.acs-ai-overwatch-observability.svc.cluster.local:4317
+
+acs:
+  namespace: stackrox
+  notifierName: Mattermost Notifier
+  runtimePolicyName: test-range-runtime-guardrails
+  telemetryPolicyName: test-range-agent-telemetry-required
+  sneakySamPolicyName: test-range-sneaky-sam-telemetry-violation
+  severity: HIGH_SEVERITY
+  disallowedProcesses:
+    - nmap
+    - masscan
+    - rustscan
+    - naabu
+    - ncat
+    - zmap
+  telemetryLabel:
+    key: acs-ai-overwatch.io/telemetry
+    value: enabled
+  sneakySamDeployments:
+    - sneaky-sam

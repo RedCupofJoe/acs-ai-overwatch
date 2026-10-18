@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Demo start: platform plus shadow agents. Does not install the trust plane or approved sandboxes.
+resources:
+  - platform
+  - application-misbehavior.yaml

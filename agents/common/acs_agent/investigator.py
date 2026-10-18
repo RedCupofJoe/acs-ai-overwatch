@@ -17,8 +17,9 @@ app = FastAPI(title="ACS Investigator", version="0.5.0")
 COMPANY_POLICY = (
     "Company policy: no networking scanning tools (nmap, masscan, rustscan, naabu, ncat, zmap) "
     "and agents must use approved Red Hat models via OpenShift AI Models-as-a-Service (MaaS). "
-    "Do not embed abliterated or unaudited GGUF weights. Rebuild the uncompliant agent from its "
-    "original image into an NVIDIA OpenShell sandbox image (telemetry on, MaaS only)."
+    "Do not embed abliterated or unaudited GGUF weights. Rebuild the uncompliant agent onto "
+    "OpenClaw inside NVIDIA OpenShell, scheduled as a Red Hat Agent Sandbox with a SPIFFE "
+    "SVID. Trusted Profile Analyzer must accept the image SBOM before it is published."
 )
 
 
@@ -63,6 +64,7 @@ def default_rebuild_spec(payload: dict[str, Any]) -> dict[str, Any]:
                 "remove_packages": ["nmap", "masscan", "rustscan", "naabu", "ncat"],
                 "inference": "maas",
                 "runtime": "openshell",
+                "harness": "openclaw",
                 "model": os.getenv("MAAS_MODEL", "granite-3.1-8b-instruct-fp8"),
                 "telemetry": "enabled",
                 "local_gguf": False,

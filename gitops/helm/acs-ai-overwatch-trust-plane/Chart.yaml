@@ -1,0 +1,6 @@
+apiVersion: v2
+name: acs-ai-overwatch-trust-plane
+description: App of Apps trust plane — ZTWIM, Trusted Profile Analyzer, Agent Sandbox, optional Kata.
+type: application
+version: 0.6.0
+appVersion: "1.0"

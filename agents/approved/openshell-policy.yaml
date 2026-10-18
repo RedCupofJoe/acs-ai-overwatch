@@ -1,0 +1,21 @@
+# OpenShell application policy for approved agents.
+# Enforcement sits outside the agent process. Recon tools and unaudited model blobs are denied.
+default: deny
+harness: openclaw
+allow:
+  processes:
+    - openclaw
+    - python
+    - python3
+  egress:
+    - acs-maas
+deny:
+  processes:
+    - nmap
+    - masscan
+    - rustscan
+    - naabu
+    - ncat
+    - zmap
+  artifacts:
+    - "*.gguf"

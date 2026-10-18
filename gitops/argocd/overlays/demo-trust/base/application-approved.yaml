@@ -1,0 +1,34 @@
+# Approved workloads. In the live demo, overlays/demo-trust disables securityPolicies
+# so this Application does not fight the misbehavior policies.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acs-ai-overwatch-approved
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+    acs-ai-overwatch.io/phase: approved
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: acs-ai-overwatch
+  source:
+    repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    targetRevision: main
+    path: gitops/helm/acs-ai-overwatch-approved
+    helm:
+      valueFiles:
+        - values.yaml
+      serverDryRun: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: test-range
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

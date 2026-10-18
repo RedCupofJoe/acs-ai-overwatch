@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Apply after the audience has seen monitor-mode violations, and before identify/terminate/rebuild.
+# securityPolicies stay with the misbehavior Application so the two apps do not own the same objects.
+resources:
+  - base
+patches:
+  - path: approved-policies-disabled.yaml

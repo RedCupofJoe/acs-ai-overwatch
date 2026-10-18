@@ -183,6 +183,11 @@ annotations:
 {{- printf "postgres://%s:%s@%s.%s.svc.cluster.local:5432/%s?sslmode=disable&connect_timeout=10" $pg.username $pg.password $pg.serviceName .Values.mattermost.namespace $pg.database -}}
 {{- end }}
 
+{{- define "acs-ai-overwatch.acsCentralUrl" -}}
+{{- $domain := include "acs-ai-overwatch.appsDomain" . -}}
+{{- printf "https://central-%s.%s" .Values.acs.central.namespace $domain -}}
+{{- end }}
+
 {{- define "acs-ai-overwatch.mattermostSiteUrl" -}}
 {{- $cm := dict -}}
 {{- if .Values.clusterDiscovery.enabled -}}

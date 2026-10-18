@@ -1,18 +1,1 @@
-{{- if .Values.components.agentsRoseyRegrets.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ .Values.agentsRoseyRegrets.pvc.name }}
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "agents" "skipHealth" true) | nindent 2 }}
-  namespace: {{ .Values.agentsRoseyRegrets.namespace }}
-  labels:
-    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
-    app.kubernetes.io/component: agent-storage
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: {{ .Values.agentsRoseyRegrets.pvc.storageClassName | default (include "acs-ai-overwatch.storageClassName" .) }}
-  resources:
-    requests:
-      storage: {{ .Values.agentsRoseyRegrets.pvc.size }}
-{{- end }}
+{{/* Rosey output PVC moved to gitops/helm/acs-ai-overwatch-misbehavior. */}}

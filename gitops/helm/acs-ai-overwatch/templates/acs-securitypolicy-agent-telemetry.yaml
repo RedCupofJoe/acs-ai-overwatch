@@ -1,4 +1,4 @@
-{{- if and .Values.components.acsPolicies.enabled .Values.agentTelemetryPolicy.enabled .Values.agentTelemetryPolicy.rhacs.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.securityPolicy)) }}
+{{- if and .Values.components.acsPolicies.enabled .Values.components.demoSecurityPolicies.enabled .Values.agentTelemetryPolicy.enabled .Values.agentTelemetryPolicy.rhacs.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.securityPolicy)) }}
 apiVersion: config.stackrox.io/v1alpha1
 kind: SecurityPolicy
 metadata:

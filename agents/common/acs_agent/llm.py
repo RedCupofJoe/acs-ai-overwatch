@@ -21,11 +21,35 @@ def _llm_request_kwargs() -> dict[str, Any]:
     }
 
 
+def _spiffe_jwt() -> str:
+    """Prefer a workload SVID when the SPIFFE socket is mounted. Fall back to the API key."""
+    use_spiffe = os.getenv("LLM_USE_SPIFFE", "").strip().lower() in {"1", "true", "yes"}
+    if not use_spiffe:
+        return ""
+    token_path = os.getenv("SPIFFE_JWT_PATH", "").strip()
+    if token_path and os.path.isfile(token_path):
+        token = open(token_path, encoding="utf-8").read().strip()
+        if token:
+            return token
+    if not os.getenv("SPIFFE_ENDPOINT_SOCKET", "").strip():
+        return ""
+    try:
+        from pyspiffe.workloadapi.jwt_source import JwtSource
+
+        audience = {os.getenv("SPIFFE_AUDIENCE", "maas")}
+        with JwtSource() as source:
+            svid = source.fetch_svid(audience)
+            token = getattr(svid, "token", "") or getattr(svid, "token_str", "")
+            return str(token or "")
+    except Exception:
+        return ""
+
+
 def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:
     trust_env = os.getenv("LLM_TRUST_PROXY", "").strip().lower() in {"1", "true", "yes"}
     verify = os.getenv("LLM_TLS_VERIFY", "true").strip().lower() not in {"0", "false", "no"}
     headers = {}
-    api_key = os.getenv("LLM_API_KEY", "").strip()
+    api_key = _spiffe_jwt() or os.getenv("LLM_API_KEY", "").strip()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return httpx.AsyncClient(

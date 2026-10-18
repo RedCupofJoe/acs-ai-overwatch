@@ -1,0 +1,96 @@
+{{- if include "approved.crdReady" (dict "root" . "crdName" .Values.platformResources.sandboxCrd) }}
+apiVersion: agents.x-k8s.io/v1beta1
+kind: Sandbox
+metadata:
+  name: compliant-chris
+  {{- include "approved.wave" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/name: compliant-chris
+    acs-ai-overwatch.io/approved: "true"
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: compliant-chris
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: acs-ai-overwatch
+        acs-ai-overwatch.io/approved: "true"
+        acs-ai-overwatch.io/maas-client: "true"
+        acs-ai-overwatch.io/runtime: openshell
+        acs-ai-overwatch.io/harness: openclaw
+        {{ .Values.acs.telemetryLabel.key }}: {{ .Values.acs.telemetryLabel.value | quote }}
+    spec:
+      serviceAccountName: {{ .Values.agents.serviceAccountName }}
+      {{- if .Values.sandbox.runtimeClass }}
+      runtimeClassName: {{ .Values.sandbox.runtimeClass }}
+      {{- end }}
+      containers:
+        - name: compliant-chris
+          image: image-registry.openshift-image-registry.svc:5000/{{ .Values.agents.builderNamespace }}/{{ .Values.agents.imageStream }}:latest
+          imagePullPolicy: Always
+          env:
+            {{- include "approved.agentEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.agents.servicePort }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliant-chris
+  {{- include "approved.wave" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/name: compliant-chris
+spec:
+  selector:
+    app.kubernetes.io/name: compliant-chris
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.agents.servicePort }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: compliant-chris
+  {{- include "approved.wave" (dict "root" . "wave" "agents") | nindent 2 }}
+  namespace: {{ .Values.agents.namespace }}
+  labels:
+    {{- include "approved.labels" . | nindent 4 }}
+    app.kubernetes.io/name: compliant-chris
+spec:
+  to:
+    kind: Service
+    name: compliant-chris
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}

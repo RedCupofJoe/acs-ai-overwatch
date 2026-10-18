@@ -1,0 +1,118 @@
+{{- $domain := include "trust.appsDomain" . }}
+{{- if and $domain (include "trust.crdReady" (dict "root" . "crdName" .Values.ztwim.crd)) }}
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+    app.kubernetes.io/name: zero-trust-workload-identity-manager
+spec:
+  trustDomain: {{ $domain | quote }}
+  clusterName: {{ .Values.ztwim.clusterName | quote }}
+  bundleConfigMap: {{ .Values.ztwim.bundleConfigMap | quote }}
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  logLevel: info
+  logFormat: text
+  jwtIssuer: {{ printf "https://oidc-discovery.%s" $domain | quote }}
+  caValidity: 24h
+  defaultX509Validity: 1h
+  defaultJWTValidity: 5m
+  jwtKeyType: rsa-2048
+  caSubject:
+    country: US
+    organization: ACS AI Overwatch
+    commonName: SPIRE Server CA
+  persistence:
+    size: {{ .Values.ztwim.persistence.size | quote }}
+    accessMode: ReadWriteOnce
+    storageClass: {{ .Values.storage.defaultStorageClass | quote }}
+  datastore:
+    databaseType: sqlite3
+    connectionString: /run/spire/data/datastore.sqlite3
+    maxOpenConns: 100
+    maxIdleConns: 10
+    connMaxLifetime: 0
+    disableMigration: "false"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  socketPath: /run/spire/agent-sockets
+  logLevel: info
+  logFormat: text
+  nodeAttestor:
+    k8sPSATEnabled: "true"
+  workloadAttestors:
+    k8sEnabled: "true"
+    workloadAttestorsVerification:
+      type: auto
+      hostCertBasePath: /etc/kubernetes
+      hostCertFileName: kubelet-ca.crt
+    disableContainerSelectors: "false"
+    useNewContainerLocator: "true"
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  agentSocketPath: /run/spire/agent-sockets
+  pluginName: csi.spiffe.io
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  logLevel: info
+  logFormat: text
+  csiDriverName: csi.spiffe.io
+  jwtIssuer: {{ printf "https://oidc-discovery.%s" $domain | quote }}
+  replicaCount: 1
+  managedRoute: "true"
+  externalSecretRef: ""
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: acs-ai-overwatch-approved-agents
+  {{- include "trust.wave" (dict "root" . "wave" "operands") | nindent 2 }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  className: zero-trust-workload-identity-manager-spire
+  spiffeIDTemplate: spiffe://{{ "{{" }} .TrustDomain {{ "}}" }}/ns/{{ "{{" }} .PodMeta.Namespace {{ "}}" }}/sa/{{ "{{" }} .PodSpec.ServiceAccountName {{ "}}" }}
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ .Values.ztwim.spiffe.namespace }}
+  podSelector:
+    matchLabels:
+      acs-ai-overwatch.io/approved: "true"
+  federatesWith: []
+{{- end }}

@@ -35,6 +35,9 @@ rules:
   - apiGroups: ["image.openshift.io"]
     resources: ["imagestreams", "imagestreamtags"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["pods", "pods/log", "persistentvolumeclaims", "secrets", "configmaps", "services"]
     verbs: ["get", "list", "watch", "create"]
@@ -65,6 +68,9 @@ metadata:
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: [""]
     resources: ["services", "secrets"]
@@ -169,6 +175,14 @@ spec:
               value: {{ .Values.agents.agentServicePort | quote }}
             - name: AGENT_SA
               value: {{ .Values.agents.openShellServiceAccountName | quote }}
+            - name: BUILDER_SA
+              value: {{ .Values.builder.name | quote }}
+            - name: SANDBOX_RUNTIME_CLASS
+              value: {{ .Values.agents.sandboxRuntimeClass | quote }}
+            - name: TPA_URL
+              value: {{ .Values.tpa.internalUrl | quote }}
+            - name: TPA_TOKEN
+              value: {{ .Values.tpa.token | quote }}
             {{- include "acs-ai-overwatch.otelAgentEnv" (dict "root" . "serviceName" "acs-agent-builder") | nindent 12 }}
           ports:
             - name: http

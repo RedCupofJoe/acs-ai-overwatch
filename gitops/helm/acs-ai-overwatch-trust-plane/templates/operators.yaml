@@ -1,0 +1,127 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-zero-trust-workload-identity-manager
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.ztwim.subscription.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.ztwim.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.ztwim.subscription.channel }}
+  installPlanApproval: Automatic
+  name: {{ .Values.ztwim.subscription.package }}
+  source: {{ .Values.ztwim.subscription.source }}
+  sourceNamespace: {{ .Values.ztwim.subscription.sourceNamespace }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhtpa-operator
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tpa.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.tpa.subscription.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tpa.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.tpa.subscription.channel }}
+  installPlanApproval: Automatic
+  name: {{ .Values.tpa.subscription.package }}
+  source: {{ .Values.tpa.subscription.source }}
+  sourceNamespace: {{ .Values.tpa.subscription.sourceNamespace }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhbk-operator
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tpa.keycloak.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.tpa.keycloak.subscription.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.tpa.keycloak.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.tpa.keycloak.subscription.channel }}
+  installPlanApproval: Automatic
+  name: {{ .Values.tpa.keycloak.subscription.package }}
+  source: {{ .Values.tpa.keycloak.subscription.source }}
+  sourceNamespace: {{ .Values.tpa.keycloak.subscription.sourceNamespace }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: agent-sandbox-operator
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.agentSandbox.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.agentSandbox.subscription.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.agentSandbox.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.agentSandbox.subscription.channel }}
+  installPlanApproval: Automatic
+  name: {{ .Values.agentSandbox.subscription.package }}
+  source: {{ .Values.agentSandbox.subscription.source }}
+  sourceNamespace: {{ .Values.agentSandbox.subscription.sourceNamespace }}
+{{- if .Values.trustPlane.kata.enabled }}
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: sandboxed-containers-operator
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.sandboxedContainers.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.sandboxedContainers.subscription.name }}
+  {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.sandboxedContainers.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  channel: {{ .Values.sandboxedContainers.subscription.channel }}
+  installPlanApproval: Automatic
+  name: {{ .Values.sandboxedContainers.subscription.package }}
+  source: {{ .Values.sandboxedContainers.subscription.source }}
+  sourceNamespace: {{ .Values.sandboxedContainers.subscription.sourceNamespace }}
+{{- end }}

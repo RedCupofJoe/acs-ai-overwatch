@@ -1,0 +1,300 @@
+{{- $ns := .Values.tpa.namespace }}
+{{- $pg := .Values.tpa.postgres }}
+{{- $kc := .Values.tpa.keycloak }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rhtpa-postgres
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: {{ $pg.adminUser | quote }}
+  password: {{ $pg.adminPassword | quote }}
+  database: {{ $pg.database | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql-credentials
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  db.host: rhtpa-postgres.{{ $ns }}.svc.cluster.local
+  db.port: "5432"
+  db.name: {{ $pg.database | quote }}
+  db.user: {{ $pg.username | quote }}
+  db.password: {{ $pg.password | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rhtpa-keycloak-db
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $kc.namespace }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: {{ $kc.username | quote }}
+  password: {{ $kc.password | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storage-credentials
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  user: {{ .Values.tpa.minio.accessKey | quote }}
+  password: {{ .Values.tpa.minio.secretKey | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oidc-cli
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  client-secret: {{ $kc.cliClientSecret | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rhtpa-postgres-init
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+data:
+  01-databases.sql: |
+    CREATE USER {{ $pg.username }} WITH PASSWORD '{{ $pg.password }}';
+    CREATE DATABASE {{ $pg.database }} OWNER {{ $pg.username }};
+    CREATE USER {{ $kc.username }} WITH PASSWORD '{{ $kc.password }}';
+    CREATE DATABASE {{ $kc.database }} OWNER {{ $kc.username }};
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rhtpa-postgres-data
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.defaultStorageClass }}
+  resources:
+    requests:
+      storage: {{ $pg.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhtpa-postgres
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  selector:
+    app.kubernetes.io/component: rhtpa-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhtpa-postgres
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rhtpa-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: rhtpa-postgres
+        app.kubernetes.io/part-of: acs-ai-overwatch
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: {{ $pg.image }}
+          securityContext:
+            runAsUser: 999
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rhtpa-postgres
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rhtpa-postgres
+                  key: password
+            - name: POSTGRES_DB
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rhtpa-postgres-data
+        - name: init
+          configMap:
+            name: rhtpa-postgres-init
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rhtpa-minio-data
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.defaultStorageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.tpa.minio.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rhtpa-minio
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: rhtpa-minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rhtpa-minio
+  {{- include "trust.wave" (dict "root" . "wave" "storage") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rhtpa-minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: rhtpa-minio
+        app.kubernetes.io/part-of: acs-ai-overwatch
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.tpa.minio.image }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - name: api
+              containerPort: 9000
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: storage-credentials
+                  key: user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: storage-credentials
+                  key: password
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rhtpa-minio-data
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rhtpa-minio-bucket
+  {{- include "trust.wave" (dict "root" . "wave" "identity") | nindent 2 }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "trust.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 8
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: {{ .Values.tpa.minio.mcImage }}
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: storage-credentials
+                  key: user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: storage-credentials
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              mc alias set rhtpa http://rhtpa-minio.{{ $ns }}.svc.cluster.local:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              mc mb --ignore-existing rhtpa/{{ .Values.tpa.bucket }}

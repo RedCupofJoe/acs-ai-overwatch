@@ -1,0 +1,33 @@
+# Optional phase. Not included in gitops/argocd/kustomization.yaml.
+# Apply with: oc apply -k gitops/argocd/overlays/demo-wrong
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acs-ai-overwatch-misbehavior
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+    acs-ai-overwatch.io/phase: misbehavior
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: acs-ai-overwatch
+  source:
+    repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    targetRevision: main
+    path: gitops/helm/acs-ai-overwatch-misbehavior
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: test-range
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

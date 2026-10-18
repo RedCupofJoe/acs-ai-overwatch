@@ -1,0 +1,118 @@
+global:
+  partOf: acs-ai-overwatch
+
+# Operand CRs render only after the discovery ConfigMap or cluster.appsDomain is set.
+# trustDomain and the Keycloak hostname are immutable enough that a placeholder domain is worse.
+cluster:
+  appsDomain: ""
+
+clusterDiscovery:
+  namespace: acs-ai-overwatch-system
+  configMapName: acs-ai-overwatch-cluster-config
+
+platformResources:
+  waitForCrds: true
+
+storage:
+  defaultStorageClass: gp3-csi
+
+argocd:
+  syncWaves:
+    enabled: true
+    operators: "10"
+    storage: "20"
+    identity: "30"
+    operands: "40"
+    sandbox: "50"
+
+trustPlane:
+  # Lightweight VM isolation is off for the demo. scripts/cluster-admin/enable-kata.sh turns it on.
+  kata:
+    enabled: false
+    platform: ""
+
+ztwim:
+  namespace: zero-trust-workload-identity-manager
+  subscription:
+    name: openshift-zero-trust-workload-identity-manager
+    package: openshift-zero-trust-workload-identity-manager
+    channel: stable-v1
+    source: redhat-operators
+    sourceNamespace: openshift-marketplace
+  crd: zerotrustworkloadidentitymanagers.operator.openshift.io
+  clusterName: acs-ai-overwatch
+  bundleConfigMap: spire-bundle
+  persistence:
+    size: 5Gi
+  spiffe:
+    namespace: test-range
+    serviceAccount: openshell
+
+tpa:
+  namespace: trusted-profile-analyzer
+  subscription:
+    name: rhtpa-operator
+    package: rhtpa-operator
+    channel: stable
+    source: redhat-operators
+    sourceNamespace: openshift-marketplace
+  crd: trustedprofileanalyzers.rhtpa.redhat.com
+  bucket: rhtpa-sbom
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    storage: 20Gi
+    adminUser: postgres
+    adminPassword: rhtpa-poc-admin
+    database: rhtpa
+    username: rhtpa
+    password: rhtpa-poc-password
+  minio:
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
+    mcImage: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+    storage: 20Gi
+    accessKey: rhtpa-minio-access
+    secretKey: rhtpa-poc-minio
+  keycloak:
+    namespace: keycloak
+    name: rhtpa
+    subscription:
+      name: rhbk-operator
+      package: rhbk-operator
+      channel: stable-v26
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+    crd: keycloaks.k8s.keycloak.org
+    cliImage: registry.redhat.io/rhbk/keycloak-rhel9:26.2
+    database: keycloak
+    username: keycloak
+    password: keycloak-poc-password
+    realm: rhtpa
+    frontendClientId: rhtpa-frontend
+    cliClientId: rhtpa-cli
+    cliClientSecret: rhtpa-cli-poc-secret
+    routeName: rhtpa-sso
+    serviceName: rhtpa-service
+
+agentSandbox:
+  namespace: agent-sandbox-system
+  subscription:
+    name: agent-sandbox-operator
+    package: agent-sandbox-operator
+    channel: preview-0.9
+    source: redhat-operators
+    sourceNamespace: openshift-marketplace
+  templateNamespace: test-range
+  templateName: approved-agent
+  routerService: sandbox-router
+  crd: sandboxtemplates.extensions.agents.x-k8s.io
+
+sandboxedContainers:
+  namespace: openshift-sandboxed-containers-operator
+  subscription:
+    name: sandboxed-containers-operator
+    package: sandboxed-containers-operator
+    channel: stable
+    source: redhat-operators
+    sourceNamespace: openshift-marketplace
+  crd: kataconfigs.kataconfiguration.openshift.io
+  kataConfigName: acs-ai-overwatch-kataconfig

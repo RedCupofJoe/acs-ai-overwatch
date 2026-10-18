@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACS AI Overwatch</title>
+  <style>
+    :root {
+      --bg: #0b1215;
+      --panel: #121c21;
+      --ink: #e8eef2;
+      --muted: #8aa0ab;
+      --line: #24343b;
+      --acs: #c9190b;
+      --ok: #3dcc87;
+      --warn: #f0ab00;
+      --shadow: #f4c145;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background: radial-gradient(1100px 480px at 8% -12%, #2a1512 0%, var(--bg) 52%);
+      color: var(--ink);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: center;
+      padding: 0.85rem 1.15rem;
+      border-bottom: 1px solid var(--line);
+      background: #0e1619;
+    }
+    header h1 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.8rem; }
+    .links { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+    .links a {
+      color: #e8eef2;
+      text-decoration: none;
+      border: 1px solid var(--line);
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .links a:hover { border-color: #c9190b; }
+    .workspace {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr) 300px;
+      min-height: 0;
+    }
+    nav, aside {
+      background: #0e1619;
+      overflow: auto;
+    }
+    nav { border-right: 1px solid var(--line); padding: 0.75rem; }
+    aside { border-left: 1px solid var(--line); padding: 1rem; }
+    nav h2, aside h2 {
+      margin: 0 0 0.55rem;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+    }
+    .agent {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin: 0 0 0.4rem;
+      padding: 0.65rem 0.7rem;
+      background: var(--panel);
+      color: inherit;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .agent.active { border-color: var(--acs); }
+    .agent .row { display: flex; justify-content: space-between; gap: 0.4rem; align-items: center; }
+    .agent strong { font-size: 0.86rem; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4a6670; flex: none;
+    }
+    .dot.up { background: var(--ok); }
+    .dot.down { background: var(--acs); }
+    .kind {
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 0.2rem;
+    }
+    .kind.shadow { color: var(--shadow); }
+    .kind.approved, .kind.remediated { color: var(--ok); }
+    .chat {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+    }
+    .banner {
+      padding: 0.7rem 1.1rem;
+      border-bottom: 1px solid var(--line);
+      background: #141c16;
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+    .banner.warn { background: #23180c; }
+    .banner.ok { background: #102018; }
+    #log {
+      overflow: auto;
+      padding: 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .msg {
+      max-width: 46rem;
+      padding: 0.7rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 0.93rem;
+    }
+    .msg.user { border-left: 3px solid var(--acs); }
+    .msg.agent { border-left: 3px solid var(--ok); }
+    .msg .who {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    form {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.8rem 1.1rem 1rem;
+      border-top: 1px solid var(--line);
+    }
+    input[type="text"] {
+      flex: 1;
+      background: var(--panel);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0.7rem 0.8rem;
+      font: inherit;
+    }
+    input[type="text"]:focus { outline: 1px solid #4a6670; }
+    button.send, button.prompt {
+      background: var(--acs);
+      color: white;
+      border: 0;
+      border-radius: 4px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.send { padding: 0 1.05rem; }
+    button.send:disabled { opacity: 0.5; cursor: wait; }
+    button.prompt {
+      display: block;
+      width: 100%;
+      text-align: left;
+      margin: 0 0 0.4rem;
+      padding: 0.5rem 0.6rem;
+      background: var(--panel);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      font-weight: 500;
+      font-size: 0.82rem;
+    }
+    button.prompt:hover { border-color: #4a6670; }
+    button.prompt.hot { border-color: var(--acs); color: #ffd7d2; }
+    aside p { color: var(--muted); font-size: 0.8rem; line-height: 1.45; margin: 0 0 0.75rem; }
+    table.contrast { width: 100%; border-collapse: collapse; font-size: 0.72rem; margin: 0 0 0.9rem; }
+    table.contrast th, table.contrast td { text-align: left; padding: 0.28rem 0.3rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.contrast th { color: var(--muted); font-weight: 600; }
+    table.contrast td.wrong { color: var(--shadow); }
+    table.contrast td.right { color: var(--ok); }
+    aside .label { color: var(--ink); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 0.85rem 0 0.3rem; }
+    @media (max-width: 980px) {
+      .workspace { grid-template-columns: 220px minmax(0, 1fr); }
+      aside { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ACS AI Overwatch</h1>
+      <p id="phase">Wrong is a plain pod in monitor mode. Right is OpenClaw, OpenShell, Agent Sandbox, SPIFFE, and a TPA-cleared image.</p>
+    </div>
+    <div class="links">
+      <a id="link-acs" href="#" target="_blank" rel="noopener">RHACS Central</a>
+      <a id="link-mm" href="#" target="_blank" rel="noopener">Mattermost</a>
+    </div>
+  </header>
+  <div class="workspace">
+    <nav>
+      <h2>Agents</h2>
+      <div id="agents"></div>
+    </nav>
+    <section class="chat">
+      <div id="banner" class="banner">Select an agent to start the ACS walkthrough.</div>
+      <div id="log" aria-live="polite"></div>
+      <form id="ask">
+        <input id="q" type="text" autocomplete="off" placeholder="Message this agent…">
+        <button class="send" type="submit">Send</button>
+      </form>
+    </section>
+    <aside>
+      <h2>Wrong vs right</h2>
+      <p id="phase-wrong"></p>
+      <p id="phase-trust"></p>
+      <p id="phase-right"></p>
+      <table class="contrast">
+        <thead><tr><th>Control</th><th>Wrong</th><th>Right</th></tr></thead>
+        <tbody id="contrast"></tbody>
+      </table>
+      <h2>ACS policy</h2>
+      <div class="label">Policy</div>
+      <p id="policy">—</p>
+      <div class="label">What this agent violates</div>
+      <p id="violation">—</p>
+      <div class="label">Where to watch</div>
+      <p id="watch">—</p>
+      <div class="label">Runtime</div>
+      <p id="runtime">—</p>
+      <div class="label">Try</div>
+      <div id="prompts"></div>
+    </aside>
+  </div>
+  <script>
+    const state = { agents: [], selected: null, logs: {}, health: {} };
+    const $ = (id) => document.getElementById(id);
+
+    function add(role, text, agentId) {
+      const id = agentId || state.selected;
+      if (!id) return;
+      if (!state.logs[id]) state.logs[id] = [];
+      state.logs[id].push({ role, text });
+      if (id !== state.selected) return;
+      const el = document.createElement("article");
+      el.className = "msg " + role;
+      const who = document.createElement("div");
+      who.className = "who";
+      who.textContent = role === "user" ? "You" : (current().name || "Agent");
+      el.appendChild(who);
+      el.append(document.createTextNode(text));
+      $("log").appendChild(el);
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+
+    function current() {
+      return state.agents.find((a) => a.id === state.selected) || {};
+    }
+
+    function bannerClass(agent) {
+      if (agent.kind === "approved" || agent.kind === "remediated") return "banner ok";
+      if (agent.id === "rosey-regrets" || agent.id === "sneaky-sam") return "banner warn";
+      return "banner";
+    }
+
+    function renderAgents() {
+      $("agents").innerHTML = "";
+      state.agents.forEach((agent) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "agent" + (agent.id === state.selected ? " active" : "");
+        const health = state.health[agent.id];
+        const dotClass = health && health.ready ? "up" : (health ? "down" : "");
+        btn.innerHTML =
+          '<div class="row"><strong></strong><span class="dot ' + dotClass + '"></span></div>' +
+          '<div class="kind ' + agent.kind + '"></div>';
+        btn.querySelector("strong").textContent = agent.name;
+        btn.querySelector(".kind").textContent =
+          agent.kind + " · telemetry " + agent.telemetry;
+        btn.addEventListener("click", () => select(agent.id));
+        $("agents").appendChild(btn);
+      });
+    }
+
+    function renderDetail() {
+      const agent = current();
+      $("policy").textContent = agent.policy || "—";
+      $("violation").textContent = agent.violation || "—";
+      $("watch").textContent = agent.watch || "—";
+      $("runtime").textContent = agent.runtime || "—";
+      $("banner").className = bannerClass(agent);
+      const health = state.health[agent.id];
+      const ready = health && health.ready;
+      $("banner").textContent = agent.name
+        ? (ready ? agent.name + " is reachable. " : agent.name + " is not ready yet. ") +
+          (agent.kind === "remediated" && !ready
+            ? "This pod appears after ACS rebuilds the original image."
+            : agent.watch)
+        : "Select an agent to start the ACS walkthrough.";
+      $("prompts").innerHTML = "";
+      (agent.prompts || []).forEach((prompt) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "prompt" + (prompt.message === "Network Audit" ? " hot" : "");
+        btn.textContent = prompt.label;
+        btn.addEventListener("click", () => ask(prompt.message));
+        $("prompts").appendChild(btn);
+      });
+      $("log").innerHTML = "";
+      (state.logs[agent.id] || []).forEach((entry) => {
+        const selected = state.selected;
+        state.selected = agent.id;
+        const el = document.createElement("article");
+        el.className = "msg " + entry.role;
+        const who = document.createElement("div");
+        who.className = "who";
+        who.textContent = entry.role === "user" ? "You" : agent.name;
+        el.appendChild(who);
+        el.append(document.createTextNode(entry.text));
+        $("log").appendChild(el);
+        state.selected = selected;
+      });
+      $("log").scrollTop = $("log").scrollHeight;
+    }
+
+    function select(id) {
+      state.selected = id;
+      if (!state.logs[id] || !state.logs[id].length) {
+        const agent = current();
+        state.logs[id] = [{
+          role: "agent",
+          text: agent.violation + "\n\n" + agent.watch,
+        }];
+      }
+      renderAgents();
+      renderDetail();
+      $("q").focus();
+    }
+
+    async function ask(text) {
+      const message = (text || "").trim();
+      const id = state.selected;
+      if (!message || !id) return;
+      add("user", message, id);
+      $("ask").querySelector(".send").disabled = true;
+      try {
+        const res = await fetch("/api/agents/" + encodeURIComponent(id) + "/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || ("HTTP " + res.status));
+        add("agent", data.reply || "(empty reply)", id);
+      } catch (err) {
+        add("agent", "Request failed: " + err, id);
+      } finally {
+        $("ask").querySelector(".send").disabled = false;
+        $("q").focus();
+      }
+    }
+
+    async function refreshHealth() {
+      await Promise.all(state.agents.map(async (agent) => {
+        try {
+          const res = await fetch("/api/agents/" + encodeURIComponent(agent.id) + "/health");
+          state.health[agent.id] = await res.json();
+        } catch (err) {
+          state.health[agent.id] = { ready: false, detail: String(err) };
+        }
+      }));
+      renderAgents();
+      if (state.selected) renderDetail();
+    }
+
+    $("ask").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = $("q").value;
+      $("q").value = "";
+      ask(value);
+    });
+
+    (async () => {
+      const res = await fetch("/api/catalog");
+      const data = await res.json();
+      state.agents = data.agents || [];
+      const phase = data.phase || {};
+      $("phase-wrong").textContent = phase.wrong || "";
+      $("phase-trust").textContent = phase.trust || "";
+      $("phase-right").textContent = phase.right || "";
+      const contrast = $("contrast");
+      (data.contrast || []).forEach((row) => {
+        const tr = document.createElement("tr");
+        const control = document.createElement("td");
+        const wrong = document.createElement("td");
+        const right = document.createElement("td");
+        control.textContent = row.control;
+        wrong.textContent = row.wrong;
+        right.textContent = row.right;
+        wrong.className = "wrong";
+        right.className = "right";
+        tr.append(control, wrong, right);
+        contrast.appendChild(tr);
+      });
+      if (data.links && data.links.acsCentral) $("link-acs").href = data.links.acsCentral;
+      if (data.links && data.links.mattermost) $("link-mm").href = data.links.mattermost;
+      renderAgents();
+      if (state.agents[0]) select(state.agents[0].id);
+      await refreshHealth();
+      setInterval(refreshHealth, 8000);
+    })();
+  </script>
+</body>
+</html>

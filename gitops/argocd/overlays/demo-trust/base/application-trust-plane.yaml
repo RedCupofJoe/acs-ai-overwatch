@@ -1,0 +1,34 @@
+# Trust plane. Apply after the misbehavior demo, and before identify/terminate/rebuild.
+# Included in the actual-deployment kustomization.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: acs-ai-overwatch-trust-plane
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/part-of: acs-ai-overwatch
+    acs-ai-overwatch.io/phase: trust-plane
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: acs-ai-overwatch
+  source:
+    repoURL: https://github.com/RedCupofJoe/acs-ai-overwatch.git
+    targetRevision: main
+    path: gitops/helm/acs-ai-overwatch-trust-plane
+    helm:
+      valueFiles:
+        - values.yaml
+      serverDryRun: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: trusted-profile-analyzer
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

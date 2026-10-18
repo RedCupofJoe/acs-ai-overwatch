@@ -14,13 +14,19 @@ mattermost:
   automaticPrepackagedPlugins: false
 
 components:
+  # Hank, Rosey, and Sam live in the optional misbehavior Application.
+  # Compliant Chris lives in the approved Application (Agent Sandbox).
   agentsHelpfulHank:
-    enabled: true
+    enabled: false
   agentsRoseyRegrets:
-    enabled: true
+    enabled: false
   agentsSneakySam:
-    enabled: true
+    enabled: false
   agentsCompliantChris:
+    enabled: false
+  demoSecurityPolicies:
+    enabled: false
+  overwatchConsole:
     enabled: true
   investigator:
     enabled: true

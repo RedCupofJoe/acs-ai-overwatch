@@ -8,21 +8,22 @@ This GitOps repository shows that loop end to end:
 
 | Stage | What happens |
 |-------|----------------|
-| **Plant shadow agents** | Helpful Hank (benign), **Rosey Regrets** (recon tools + local MiniCPM GGUF), **Sneaky Sam** (no telemetry label) in `test-range` |
-| **Track with RHACS** | Runtime policy on recon processes (`nmap`, `masscan`, `rustscan`, `naabu`, …); deploy-time policy requiring `acs-ai-overwatch.io/telemetry=enabled` |
-| **Notify** | RHACS notifier → Mattermost Town Square (human-in-the-loop) and the ACS investigator |
-| **Investigate** | Gemma 2 9B (OpenShift AI Model Catalog) writes a rebuild spec: no scanners, approved Granite via MaaS |
-| **Rebuild** | Agentic builder starts OpenShift **BuildConfigs** for **Remediated Rosey** and **Remediated Sam** from those original images onto **NVIDIA OpenShell** (telemetry on, MaaS Granite, no GGUF) |
-| **Approved greenfield** | **Compliant Chris** — starts on **NVIDIA OpenShell** + MaaS Granite, telemetry on, a simple chat UI, and an allowlisted tool against a Hugging Face campus-placement CSV |
+| **Optional: what wrong looks like** | Helpful Hank, **Rosey Regrets**, and **Sneaky Sam** as plain pods. ACS is in **monitor** mode, so they can violate policy. Skip this Application for an actual deployment. |
+| **Trust plane** | App of Apps installs **Trusted Profile Analyzer**, **Zero Trust Workload Identity Manager** (SPIFFE/SPIRE), and **Red Hat build of Agent Sandbox** before any rebuild. Kata VMs stay off unless you opt in. |
+| **Identify, terminate, rebuild** | Flip ACS to enforce, wait until the shadow pods are gone, then rebuild only if TPA accepts the SBOM. |
+| **What right looks like** | **OpenClaw** inside **NVIDIA OpenShell**, scheduled as an **Agent Sandbox**, with a **SPIFFE** SVID and Granite via MaaS. **Compliant Chris** is the greenfield control. |
 
 The stack underneath that story:
 
 - **Red Hat OpenShift 4.20** and **OpenShift AI 3.5** (`stable-3.5`) with OGX and Models-as-a-Service
 - **RHACS** for runtime and deploy-time `SecurityPolicy` CRs (GitOps)
-- **UBI + llama.cpp** open harness for **uncompliant** rogue agents (Hank, Rosey, Sam)
+- **UBI + llama.cpp** for the optional misbehavior phase (Hank, Rosey, Sam)
 - **Mattermost** as the Slack-compatible sink for ACS violations
 - **OpenShift internal registry ImageStreams** (and optional Quay) for agent images
-- **NVIDIA OpenShell** for **Compliant Chris** from the start, and for **Remediated Rosey/Sam** after ACS rebuilds the original rogue images
+- **Red Hat Trusted Profile Analyzer** as the SBOM system of record on rebuild
+- **Zero Trust Workload Identity Manager** for SPIFFE/SPIRE identities on approved pods
+- **Red Hat build of Agent Sandbox** as the workload API. **OpenShift sandboxed containers** (Kata) is optional
+- **NVIDIA OpenShell** as the application sandbox inside that pod, with **OpenClaw** as the harness
 
 Deploy through **OpenShift GitOps (Argo CD)**:
 
@@ -31,7 +32,7 @@ Deploy through **OpenShift GitOps (Argo CD)**:
 3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
 4. **`acs-ai-overwatch-observability`** — OTEL collector → Tempo + MLflow + Grafana (on by default)
 
-Kagenti is **not** used. **Compliant Chris** starts on **NVIDIA OpenShell**. Rogue agents start as plain OpenShift Deployments with a llama.cpp sidecar (uncompliant open harness). After ACS investigation, the builder rebuilds those originals onto OpenShell sandbox images that call MaaS. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift builds.
+Kagenti is **not** used. Wrong agents are plain Deployments. Right agents are OpenClaw inside OpenShell on an Agent Sandbox. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift builds. The builder does not publish a remediated image until Trusted Profile Analyzer has the SBOM and the package list is clean.
 
 ### Quick Start
 
@@ -55,9 +56,11 @@ oc login   # cluster-admin
 
 # 3. If this is a fork, set spec.source.repoURL in every gitops/argocd/application*.yaml
 
-# 4. Register Argo CD Applications (automated sync, waves 0 → 1 → 2 → 4)
+# 4. Actual deployment (no shadow agents). For the monitor-mode demo, use the overlay instead.
 oc apply -k gitops/argocd/
-#    bootstrap → cluster-discovery → acs-ai-overwatch → acs-ai-overwatch-observability
+#    bootstrap → discovery → platform → observability → trust-plane → approved
+# Demo start (optional misbehavior, ACS monitor, no trust plane yet):
+# oc apply -k gitops/argocd/overlays/demo-wrong
 
 # 5. Wait for discovery, then hard-refresh the main app so Helm lookup reads the ConfigMap
 oc get cm -n acs-ai-overwatch-system acs-ai-overwatch-cluster-config
@@ -73,12 +76,16 @@ oc start-build sneaky-sam --from-dir=. --follow -n acs-agent-builder
 oc start-build acs-investigator --from-dir=. --follow -n acs-agent-builder
 oc start-build acs-agent-builder --from-dir=. --follow -n acs-agent-builder
 oc start-build compliant-chris --from-dir=. --follow -n acs-agent-builder
+oc start-build overwatch-console --from-dir=. --follow -n acs-agent-builder
 
-# 7. values-poc.yaml already enables RHACS Central, Hank/Rosey/Sam, investigator, MaaS, builder
+# 7. values-poc.yaml enables RHACS Central, investigator, MaaS, builder, and the console.
+#    Hank/Rosey/Sam are not in that overlay. They sync only from the misbehavior Application.
 # 8. Mattermost login + RHACS notifier — see Mattermost & RHACS notifications
-# 9. Demo: POST /chat "Network Audit" to Rosey (or the script below)
-export ROSEY_URL="https://$(oc get route rosey-regrets -n test-range -o jsonpath='{.spec.host}')"
-./scripts/trigger-network-audit.sh
+# 9. After the wrong phase, apply the trust plane, then identify / terminate / rebuild:
+#    oc apply -k gitops/argocd/overlays/demo-trust
+#    ./scripts/demo/identify-terminate-rebuild.sh
+export OVERWATCH_URL="https://$(oc get route overwatch-console -n test-range -o jsonpath='{.spec.host}')"
+open "$OVERWATCH_URL"
 ```
 
 **OpenShift AI version:** This PoC targets **OpenShift AI 3.5** (`stable-3.5`) on **OpenShift 4.20**. Discovery picks `stable-3.5` / `fast-3.5` / `eus-3.5` from the catalog (`RHOAI_TARGET_VERSION`, default `3.5`).
@@ -124,17 +131,17 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 
 This PoC is a security demo of **shadow Agentic IT**. RHACS is the control plane that **tracks** unsanctioned agents and workloads; the builder is the **pipeline** that turns a violation into a compliant Deployment.
 
-### What “shadow AI” looks like here
+### What “wrong” looks like, and what “right” looks like
 
-| Workload | Shadow behavior | What RHACS sees |
-|----------|-----------------|-----------------|
-| **Helpful Hank** | Approved-looking assistant, but still a local unaudited MiniCPM GGUF | Has `acs-ai-overwatch.io/telemetry=enabled`; no recon processes |
-| **Rosey Regrets** | Same GGUF **plus** nmap/masscan/rustscan/naabu | Runtime policy `test-range-runtime-guardrails` (alert-only) |
-| **Sneaky Sam** | Same GGUF, **omits** the telemetry label | Deploy policy `test-range-sneaky-sam-telemetry-violation` (alert-only) |
-| **Remediated Rosey / Sam** | Rebuilt from those original images onto **OpenShell** + Granite via MaaS, telemetry on | Compliant end state after ACS + rebuild |
-| **Compliant Chris** | Greenfield approved agent: **OpenShell** from the start, MaaS only, telemetry on, Hugging Face placement CSV tool + UI | Nothing — the control case RHACS should stay quiet on |
+| Workload | Behavior | What RHACS sees in the wrong phase |
+|----------|----------|-------------------------------------|
+| **Helpful Hank** | Local unaudited MiniCPM GGUF on a plain pod | Telemetry label present; no recon processes |
+| **Rosey Regrets** | Same GGUF **plus** nmap/masscan/rustscan/naabu | Runtime policy `test-range-runtime-guardrails` (monitor) |
+| **Sneaky Sam** | Same GGUF, **omits** the telemetry label | Deploy policy `test-range-sneaky-sam-telemetry-violation` (monitor) |
+| **Remediated Rosey / Sam** | OpenClaw inside OpenShell on an Agent Sandbox, TPA-cleared, SPIFFE SVID, MaaS Granite | Created only after enforce + rebuild |
+| **Compliant Chris** | Same approved shape, from day one, plus the placement CSV UI | Not deployed until the approved Application syncs |
 
-RHACS does **not** kill Rosey mid-demo. Enforcement is alert-only so the operator can watch Town Square, the investigator, and the rebuild. Admission can still **block** other agents that lack the telemetry label (`test-range-agent-telemetry-required`).
+During the optional phase, ACS **monitor** mode lets those pods keep running. `scripts/demo/identify-terminate-rebuild.sh` switches the misbehavior policies to enforce (`KILL_POD_ENFORCEMENT` / `SCALE_TO_ZERO_ENFORCEMENT` and admission fail) only after the trust plane is up. An actual deployment never installs the misbehavior Application; the approved chart syncs the enforce-mode policies itself.
 
 ### What the platform team provisions
 
@@ -146,33 +153,31 @@ RHACS does **not** kill Rosey mid-demo. Enforcement is alert-only so the operato
 6. **Mattermost** + webhook bridge (fan-out to the investigator)
 7. **BuildConfigs** that produce Remediated Rosey/Sam (no scanners, approved Red Hat model via MaaS)
 
-**Demo loop** (shadow agent → ACS track → alert → investigate → compliant rebuild):
+**Demo loop** (optional wrong phase → trust plane → identify, terminate, rebuild):
 
 ```
-Operator POST /chat "Network Audit" to rosey-regrets
+oc apply -k gitops/argocd/overlays/demo-wrong
         │
         ▼
-In-sandbox MiniCPM (llama.cpp) tool-calls nmap, masscan, rustscan, naabu, dig
+Rosey (plain pod, llama.cpp) tool-calls nmap, masscan, rustscan, naabu
+Sam is deployed without the telemetry label
+ACS monitor mode records both and leaves the pods running
         │
         ▼
-RHACS test-range-runtime-guardrails detects recon processes (alert-only)
+oc apply -k gitops/argocd/overlays/demo-trust
         │
         ▼
-RHACS generic notifier → acs-mattermost-bridge → Mattermost Town Square
-                                         └→ investigator /alerts
+App of Apps installs TPA (Keycloak + Postgres + MinIO), ZTWIM (SPIRE),
+and the Agent Sandbox operator. Kata stays off unless enable-kata.sh ran.
         │
         ▼
-Gemma 2 9B investigator writes a rebuild spec (no scanners, use MaaS Granite)
-        │
-        ▼
-Agentic builder instantiates BuildConfigs in acs-agent-builder
-(from original rosey-regrets / sneaky-sam → OpenShell remediated images)
-        │
-        ▼
-Remediated Rosey + Remediated Sam roll out in test-range (OpenShell, telemetry on, MaaS only)
+./scripts/demo/identify-terminate-rebuild.sh
+ACS enforce kills/scales the shadow pods, then the builder
+scans the new image, uploads the SBOM to TPA, and applies Sandbox CRs
+(OpenClaw inside OpenShell, SPIFFE mount, MaaS Granite)
 ```
 
-**Telemetry demo** (Sneaky Sam): deploy without `acs-ai-overwatch.io/telemetry=enabled` → RHACS DEPLOY policy → Mattermost → investigator also rebuilds Sam.
+**Telemetry demo** (Sneaky Sam): deploy without `acs-ai-overwatch.io/telemetry=enabled` → RHACS DEPLOY policy in monitor mode → Mattermost. Termination waits for the trust plane.
 
 ---
 
@@ -195,79 +200,78 @@ NVIDIA time-slicing does **not** isolate VRAM. Four MiniCPM 2B GGUFs (~2GB each)
 
 ```mermaid
 flowchart TB
-  subgraph GitOps["GitOps Control Plane"]
-    ArgoCD["Argo CD Application acs-ai-overwatch"]
-    Helm["Helm Chart gitops/helm/acs-ai-overwatch"]
-    ArgoCD --> Helm
+  subgraph GitOps["App of Apps"]
+    Actual["gitops/argocd"]
+    Wrong["overlays/demo-wrong"]
+    TrustApp["overlays/demo-trust"]
   end
 
-  subgraph Infra["Infrastructure"]
-    NFD["Node Feature Discovery"]
-    GPUOp["NVIDIA GPU Operator"]
-    Quay["Quay Registry"]
-    NFD --> GPUOp
+  subgraph Platform["Platform chart"]
+    ACS["ACS Central"]
+    MM["Mattermost"]
+    MaaS["Granite MaaS"]
+    Builder["acs-agent-builder"]
+    Console["overwatch-console"]
   end
 
-  subgraph AI["OpenShift AI 3.5"]
-    RHOAI["RHOAI Operator"]
-    DSC["DataScienceCluster OGX plus MaaS"]
-    Gemma["Gemma 2 9B in acs-investigator"]
-    Granite["Granite 8B MaaS in acs-maas"]
-    RHOAI --> DSC
-    DSC --> Gemma
-    DSC --> Granite
+  subgraph Shadow["Optional misbehavior chart"]
+    Hank["helpful-hank Deployment"]
+    Rosey["rosey-regrets Deployment"]
+    Sam["sneaky-sam Deployment"]
+    Monitor["SecurityPolicies in monitor mode"]
   end
 
-  subgraph Rogue["test-range"]
-    Hank["helpful-hank"]
-    Rosey["rosey-regrets"]
-    Sam["sneaky-sam"]
-    MiniCPM["llama.cpp MiniCPM GGUF"]
-    Hank --> MiniCPM
-    Rosey --> MiniCPM
-    Sam --> MiniCPM
+  subgraph Trust["Trust-plane chart"]
+    TPA["Trusted Profile Analyzer"]
+    ZTWIM["Zero Trust Workload Identity Manager"]
+    SandboxOp["Agent Sandbox operator"]
   end
 
-  subgraph Fix["Remediation"]
-    Inv["acs-investigator"]
-    Bld["acs-agent-builder"]
-    RRosey["remediated-rosey OpenShell"]
-    RSam["remediated-sam OpenShell"]
-    Inv --> Bld
-    Bld --> RRosey
-    Bld --> RSam
-    RRosey --> Granite
-    RSam --> Granite
+  subgraph Right["Approved chart and rebuild"]
+    Chris["compliant-chris Sandbox"]
+    RRosey["remediated-rosey Sandbox"]
+    RSam["remediated-sam Sandbox"]
   end
 
-  subgraph Approved["Approved"]
-    Chris["compliant-chris OpenShell UI plus CSV"]
-    Chris --> Granite
-  end
-
-  subgraph Security["RHACS tracking"]
-    Policy["Runtime recon plus telemetry policies"]
-    Viol["Violations in test-range"]
-    MM["Mattermost Town Square"]
-    Policy --> Viol
-    Viol --> MM
-    Viol --> Inv
-  end
+  Actual --> Platform
+  Actual --> Trust
+  Actual --> Chris
+  Wrong --> Platform
+  Wrong --> Shadow
+  TrustApp --> Trust
+  TrustApp --> Chris
+  Monitor --> Rosey
+  Monitor --> Sam
+  Builder --> TPA
+  TPA --> RRosey
+  TPA --> RSam
+  ZTWIM --> Chris
+  ZTWIM --> RRosey
+  ZTWIM --> RSam
+  Console --> Hank
+  Console --> Rosey
+  Console --> Sam
+  Console --> Chris
 ```
 
 ### Namespaces
 
 | Namespace | Role |
 |---|---|
-| `test-range` | Rogue, remediated, and approved agents (Hank/Rosey/Sam, Remediated *, Compliant Chris) |
+| `test-range` | Optional shadow Deployments, then approved Agent Sandboxes |
 | `acs-investigator` | Gemma investigator + OGX |
 | `acs-agent-builder` | Agentic builder + BuildConfigs / ImageStreams |
 | `acs-maas` | Granite MaaS gateway |
 | `monitoring` | Mattermost + ACS webhook bridge |
 | `quay` | Optional on-cluster registry |
-| `stackrox` | RHACS Central (inventory of violations) |
+| `stackrox` | ACS Central |
+| `trusted-profile-analyzer` | TPA, its Postgres, and the SBOM MinIO |
+| `keycloak` | Red Hat build of Keycloak for the TPA realm |
+| `zero-trust-workload-identity-manager` | ZTWIM and SPIRE |
+| `agent-sandbox-system` | Agent Sandbox operator |
+| `openshift-sandboxed-containers-operator` | Kata, only after `enable-kata.sh` |
 
-NetworkPolicies: rogue agents cannot call MaaS; remediated pods (`acs-ai-overwatch.io/remediated=true`) and **Compliant Chris** (`acs-ai-overwatch.io/maas-client=true`) can. Investigator accepts ACS fan-out from `monitoring`. Builder accepts rebuild specs from the investigator. RHACS policies are the **tracker**; NetworkPolicies are the **containment** layer.
+NetworkPolicies keep the shadow Deployments off MaaS. Approved Sandboxes (`acs-ai-overwatch.io/approved=true`) and the investigator can reach the gateway. ACS policies are the tracker. ZTWIM issues a SPIFFE SVID only to pods with that approved label.
 
 ## Repository Layout
 
@@ -282,10 +286,12 @@ acs-ai-overwatch/
 │   ├── sneaky-sam/                    # Telemetry-evading deploy
 │   ├── investigator/                  # Gemma-backed ACS investigator
 │   ├── builder/                       # OpenShift Pipelines agentic builder
-│   ├── remediated-rosey/              # OpenShell rebuild of Rosey (MaaS, no scanners)
-│   ├── remediated-sam/                # OpenShell rebuild of Sam (MaaS + telemetry)
-│   ├── compliant-chris/               # OpenShell from day one + MaaS + placement CSV UI
-│   └── scripts/                       # pull-model, install-agent-runtime, recon tools
+│   ├── remediated-rosey/              # OpenClaw inside OpenShell; TPA-gated rebuild of Rosey
+│   ├── remediated-sam/                # OpenClaw inside OpenShell; TPA-gated rebuild of Sam
+│   ├── compliant-chris/               # Approved Sandbox from day one + MaaS + placement CSV UI
+│   ├── approved/                      # OpenShell policy mounted into approved images
+│   ├── overwatch-console/             # Demo UI: wrong phase versus a proper agent
+│   └── scripts/                       # pull-model, install-openclaw, install-agent-runtime
 ├── configs/                           # Vendored workshop kustomize (pre-GitOps GPU/NFD)
 │   ├── 00-cluster-setup/05-aws-gpu-machineset/
 │   ├── 01-nvidia-gpu-operator/        # Skip 03 ClusterPolicy — Helm owns time-slicing
@@ -294,15 +300,18 @@ acs-ai-overwatch/
 │   └── 04-rhoai-setup/                # Skip 01 default-dsc — Helm owns DSC
 ├── gitops/
 │   ├── argocd/
-│   │   ├── kustomization.yaml
-│   │   ├── application-gitops-bootstrap.yaml
-│   │   ├── application-cluster-discovery.yaml
-│   │   ├── application.yaml
-│   │   └── application-observability.yaml
+│   │   ├── kustomization.yaml         # actual deployment: platform + trust + approved
+│   │   ├── application*.yaml          # symlinks; oc apply -f still works
+│   │   └── overlays/
+│   │       ├── demo-wrong/            # platform + Hank/Rosey/Sam
+│   │       └── demo-trust/            # TPA, ZTWIM, Agent Sandbox, Compliant Chris
 │   └── helm/
+│       ├── acs-ai-overwatch/          # platform chart
+│       ├── acs-ai-overwatch-misbehavior/
+│       ├── acs-ai-overwatch-trust-plane/
+│       ├── acs-ai-overwatch-approved/
 │       ├── acs-ai-overwatch-cluster-discovery/
-│       ├── acs-ai-overwatch-observability/
-│       └── acs-ai-overwatch/          # Chart.yaml v0.5.0
+│       └── acs-ai-overwatch-observability/
 ├── pipelines/tekton/                  # build-demo-agents + build-remediated-agents
 └── scripts/
     ├── cluster-admin/
@@ -378,7 +387,11 @@ If you later want Kueue, install the operator from OperatorHub and change `rhoai
 
 ## PoC deployment phases
 
-This repo is **layered in values files**, but the default GitOps path always merges `values-poc.yaml`. That overlay turns on Hank/Rosey/Sam, RHACS Central, investigator, MaaS, builder, Pipelines, and (via a fourth Argo Application) observability. **Using Mattermost** (login, webhook, alerts) is documented in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — after RHACS and agent images are healthy.
+The default GitOps path merges `values-poc.yaml` and applies `gitops/argocd/`. That is the **actual deployment**: RHACS Central, investigator, MaaS, builder, Pipelines, observability, the trust plane, and Compliant Chris. It does **not** create Hank, Rosey, or Sam.
+
+The monitor-mode demo starts with `gitops/argocd/overlays/demo-wrong` (platform + misbehavior only). After that story, `gitops/argocd/overlays/demo-trust` installs the operators, and `scripts/demo/identify-terminate-rebuild.sh` terminates and rebuilds. Do not apply the root kustomization on top of a running misbehavior Application: both would own the same `SecurityPolicy` names. Delete `acs-ai-overwatch-misbehavior` first if you are converting a demo cluster into the actual-deployment layout.
+
+**Using Mattermost** (login, webhook, alerts) is documented in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — after RHACS and agent images are healthy.
 
 ### What “GitOps converged” means
 
@@ -396,16 +409,25 @@ This repo is **layered in values files**, but the default GitOps path always mer
 
 | Wave | Application | Delivers |
 |------|-------------|----------|
-| 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels |
+| 0 | `acs-ai-overwatch-gitops-bootstrap` | Namespaces + `managed-by` labels, including trust-plane namespaces |
 | 1 | `acs-ai-overwatch-cluster-discovery` | ConfigMap `acs-ai-overwatch-cluster-config` |
-| 2 | `acs-ai-overwatch` | Operators, Mattermost, RHACS **operator subscription**, `SecurityPolicy` CRs, etc. |
-| 4 | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow + Grafana — see [Phase 5](#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-on-by-default) |
+| 2 | `acs-ai-overwatch` | Platform operators, Mattermost, RHACS, MaaS, builder. Not the shadow agents. |
+| 3 | `acs-ai-overwatch-misbehavior` | **Optional.** Only in `overlays/demo-wrong`. Monitor-mode policies and Hank/Rosey/Sam. |
+| 4 | `acs-ai-overwatch-observability` | OTEL → Tempo + MLflow + Grafana |
+| 5 | `acs-ai-overwatch-trust-plane` | TPA, Keycloak, ZTWIM, Agent Sandbox. Kata only when enabled. |
+| 6 | `acs-ai-overwatch-approved` | Compliant Chris Sandbox. Enforce-mode policies on the actual-deployment path. |
 
 ```bash
+# Actual deployment
 oc apply -k gitops/argocd/
+
+# Demo: wrong phase first, trust plane second
+oc apply -k gitops/argocd/overlays/demo-wrong
+oc apply -k gitops/argocd/overlays/demo-trust
+./scripts/demo/identify-terminate-rebuild.sh
 ```
 
-All four Applications in `gitops/argocd/kustomization.yaml` are applied by default, including observability.
+Independent Argo CD Applications do not order themselves. Apply the kustomizations in the order above. Kata is off by default (`trustPlane.kata.enabled: false`). `scripts/cluster-admin/enable-kata.sh --platform baremetal` or `--platform aws` turns on OpenShift sandboxed containers and sets `runtimeClassName` to `kata` or `kata-remote`. Peer pods need a cloud credential Secret the script does not create.
 
 #### Manual steps (if necessary)
 
@@ -437,19 +459,13 @@ oc annotate application acs-ai-overwatch -n openshift-gitops argocd.argoproj.io/
 **Login, webhook verification, and RHACS alert delivery** are covered in [Mattermost & RHACS notifications](#mattermost--rhacs-notifications) — do that **after** Phase 3 (RHACS) is healthy, immediately before the demo.
 
 ---
-### Phase 2 — Agents (PoC overlay)
+### Phase 2 — Optional misbehavior, then approved sandboxes
 
-`values-poc.yaml` already enables Hank, Rosey, Sam, investigator, MaaS, builder, and pipelines. Agent Deployments sync as soon as the cluster ConfigMap exists; they stay **ImagePullBackOff** until images are in Quay.
+`values-poc.yaml` enables the investigator, MaaS, builder, pipelines, and the Overwatch console. It does **not** enable Hank, Rosey, Sam, or Compliant Chris.
 
-```yaml
-components:
-  agentsHelpfulHank:
-    enabled: true
-  agentsRoseyRegrets:
-    enabled: true
-  agentsSneakySam:
-    enabled: true      # demo: deliberately non-telemetry-compliant agent
-```
+Shadow agents sync only when you apply `overlays/demo-wrong`. They stay **ImagePullBackOff** until their ImageStreams exist. Compliant Chris syncs from `acs-ai-overwatch-approved` after the Agent Sandbox CRD exists.
+
+The misbehavior chart (`gitops/helm/acs-ai-overwatch-misbehavior`) owns those three Deployments and the alert-only policies. `enforcement.mode` stays `monitor` until the identify/terminate script sets it to `enforce`.
 
 **Agent telemetry guardrails** (`agentTelemetryPolicy.enabled`, default `true`):
 
@@ -532,14 +548,14 @@ Central install, SecuredCluster registration, and policy CRs are GitOps-driven o
 
 ### Phase 4 — Investigator, MaaS, and agentic builder (PoC overlay)
 
-Kagenti is **not** used. Rogue agents start on UBI + llama.cpp. After ACS alerts, the builder rebuilds them onto NVIDIA OpenShell. The PoC overlay (`values-poc.yaml`) enables:
+`values-poc.yaml` enables the Gemma investigator, Granite MaaS, the builder, Pipelines, and the Overwatch console. Hank, Rosey, Sam, and Compliant Chris stay out of this chart.
 
-- Rogue agents in `test-range` (UBI + llama.cpp MiniCPM)
-- Gemma 2 9B investigator in `acs-investigator` (`LLMInferenceService` from the OpenShift AI Model Catalog)
-- Granite 8B MaaS in `acs-maas` (API-key gateway in front of catalog `LLMInferenceService`)
-- Agentic builder + OpenShift Pipelines in `acs-agent-builder`
+- Investigator in `acs-investigator` (`LLMInferenceService` from the OpenShift AI Model Catalog)
+- Granite 8B MaaS in `acs-maas`
+- Builder in `acs-agent-builder`, which waits for a TPA-cleared SBOM and then applies an Agent Sandbox
+- Shadow agents, when the demo-wrong overlay is applied, stay on UBI + llama.cpp
 
-Chat is HTTP `POST /chat` (or OpenAI `/v1/chat/completions`), not a Rosey HTTP `/chat`.
+Chat stays HTTP `POST /chat` so the console can drive every agent. Approved images also start an OpenClaw gateway beside that adapter.
 
 ### Phase 5 — Shared observability (Option C: OTEL → Tempo + MLflow + Grafana) (on by default)
 
@@ -567,7 +583,7 @@ Chat is HTTP `POST /chat` (or OpenAI `/v1/chat/completions`), not a Rosey HTTP `
 | 60 | OTEL collector Deployment/Service |
 | 70 | Bootstrap Job → writes `acs-ai-overwatch-observability-config` |
 
-Phase 5 is included in `gitops/argocd/kustomization.yaml` and the observability chart ships with `enabled: true`. Compliant agents (Hank, Rosey, investigator, builder, Remediated Rosey/Sam) get `OTEL_*` env on deploy. **Sneaky Sam** still omits `acs-ai-overwatch.io/telemetry=enabled` for the RHACS DEPLOY demo.
+Phase 5 is included in `gitops/argocd/kustomization.yaml` and the observability chart ships with `enabled: true`. The investigator, builder, and approved Sandboxes get `OTEL_*` env. **Sneaky Sam** omits `acs-ai-overwatch.io/telemetry=enabled` so the monitor-mode DEPLOY policy can see him.
 
 **Verify:**
 
@@ -619,13 +635,11 @@ Tempo, MLflow, OTEL collector, and dashboard ConfigMaps deploy via GitOps; image
 ### Recommended order summary
 
 ```text
-Phase 0–1 (baseline)     → bootstrap → discovery → main chart (operators + Mattermost deploy)
-Phase 2 (agents)       → Tekton/binary build + components.agentsHelpfulHank + per-agent flags
-Phase 3 (full RHACS)   → acs.central.enabled + acs.bootstrap.enabled (+ SecurityPolicy CRs)
-Phase 4 (investigator/MaaS/builder) → values-poc.yaml component flags
-Phase 5 (observability)→ application-observability (on by default; set agentInstrumentation.enabled: false to stop OTEL env)
-Mattermost + alerts    → login, webhook bridge, notifier verify (before demo)
-Demo                   → PoC Demo Walkthrough (After Setup)
+Actual deployment     → oc apply -k gitops/argocd/
+Demo start            → oc apply -k gitops/argocd/overlays/demo-wrong
+After the violations  → oc apply -k gitops/argocd/overlays/demo-trust
+Terminate and rebuild → ./scripts/demo/identify-terminate-rebuild.sh
+Kata (optional)       → ./scripts/cluster-admin/enable-kata.sh --platform baremetal|aws
 ```
 
 **After the PoC:** run [`scripts/cleanup-poc-repo.sh`](#scriptscleanup-poc-reposh) to reset GitOps overlays and remove local cluster-specific files before the next sandbox or fork handoff.
@@ -1235,11 +1249,13 @@ Base `values.yaml` vs PoC overlay `values-poc.yaml` (Argo merges overlay last):
 
 | Flag | Base | PoC overlay | Enables |
 |------|------|-------------|---------|
-| `components.acsPolicies` | `true` | (unchanged) | RHACS operator, `test-range`, `SecurityPolicy` CRs, agent SCCs |
-| `components.agentsHelpfulHank` | `true` | `true` | `helpful-hank` |
-| `components.agentsRoseyRegrets` | `false` | `true` | `rosey-regrets` |
-| `components.agentsSneakySam` | `false` | `true` | `sneaky-sam` (telemetry violator) |
-| `components.agentsCompliantChris` | `false` | `true` | `compliant-chris` (OpenShell + MaaS + placement CSV UI) |
+| `components.acsPolicies` | `true` | (unchanged) | ACS operator, `test-range`, agent SCCs |
+| `components.agentsHelpfulHank` | `false` | `false` | Moved to `acs-ai-overwatch-misbehavior` |
+| `components.agentsRoseyRegrets` | `false` | `false` | Moved to `acs-ai-overwatch-misbehavior` |
+| `components.agentsSneakySam` | `false` | `false` | Moved to `acs-ai-overwatch-misbehavior` |
+| `components.agentsCompliantChris` | `false` | `false` | Moved to `acs-ai-overwatch-approved` |
+| `components.demoSecurityPolicies` | `false` | `false` | Monitor policies live in the misbehavior chart; enforce policies live in the approved chart |
+| `components.overwatchConsole` | `false` | `true` | Demo UI that chats with every agent |
 | `components.investigator` | `false` | `true` | Gemma investigator + OGX |
 | `components.maas` | `false` | `true` | Granite MaaS gateway |
 | `components.agentBuilder` | `false` | `true` | Agentic builder |
@@ -1334,11 +1350,11 @@ Mattermost Team Edition deploys in the **baseline** sync as the Slack-compatible
 
 ## AI Agents
 
-Three rogue PoC images (Helpful Hank, Rosey Regrets, Sneaky Sam) are **UBI9 Python 3.12** FastAPI agents. Each pod pulls `tinyopsec/Huihui-MiniCPM5-2B-abliterated-GGUF` and serves it with a **llama.cpp CUDA sidecar**. Chat is `POST /chat` on port 8000 (OpenAI-compatible `/v1/chat/completions` is also exposed).
+Hank, Rosey, and Sam are **UBI9 Python 3.12** FastAPI Deployments. Each pod pulls `tinyopsec/Huihui-MiniCPM5-2B-abliterated-GGUF` and serves it with a **llama.cpp CUDA sidecar**. Chat is `POST /chat` on port 8000. They appear only when `overlays/demo-wrong` is applied, and ACS stays in monitor mode while they run.
 
-Remediated Rosey/Sam images are **rebuilt from the original rogue Docker context** onto **NVIDIA OpenShell** (`ghcr.io/nvidia/openshell-community/sandboxes/base:latest`): no scanners, no local GGUF, Granite via MaaS, telemetry on. The uncompliant pods stay running until that rebuild rolls out — they are not patched in place.
+Remediated Rosey and Sam are new images `FROM` the NVIDIA OpenShell sandbox. The image installs OpenClaw, keeps the HTTP adapter, and carries no recon packages and no GGUF. The builder publishes the image only after Trusted Profile Analyzer accepts the CycloneDX SBOM, then applies an Agent Sandbox with the SPIFFE CSI volume.
 
-**Compliant Chris** is the greenfield control case: **NVIDIA OpenShell from day one**, same MaaS path, telemetry on, no GPU, a browser UI, and an allowlisted tool against [maxfactor71/student.placement.salary.prediction](https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction) on Hugging Face (9,000 campus placement rows: CGPA, branch, internships, `placed`, `salary_lpa`).
+**Compliant Chris** is the greenfield control in the approved chart: the same OpenClaw, OpenShell, and Agent Sandbox shape, Granite via MaaS, telemetry on, no GPU, and an allowlisted tool against [maxfactor71/student.placement.salary.prediction](https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction) (9,000 campus placement rows). He is absent during the wrong phase.
 
 ### Helpful Hank
 
@@ -1370,12 +1386,13 @@ Deliberately omits `acs-ai-overwatch.io/telemetry=enabled` so the DEPLOY policy 
 | Attribute | Value |
 |-----------|-------|
 | Path | `agents/compliant-chris/` |
-| Model | Granite via MaaS (`LLM_API_BASE`) — OpenShell sandbox, no GGUF sidecar, no GPU |
+| Model | Granite via MaaS. The console-to-adapter hop uses the static API key. MaaS calls from the agent present the SPIFFE SVID when the socket is mounted. |
+| Workload | `Sandbox` from `acs-ai-overwatch-approved`, SA `openshell`, CSI volume at `/spiffe-workload-api` |
 | UI | OpenShift Route `/` — simple chat that POSTs `/chat` |
 | Tools | `career_dataset_info`, `query_career_dataset` against the Hugging Face placement CSV |
 | Dataset | `agents/compliant-chris/data/student_placement.csv` — 9,000 rows from [maxfactor71/student.placement.salary.prediction](https://huggingface.co/datasets/maxfactor71/student.placement.salary.prediction) |
-| Labels | `acs-ai-overwatch.io/telemetry=enabled`, `acs-ai-overwatch.io/maas-client=true`, `acs-ai-overwatch.io/runtime=openshell` |
-| Flag | `components.agentsCompliantChris.enabled` (`true` in `values-poc.yaml`) |
+| Labels | `acs-ai-overwatch.io/telemetry=enabled`, `acs-ai-overwatch.io/approved=true`, `acs-ai-overwatch.io/maas-client=true` |
+| Chart | `gitops/helm/acs-ai-overwatch-approved` |
 
 ```bash
 oc start-build compliant-chris --from-dir=. --follow -n acs-agent-builder
@@ -1394,17 +1411,37 @@ docker build -f agents/compliant-chris/Dockerfile .
 
 Prefer in-cluster **BuildConfigs** in `acs-agent-builder` (`oc start-build … --from-dir=.`).
 
+### Overwatch console
+
+One Route talks to every agent so you can show how ACS handles each policy:
+
+| Attribute | Value |
+|-----------|-------|
+| Path | `agents/overwatch-console/` |
+| Route | `overwatch-console` in `test-range` |
+| API | `POST /api/agents/{id}/chat` proxies to that agent’s in-cluster `/chat` |
+| Flag | `components.overwatchConsole.enabled` (`true` in `values-poc.yaml`) |
+| ACS | Not labeled `component=agent` — the console itself is not a tracked shadow agent |
+
+```bash
+oc start-build overwatch-console --from-dir=. --follow -n acs-agent-builder
+export OVERWATCH_URL="https://$(oc get route overwatch-console -n test-range -o jsonpath='{.spec.host}')"
+open "$OVERWATCH_URL"
+```
+
+Pick **Rosey Regrets** → **Network Audit** for the runtime policy, **Sneaky Sam** for the missing telemetry label, **Helpful Hank** as the quiet shadow assistant, **Compliant Chris** as the OpenShell control case. Remediated Rosey/Sam light up after the rebuild.
+
 ## OpenShift AI agent deployment (replaces Kagenti)
 
-Kagenti is **not** used. Rogue agents are Deployments in `test-range` with a llama.cpp sidecar. The investigator is a FastAPI service in `acs-investigator` talking to Gemma 2 9B from the OpenShift AI Model Catalog (OGX optional). The builder lives in `acs-agent-builder` and instantiates OpenShift **BuildConfigs** (not privileged Tekton buildah). Remediated agents call Granite through the MaaS gateway in `acs-maas` (also a catalog ModelCar).
+Shadow agents are Deployments in `test-range` with a llama.cpp sidecar, and only when the misbehavior Application is installed. The investigator is a FastAPI service in `acs-investigator` talking to Gemma 2 9B from the OpenShift AI Model Catalog. The builder lives in `acs-agent-builder`, instantiates OpenShift BuildConfigs, and applies a Sandbox after the TPA gate. Remediated agents call Granite through the MaaS gateway in `acs-maas`.
 
-Enable with `values-poc.yaml` (`components.agentsHelpfulHank`, `agentsRoseyRegrets`, `agentsSneakySam`, `agentsCompliantChris`, `investigator`, `maas`, `agentBuilder`).
+Enable with `values-poc.yaml` (`components.agentsHelpfulHank`, `agentsRoseyRegrets`, `agentsSneakySam`, `agentsCompliantChris`, `overwatchConsole`, `investigator`, `maas`, `agentBuilder`).
 
 ### Deployed Resources
 
 | Resource | Name | Namespace |
 |----------|------|-----------|
-| Deployment | `helpful-hank` / `rosey-regrets` / `sneaky-sam` / `compliant-chris` | `test-range` |
+| Deployment | `helpful-hank` / `rosey-regrets` / `sneaky-sam` / `compliant-chris` / `overwatch-console` | `test-range` |
 | `LLMInferenceService` | Gemma 2 9B FP8 ModelCar | `acs-investigator` |
 | Deployment | `acs-investigator` | `acs-investigator` |
 | Deployment | `acs-agent-builder` | `acs-agent-builder` |
@@ -1525,7 +1562,7 @@ agentTelemetryPolicy:
 
 ## Compliant rebuild pipeline
 
-ACS **finds** the shadow agent; this pipeline **replaces** it with an OpenShell rebuild. Rogue agents keep their original UBI + MiniCPM images until the investigator posts a rebuild spec. Then `acs-agent-builder` instantiates OpenShift **BuildConfigs** for `remediated-rosey` and `remediated-sam` (`FROM` the NVIDIA OpenShell sandbox image). Those Deployments use SA `openshell`, set `acs-ai-overwatch.io/telemetry=enabled`, and point `LLM_API_BASE` at the MaaS gateway (Granite).
+ACS **finds** the shadow agent. `scripts/demo/identify-terminate-rebuild.sh` waits until the trust plane is Ready, switches the misbehavior policies to enforce, and waits until the Hank, Rosey, and Sam pods are gone. The builder then instantiates the `remediated-rosey` and `remediated-sam` BuildConfigs. A follow-on Job runs `syft`, uploads CycloneDX to TPA, and fails the pipeline if the component list still contains `nmap`, `masscan`, `rustscan`, `naabu`, `ncat`, `zmap`, or a `.gguf` blob. Only after that gate does the builder apply a `Sandbox`.
 
 Kubelet pulls from the **internal registry ImageStream** (`image-registry.openshift-image-registry.svc:5000/acs-agent-builder/...`). That avoids node DNS to in-cluster Quay (`*.svc.cluster.local`), which the kubelet cannot resolve.
 
@@ -1537,7 +1574,7 @@ Location of the Tekton definitions: `pipelines/tekton/agents-build-pipeline.yaml
 
 | Kind | Name | Role in the security loop |
 |------|------|---------------------------|
-| BuildConfig / ImageStream | `remediated-rosey`, `remediated-sam` | **Rebuild** — original rogue image → OpenShell + MaaS |
+| BuildConfig / ImageStream | `remediated-rosey`, `remediated-sam` | **Rebuild** — OpenClaw inside OpenShell, then a TPA package gate, then a Sandbox |
 | BuildConfig / ImageStream | `helpful-hank`, `rosey-regrets`, `sneaky-sam`, `acs-investigator`, `acs-agent-builder` | Initial agent images |
 | Task | `agents-git-clone`, `agents-buildah-image` | Legacy Tekton |
 | Pipeline | `build-demo-agents`, `build-remediated-agents` | Legacy Tekton (privileged buildah) |
@@ -1556,6 +1593,7 @@ When `components.pipelines.enabled` is true, **BuildConfigs** and **ImageStreams
 | `remediated-rosey` | `agents/remediated-rosey/Dockerfile` |
 | `remediated-sam` | `agents/remediated-sam/Dockerfile` |
 | `compliant-chris` | `agents/compliant-chris/Dockerfile` |
+| `overwatch-console` | `agents/overwatch-console/Dockerfile` |
 
 ```bash
 # From repository root — includes latest agent code without a git push
@@ -1563,7 +1601,7 @@ oc start-build rosey-regrets --from-dir=. --follow -n acs-agent-builder
 oc rollout restart deploy/rosey-regrets -n test-range
 ```
 
-The builder does the same for remediated images via `POST …/buildconfigs/{name}/instantiate` after ACS investigation.
+The builder does the same for remediated images, then runs the TPA gate before it applies the Sandbox. `GET /rebuild/status` reports the gate. If the misbehavior Application was never installed, `identify-terminate-rebuild.sh` reports that there is nothing to terminate and exits successfully. The approved chart’s enforce-mode policies are what an actual deployment syncs.
 
 ### Legacy Tekton pipeline flow
 
@@ -1838,10 +1876,11 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `agent-telemetry-networkpolicy.yaml` | `agentTelemetryPolicy` | DNS-only egress for non-compliant agents |
 | `agents-scc.yaml` | `components.acsPolicies.enabled` | SCC + ServiceAccount |
 | `agents-openshell-scc.yaml` | builder or remediations | Privileged SCC + SA `openshell` for OpenShell remediations |
-| `agents-rosey-regrets-pvc.yaml` | `components.agentsRoseyRegrets.enabled` | PVC |
-| `agents-deployments.yaml` | `components.agentsHelpfulHank.enabled` | Uncompliant Hank/Rosey/Sam Deployments |
-| `agents-remediated.yaml` | `components.remediatedRosey/Sam.enabled` | OpenShell remediations (optional; live path is builder) |
-| `agents-compliant-chris.yaml` | `components.agentsCompliantChris.enabled` | Approved OpenShell agent + Route |
+| `agents-rosey-regrets-pvc.yaml` | moved | Rosey PVC is in the misbehavior chart |
+| `agents-deployments.yaml` | moved | Hank/Rosey/Sam are `acs-ai-overwatch-misbehavior` |
+| `agents-remediated.yaml` | MaaS secret only | Remediated Sandbox CRs are created by the builder after the TPA gate |
+| `agents-compliant-chris.yaml` | moved | Compliant Chris is `acs-ai-overwatch-approved` |
+| `overwatch-console.yaml` | `components.overwatchConsole.enabled` | Demo UI that proxies chat to every agent |
 | `(removed)` | `components.agentsHelpfulHank.enabled` | AppSource CR |
 
 ---
@@ -2417,9 +2456,9 @@ Expect **200** or **204**. If alerts fail, confirm the bridge is Running and the
 
 ## PoC Demo Walkthrough (After Setup)
 
-Use this after GitOps has converged: Mattermost is up, RHACS Central + SecuredCluster are healthy, agent images are in the internal registry (or Quay), and Hank/Rosey/Sam plus investigator/builder/MaaS are running.
+Use this after the demo-wrong overlay has converged: Mattermost is up, RHACS Central is healthy, agent images exist, and Hank/Rosey/Sam are running in monitor mode. Apply the trust plane before you terminate and rebuild.
 
-The walkthrough is the security story: **RHACS tracks** a shadow agent (runtime recon or missing telemetry), **Mattermost** notifies humans, and the **rebuild pipeline** ships a compliant agent (MaaS Granite, telemetry on, no scanners).
+The walkthrough is the security story: **ACS monitor mode** lets a shadow agent violate policy, the **trust plane** (TPA, ZTWIM, Agent Sandbox) is installed next, then **identify, terminate, and rebuild** produces OpenClaw inside OpenShell on an Agent Sandbox.
 
 ### Before you start — health checklist
 
@@ -2439,6 +2478,7 @@ oc get llminferenceservice -A
 
 | Console | How to open |
 |---------|-------------|
+| **Overwatch console** | `oc get route overwatch-console -n test-range` — talk to every agent from one UI |
 | Mattermost | URL from `mattermostSiteUrl` — team **ACS**, channel **Town Square** |
 | RHACS Central | `oc get route central -n stackrox` |
 | Rosey chat | `oc get route rosey-regrets -n test-range` |
@@ -2447,9 +2487,11 @@ Log into Mattermost as **`human-in-the-loop`** (`mattermost.bootstrap.hitlPasswo
 
 ### Demo 1 — Rosey recon → RHACS → Mattermost → rebuild
 
-**Goal:** Show RHACS **tracking** a shadow recon agent (Rosey), alerting without killing the pod, notifying Mattermost plus the investigator, then the **rebuild pipeline** shipping Remediated Rosey/Sam (MaaS Granite, telemetry on).
+**Goal:** With `overlays/demo-wrong` applied, show ACS tracking Rosey in monitor mode, then install the trust plane and run identify, terminate, and rebuild.
 
 **Step 1 — Trigger recon**
+
+Open the **Overwatch console**, select **Rosey Regrets**, and click **Network Audit**. Or from the CLI:
 
 ```bash
 oc -n test-range exec deploy/rosey-regrets -c rosey-regrets -- \
@@ -2485,17 +2527,19 @@ oc get builds,buildconfig -n acs-agent-builder
 
 In RHACS Central, open **Violations** filtered to namespace `test-range` and policy `test-range-runtime-guardrails`. That is the tracker view of the shadow workload.
 
-**Step 5 — Remediated agents**
-
-The builder instantiates `remediated-rosey` / `remediated-sam` **BuildConfigs** (OpenShell sandbox image, MaaS Granite, telemetry on) from the original uncompliant agents. The rogue Deployments are left in place so you can contrast before and after.
+**Step 5 — Trust plane, then terminate and rebuild**
 
 ```bash
-oc get deploy,po -n test-range -l acs-ai-overwatch.io/remediated=true
-oc get builds -n acs-agent-builder
+oc apply -k gitops/argocd/overlays/demo-trust
+./scripts/demo/identify-terminate-rebuild.sh
+oc get sandbox -n test-range
+```
+
+The script refuses to run until the ZTWIM, TPA, Agent Sandbox, and Keycloak operands are Ready. Enforce mode kills Rosey and Sam and scales Hank to zero. The builder applies `remediated-rosey` and `remediated-sam` Sandboxes only after TPA accepts the SBOM.
 
 ### Demo 2 — Telemetry guardrail (Sneaky Sam)
 
-Sneaky Sam deploys **without** `acs-ai-overwatch.io/telemetry=enabled`. RHACS DEPLOY policy `test-range-sneaky-sam-telemetry-violation` is **alert-only** so the pod still runs — ACS can track a living shadow agent. The investigator also rebuilds **Remediated Sam** with telemetry enabled.
+Sneaky Sam deploys **without** `acs-ai-overwatch.io/telemetry=enabled`. The misbehavior DEPLOY policy is alert-only, so the pod still runs. Termination happens in the same identify/terminate/rebuild script, which also rebuilds Sam with telemetry and `acs-ai-overwatch.io/approved=true`.
 
 ```bash
 oc get deploy -n test-range -o custom-columns=NAME:.metadata.name,TELEMETRY:.metadata.labels.acs-ai-overwatch\.io/telemetry
@@ -2508,12 +2552,12 @@ oc get deploy -n test-range -o custom-columns=NAME:.metadata.name,TELEMETRY:.met
 | Helpful Hank | Local MiniCPM; telemetry on | No recon process; label present |
 | Rosey Regrets | MiniCPM + nmap/masscan/rustscan/naabu | Runtime process violations |
 | Sneaky Sam | MiniCPM; **missing** telemetry label | Deploy-time telemetry policy |
-| Remediated Rosey/Sam | Rebuilt onto OpenShell + Granite via MaaS, telemetry on | Compliant end state |
-| Compliant Chris | OpenShell from the start + Granite via MaaS, placement CSV UI, telemetry on | Control case — no ACS violation |
+| Remediated Rosey/Sam | OpenClaw inside OpenShell on an Agent Sandbox, TPA-cleared, SPIFFE SVID | Compliant end state |
+| Compliant Chris | Same shape from the approved chart, plus the placement CSV UI | Control case |
 
 ### Demo 4 — Compliant Chris (approved MaaS + CSV)
 
-**Goal:** Contrast shadow agents with a **greenfield compliant** agent that **starts on OpenShell**: Granite via MaaS, telemetry on, a chat UI, and a tool that queries a Hugging Face campus-placement CSV.
+**Goal:** After `overlays/demo-trust` syncs, Compliant Chris is the greenfield Sandbox: OpenClaw, OpenShell, SPIFFE, Granite via MaaS, and the placement CSV tool. In the Overwatch console, select **Compliant Chris**. The contrast table on that page is the same wrong-versus-right view.
 
 ```bash
 export CHRIS_URL="https://$(oc get route compliant-chris -n test-range -o jsonpath='{.spec.host}')"

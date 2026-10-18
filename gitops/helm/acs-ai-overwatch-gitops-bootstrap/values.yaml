@@ -34,3 +34,8 @@ namespaces:
   - openshift-tempo-operator
   - tempo
   - acs-ai-overwatch-observability
+  - trusted-profile-analyzer
+  - zero-trust-workload-identity-manager
+  - agent-sandbox-system
+  - keycloak
+  - openshift-sandboxed-containers-operator
