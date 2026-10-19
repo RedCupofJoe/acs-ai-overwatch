@@ -38,9 +38,3 @@ accelerators:
   gpuOperator:
     subscription:
       channel: stable
-
-kagenti:
-  api:
-    baseUrl: https://kagenti-api.apps.cluster.example.com
-  appSource:
-    repoUrl: https://github.com/YOUR_ORG/acs-ai-overwatch.git

@@ -32,7 +32,7 @@ Deploy through **OpenShift GitOps (Argo CD)**:
 3. **`acs-ai-overwatch`** — umbrella Helm chart at `gitops/helm/acs-ai-overwatch`
 4. **`acs-ai-overwatch-observability`** — OTEL collector → Tempo + MLflow + Grafana (on by default)
 
-Kagenti is **not** used. Wrong agents are plain Deployments. Right agents are OpenClaw inside OpenShell on an Agent Sandbox. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift builds. The builder does not publish a remediated image until Trusted Profile Analyzer has the SBOM and the package list is clean.
+Wrong agents are plain Deployments. Right agents are OpenClaw inside OpenShell on an Agent Sandbox. Investigator and builder use OpenShift AI 3.5 (OGX + dedicated `LLMInferenceService`) and OpenShift builds. The builder does not publish a remediated image until Trusted Profile Analyzer has the SBOM and the package list is clean.
 
 ### Quick Start
 
@@ -1417,7 +1417,7 @@ open "$OVERWATCH_URL"
 
 Pick **Rosey Regrets** → **Network Audit** for the runtime policy, **Sneaky Sam** for the missing telemetry label, **Helpful Hank** as the quiet shadow assistant, **Compliant Chris** as the OpenShell control case. Remediated Rosey/Sam light up after the rebuild.
 
-## OpenShift AI agent deployment (replaces Kagenti)
+## OpenShift AI agent deployment
 
 Shadow agents are Deployments in `test-range` with a llama.cpp sidecar, and only when the misbehavior Application is installed. The investigator is a FastAPI service in `acs-investigator` talking to Gemma 2 9B from the OpenShift AI Model Catalog. The builder lives in `acs-agent-builder`, instantiates OpenShift BuildConfigs, and applies a Sandbox after the TPA gate. Remediated agents call Granite through the MaaS gateway in `acs-maas`.
 
@@ -1853,9 +1853,8 @@ Downloads Hugging Face model weights into `MODEL_LOCAL_DIR` (default `/models/hf
 | `agents-remediated.yaml` | MaaS secret only | Remediated Sandbox CRs are created by the builder after the TPA gate |
 | `agents-compliant-chris.yaml` | moved | Compliant Chris is `acs-ai-overwatch-approved` |
 | `overwatch-console.yaml` | `components.overwatchConsole.enabled` | Demo UI that proxies chat to every agent |
-| `(removed)` | `components.agentsHelpfulHank.enabled` | AppSource CR |
-
 ---
+
 
 ## Troubleshooting
 

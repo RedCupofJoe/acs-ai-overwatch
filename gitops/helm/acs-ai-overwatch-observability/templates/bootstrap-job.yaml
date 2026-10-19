@@ -68,8 +68,6 @@ spec:
               value: {{ include "observability.tempoOtlpEndpoint" . | quote }}
             - name: TEMPO_QUERY
               value: {{ include "observability.tempoQueryFrontend" . | quote }}
-            - name: KAGENTI_NS
-              value: acs-investigator
           command:
             - /bin/bash
             - -ec
@@ -95,11 +93,4 @@ spec:
                 --from-literal=observabilityPhase=5 \
                 --dry-run=client -o yaml | oc apply -f -
               echo "Wrote ${INTEGRATION_NS}/${INTEGRATION_CM}"
-
-              # Best-effort: point Kagenti OTEL collector at shared endpoint when Phase 4 is installed.
-              if oc get deploy otel-collector -n "${KAGENTI_NS}" >/dev/null 2>&1; then
-                echo "Kagenti otel-collector found — annotate for shared export (manual config merge may still be required)"
-                oc annotate deploy otel-collector -n "${KAGENTI_NS}" \
-                  acs-ai-overwatch.io/shared-otel-endpoint="${OTEL_GRPC}" --overwrite || true
-              fi
 {{- end }}
