@@ -1,4 +1,4 @@
-# ACS AI Overwatch
+# AI Security Overwatch (AI Security in Depth Pattern) 
 
 **ACS AI Overwatch** is a **security demonstration** on OpenShift. **Red Hat Advanced Cluster Security (ACS / RHACS)** finds and tracks **shadow AI agents**, and an in-cluster rebuild turns a caught agent into an approved **Agent Sandbox**.
 
