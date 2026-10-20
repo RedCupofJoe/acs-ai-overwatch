@@ -30,6 +30,15 @@ tolerations:
 {{- end }}
 {{- end }}
 
+{{- define "misbehavior.gpuNodeSelector" -}}
+{{- with .Values.agents.nodeSelector }}
+nodeSelector:
+{{- range $k, $v := . }}
+  {{ $k }}: {{ $v | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- define "misbehavior.ggufInit" -}}
 - name: pull-gguf
   image: {{ .image }}

@@ -47,6 +47,10 @@ spec:
     # Omit scheduler: {} — that injects llm-d EPP (InferencePool + extra image).
     # Single-replica Gemma/Granite route HTTPRoute directly to the vLLM workload.
   template:
+    {{- with $llm.nodeSelector }}
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- if $root.Values.accelerators.gpuTaintToleration.enabled }}
     tolerations:
       - key: nvidia.com/gpu
@@ -99,6 +103,10 @@ spec:
         app.kubernetes.io/name: {{ $llm.name }}
         app.kubernetes.io/component: {{ $component }}
     spec:
+      {{- with $llm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if $root.Values.accelerators.gpuTaintToleration.enabled }}
       tolerations:
         - key: nvidia.com/gpu

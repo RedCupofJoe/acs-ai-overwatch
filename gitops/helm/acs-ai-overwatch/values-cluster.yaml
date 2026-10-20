@@ -42,5 +42,18 @@ accelerators:
 agents:
   gitRepoUrl: https://github.com/RedCupofJoe/acs-ai-overwatch.git
 
+# This cluster already runs Gemma 2 9B in namespace llm (one L4). Reuse it for the
+# investigator instead of deploying a second copy. Pin Granite to the unused new L4.
+investigator:
+  llm:
+    backend: external
+    apiBase: https://gemma-2-9b-it-kserve-workload-svc.llm.svc.cluster.local:8000/v1
+    servedModelName: gemma-2-9b-it
+
+maas:
+  llm:
+    nodeSelector:
+      acs-ai-overwatch.io/gpu-pool: maas
+
 pipelines:
   gitUrl: https://github.com/RedCupofJoe/acs-ai-overwatch.git

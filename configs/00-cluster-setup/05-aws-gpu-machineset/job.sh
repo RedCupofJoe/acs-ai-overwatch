@@ -26,7 +26,9 @@ ocp_aws_create_gpu_machineset(){
 
   ocp_aws_clone_machineset "${INSTANCE_TYPE}"
 
-  MACHINE_SET_TYPE=$(oc -n openshift-machine-api get machinesets.machine.openshift.io -o name | grep "${INSTANCE_TYPE%.*}" | head -n1)
+  # Match the MachineSet whose instanceType equals INSTANCE_TYPE. Do not grep
+  # a prefix such as "g6" — that collides with an existing g6e.4xlarge set.
+  MACHINE_SET_TYPE="$(ocp_aws_machineset_for_instance_type "${INSTANCE_TYPE}")"
 
   PATCH_FILE="$(dirname "$0")/machineset-patch.yaml"
 
@@ -52,6 +54,21 @@ ocp_aws_create_gpu_machineset(){
     --patch '[{"op":"replace","path":"/spec/template/spec/providerSpec/value/blockDevices/0/ebs/volumeSize","value":'"${NODE_VOLUME_SIZE}"'}]'
 }
 
+ocp_aws_machineset_for_instance_type(){
+  local instance_type="${1:?instance type required}"
+  oc -n openshift-machine-api get machinesets.machine.openshift.io -o json | python3 -c '
+import json, sys
+want = sys.argv[1]
+data = json.load(sys.stdin)
+for item in data.get("items", []):
+    spec = item.get("spec", {}).get("template", {}).get("spec", {})
+    value = spec.get("providerSpec", {}).get("value", {})
+    if value.get("instanceType") == want:
+        print("machinesets.machine.openshift.io/" + item["metadata"]["name"])
+        break
+' "${instance_type}"
+}
+
 ocp_aws_clone_machineset(){
   [ -z "${1}" ] && \
   echo "
@@ -59,17 +76,17 @@ ocp_aws_clone_machineset(){
   "
 
   INSTANCE_TYPE=${1:-g4dn.4xlarge}
-  MACHINE_SET=$(oc -n openshift-machine-api get machinesets.machine.openshift.io -o name | grep worker | head -n1)
+  MACHINE_SET=$(oc -n openshift-machine-api get machinesets.machine.openshift.io -o name | grep worker | grep -v g6 | head -n1)
 
-  # check for an existing instance machine set
-  if oc -n openshift-machine-api get machinesets.machine.openshift.io -o name | grep -q "${INSTANCE_TYPE%.*}"; then
+  if [ -n "$(ocp_aws_machineset_for_instance_type "${INSTANCE_TYPE}")" ]; then
     echo "Exists: machineset - ${INSTANCE_TYPE}"
   else
     echo "Creating: machineset - ${INSTANCE_TYPE}"
+    SAFE_NAME="$(echo "${INSTANCE_TYPE}" | tr '.' '-')"
     oc -n openshift-machine-api \
       get "${MACHINE_SET}" -o yaml | \
         sed '/machine/ s/-worker/-'"${INSTANCE_TYPE}"'/g
-          /name/ s/-worker/-'"${INSTANCE_TYPE%.*}"'/g
+          /name/ s/-worker/-'"${SAFE_NAME}"'/g
           s/instanceType.*/instanceType: '"${INSTANCE_TYPE}"'/
           s/replicas.*/replicas: 0/' | \
       oc apply -f -
@@ -106,7 +123,7 @@ GPU_REPLICAS=${GPU_REPLICAS:-1}
 ocp_aws_cluster || exit 0
 ocp_aws_create_gpu_machineset ${INSTANCE_TYPE}
 
-MACHINE_SET_TYPE=$(oc -n openshift-machine-api get machinesets.machine.openshift.io -o name | grep "${INSTANCE_TYPE%.*}" | head -n1)
+MACHINE_SET_TYPE="$(ocp_aws_machineset_for_instance_type "${INSTANCE_TYPE}")"
 if [ -n "${MACHINE_SET_TYPE}" ]; then
   echo "Scaling ${MACHINE_SET_TYPE} to GPU_REPLICAS=${GPU_REPLICAS}"
   # Patch spec.replicas (machinesets) — oc scale needs the machinesets/scale subresource.

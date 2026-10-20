@@ -20,7 +20,7 @@ spec:
     enabled: {{ .Values.accelerators.clusterPolicy.devicePlugin.enabled }}
     config:
       name: {{ .Values.accelerators.timeSlicing.configMapName }}
-      default: {{ .Values.accelerators.timeSlicing.configKey }}
+      default: {{ .Values.accelerators.timeSlicing.defaultConfig }}
   dcgm:
     {{- toYaml .Values.accelerators.clusterPolicy.dcgm | nindent 4 }}
   dcgmExporter:

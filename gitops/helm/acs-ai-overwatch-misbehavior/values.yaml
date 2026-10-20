@@ -32,6 +32,8 @@ agents:
   gpuResource: nvidia.com/gpu
   gpuCount: "1"
   gpuTaintToleration: true
+  nodeSelector:
+    nvidia.com/device-plugin.config: shared
   rosey:
     outputMountPath: /agent-reference-information
     networkAuditCommand: "Network Audit"

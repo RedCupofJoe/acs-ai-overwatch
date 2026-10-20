@@ -847,3 +847,13 @@ tolerations:
     effect: NoSchedule
 {{- end }}
 {{- end }}
+
+{{- define "acs-ai-overwatch.gpuNodeSelector" -}}
+{{- $sel := . -}}
+{{- if $sel }}
+nodeSelector:
+{{- range $k, $v := $sel }}
+  {{ $k }}: {{ $v | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

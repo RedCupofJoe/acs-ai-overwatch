@@ -253,18 +253,19 @@ accelerators:
       source: certified-operators
       sourceNamespace: openshift-marketplace
   timeSlicing:
-    # ConfigMap consumed by ClusterPolicy devicePlugin.config
+    # ConfigMap consumed by ClusterPolicy devicePlugin.config.
+    # defaultConfig is applied to every GPU node unless the node is labeled
+    # nvidia.com/device-plugin.config=<sharedConfigKey>. That lets mixed clusters
+    # keep existing llm workloads on unsliced L4s while Overwatch agents share
+    # one labeled node.
     configMapName: time-slicing-config
-    configKey: any
-    # Intended: slice only GPU 0 as nvidia.com/gpu.shared. This k8s-device-plugin
-    # logs "Ignoring" for rename and devices, then slices every GPU as nvidia.com/gpu.
-    # Do not set renameByDefault: that would drop dedicated nvidia.com/gpu and
-    # unschedule Gemma/Granite. Agents therefore request nvidia.com/gpu.
+    defaultConfig: default
+    sharedConfigKey: shared
+    configKey: shared
     replicasPerGpu: 4
-    devices:
-      - "0"
-    renameResource: nvidia.com/gpu.shared
     migStrategy: none
+    sharedNodeSelector:
+      nvidia.com/device-plugin.config: shared
   # AWS GPU MachineSet taints nodes nvidia.com/gpu=NoSchedule. Extra toleration is a no-op if untainted.
   gpuTaintToleration:
     enabled: true

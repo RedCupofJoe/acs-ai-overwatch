@@ -164,10 +164,12 @@ spec:
       targetPort: 5432
 {{- end }}
 ---
+{{- if ne (.Values.investigator.llm.backend | default "llminferenceservice") "external" }}
 {{- if include "acs-ai-overwatch.useLlmInferenceService" (dict "root" . "backend" .Values.investigator.llm.backend) }}
 {{- include "acs-ai-overwatch.llmInferenceService" (dict "root" . "llm" .Values.investigator.llm "namespace" .Values.investigator.namespace "component" "investigator-llm") }}
 {{- else }}
 {{- include "acs-ai-overwatch.standaloneVllmDeployment" (dict "root" . "llm" .Values.investigator.llm "namespace" .Values.investigator.namespace "component" "investigator-llm") }}
+{{- end }}
 {{- end }}
 ---
 {{- if and .Values.investigator.ogx.enabled (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.ogxServer)) }}

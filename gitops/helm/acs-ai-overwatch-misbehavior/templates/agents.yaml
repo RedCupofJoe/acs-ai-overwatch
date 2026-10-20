@@ -41,6 +41,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       {{- include "misbehavior.gpuTolerations" . | nindent 6 }}
+      {{- include "misbehavior.gpuNodeSelector" . | nindent 6 }}
       initContainers:
         {{- include "misbehavior.ggufInit" (dict "root" . "image" (include "misbehavior.image" (dict "root" . "stream" "helpful-hank"))) | nindent 8 }}
       containers:
@@ -120,6 +121,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.agents.roseyServiceAccountName }}
       {{- include "misbehavior.gpuTolerations" . | nindent 6 }}
+      {{- include "misbehavior.gpuNodeSelector" . | nindent 6 }}
       initContainers:
         {{- include "misbehavior.ggufInit" (dict "root" . "image" (include "misbehavior.image" (dict "root" . "stream" "rosey-regrets"))) | nindent 8 }}
       containers:
@@ -215,6 +217,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.agents.serviceAccountName }}
       {{- include "misbehavior.gpuTolerations" . | nindent 6 }}
+      {{- include "misbehavior.gpuNodeSelector" . | nindent 6 }}
       initContainers:
         {{- include "misbehavior.ggufInit" (dict "root" . "image" (include "misbehavior.image" (dict "root" . "stream" "sneaky-sam"))) | nindent 8 }}
       containers:

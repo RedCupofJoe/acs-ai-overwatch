@@ -135,6 +135,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.builder.name }}
       {{- include "acs-ai-overwatch.gpuTolerations" . | nindent 6 }}
+      {{- include "acs-ai-overwatch.gpuNodeSelector" .Values.accelerators.timeSlicing.sharedNodeSelector | nindent 6 }}
       initContainers:
         {{- include "acs-ai-overwatch.ggufInitContainer" (dict "root" . "image" (include "acs-ai-overwatch.agentImage" (dict "root" . "stream" "acs-agent-builder" "explicit" .Values.agents.images.builder))) | nindent 8 }}
       containers:

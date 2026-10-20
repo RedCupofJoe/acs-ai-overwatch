@@ -8,22 +8,19 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
 data:
-  {{ .Values.accelerators.timeSlicing.configKey }}: |-
+  {{ .Values.accelerators.timeSlicing.defaultConfig }}: |-
+    version: v1
+    flags:
+      migStrategy: {{ .Values.accelerators.timeSlicing.migStrategy }}
+  {{ .Values.accelerators.timeSlicing.sharedConfigKey }}: |-
     version: v1
     flags:
       migStrategy: {{ .Values.accelerators.timeSlicing.migStrategy }}
     sharing:
       timeSlicing:
-        # rename and devices are ignored by this GPU Operator device-plugin;
-        # keep renameByDefault false so Gemma/Granite can still request nvidia.com/gpu.
         renameByDefault: false
         failRequestsGreaterThanOne: false
         resources:
           - name: nvidia.com/gpu
             replicas: {{ .Values.accelerators.timeSlicing.replicasPerGpu }}
-            devices:
-{{- range .Values.accelerators.timeSlicing.devices }}
-              - {{ . | quote }}
-{{- end }}
-            rename: {{ .Values.accelerators.timeSlicing.renameResource | quote }}
 {{- end }}
