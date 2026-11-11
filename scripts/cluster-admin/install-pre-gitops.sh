@@ -9,6 +9,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# shellcheck source=lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
 
 SKIP_RBAC=false
 WITH_VALUES_FILE=false
@@ -93,6 +95,7 @@ EOF
 )"
 
 run "${SCRIPT_DIR}/02-bootstrap-namespaces.sh"
+cluster_admin_ensure_single_operatorgroup redhat-ods-operator redhat-ods-operator
 run "${SCRIPT_DIR}/03-apply-cluster-configmap.sh"
 
 if [[ "${SKIP_DISCOVERY_PREREQS}" != true ]]; then

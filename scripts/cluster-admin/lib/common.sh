@@ -66,3 +66,39 @@ cluster_admin_require_namespace_create() {
 cluster_admin_info() {
   printf '%s\n' "$*"
 }
+
+# One OperatorGroup per namespace. OpenShift AI fails the CSV with
+# TooManyOperatorGroups when a console install leaves a second group beside
+# the chart's redhat-ods-operator group. Keep the chart name and delete the rest.
+cluster_admin_ensure_single_operatorgroup() {
+  local ns="${1:-redhat-ods-operator}"
+  local keep="${2:-redhat-ods-operator}"
+  local -a cmd=(oc)
+  if [[ -n "${KUBE_CMD[*]:-}" ]]; then
+    cmd=("${KUBE_CMD[@]}")
+  fi
+  if ! "${cmd[@]}" get namespace "${ns}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "${DRY_RUN:-false}" == true ]]; then
+    cluster_admin_info "dry-run: would keep a single OperatorGroup ${keep} in ${ns}"
+    return 0
+  fi
+  if ! "${cmd[@]}" get operatorgroup "${keep}" -n "${ns}" >/dev/null 2>&1; then
+    cluster_admin_info "Creating OperatorGroup ${keep} in ${ns}"
+    "${cmd[@]}" apply -f - <<EOF
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: ${keep}
+  namespace: ${ns}
+spec: {}
+EOF
+  fi
+  local name
+  while IFS= read -r name; do
+    [[ -z "${name}" || "${name}" == "${keep}" ]] && continue
+    cluster_admin_info "Removing extra OperatorGroup ${name} in ${ns}"
+    "${cmd[@]}" delete operatorgroup "${name}" -n "${ns}" --wait=false
+  done < <("${cmd[@]}" get operatorgroup -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+}

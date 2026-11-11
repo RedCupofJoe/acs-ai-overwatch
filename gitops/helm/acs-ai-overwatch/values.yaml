@@ -359,14 +359,14 @@ rhoai:
         managementState: Removed
         argoWorkflowsControllers:
           managementState: Removed
-  # OpenShift AI 3.5 inference Gateway. data-science-gateway-class is the
-  # dashboard gateway and must not be used here. router.gateway {} selects
-  # openshift-ingress/openshift-ai-inference.
+  # Separate Gateway from the dashboard Gateway (data-science-gateway).
+  # The class is the one OpenShift AI 3.5 installs with GatewayConfig
+  # default-gateway. A class named openshift-ai-inference is not created.
   inferenceGateway:
     enabled: true
     name: openshift-ai-inference
     namespace: openshift-ingress
-    gatewayClassName: openshift-ai-inference
+    gatewayClassName: data-science-gateway-class
     listenerName: https
     port: 443
     protocol: HTTPS

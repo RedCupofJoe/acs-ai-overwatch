@@ -70,7 +70,9 @@ The chart’s DataScienceCluster keeps:
 | Kueue | `Removed` | OpenShift AI 3.5 rejects `Managed` for Kueue. Install the Kueue operator only if you later change this field |
 | Product MaaS (`aigateway`) | `Removed` | The demo front door is the API proxy in `acs-maas` |
 
-Inference uses `LLMInferenceService` and the gateway class `openshift-ai-inference` with cert-manager Certificate `openshift-ai-inference-tls`. `data-science-gateway-class` belongs to the dashboard and is not the serving path here. The chart’s `certManager.enabled` flag only allows those Certificate custom resources. It does not install the operator. See [Red Hat OpenShift](redhat-openshift.md).
+Inference uses `LLMInferenceService` and Gateway `openshift-ai-inference` in `openshift-ingress`. That Gateway uses GatewayClass `data-science-gateway-class`, which OpenShift AI creates from GatewayConfig `default-gateway`. The dashboard Gateway is a different object (`data-science-gateway`) and is not the serving path. Certificate `openshift-ai-inference-tls` comes from the cert-manager operator already on the cluster. The chart does not install that operator. See [Red Hat OpenShift](redhat-openshift.md).
+
+GPU pods request `nvidia.com/gpu` and tolerate the GPU taint. They are not pinned to a node label. A `nodeSelector` in `values-cluster.yaml` is only for a cluster that has actually labeled a pool.
 
 Register the Argo CD Applications with [Demo setup](demo-setup.md) and the [GitOps guide](argocd-gitops.md). `values-poc.yaml` sets `platformResources.waitForCrds: false`, so the first sync renders the DataScienceCluster before the operator CSV is `Succeeded`. Refresh the Application after the CSV succeeds.
 
@@ -100,7 +102,7 @@ OpenShift pulls them with the cluster pull secret, the same path as **AI hub →
 
 ### RHOAI CSV `Failed` or `TooManyOperatorGroups`
 
-The OperatorGroup in `redhat-ods-operator` must be `spec: {}`. A second cert-manager OperatorGroup produces the same failure on the cert-manager CSV. Delete the extra group. Leave the original cert-manager Subscription in place.
+The OperatorGroup in `redhat-ods-operator` must be `spec: {}`, and there can be only one. The chart owns `redhat-ods-operator`. A console install often leaves a second group such as `rhods-operator-group`, and the CSV fails with `TooManyOperatorGroups`. `05-apply-platform-prep.sh` deletes every group in that namespace except `redhat-ods-operator`. A second cert-manager OperatorGroup produces the same failure on the cert-manager CSV. Delete the extra group. Leave the original cert-manager Subscription in place.
 
 ### DataScienceCluster `Managed is no longer supported`
 

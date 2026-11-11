@@ -8,7 +8,7 @@ metadata:
   annotations:
     opendatahub.io/managed: "false"
 spec:
-  gatewayClassName: openshift-ai-inference
+  gatewayClassName: data-science-gateway-class
   listeners:
     - name: https
       port: 443

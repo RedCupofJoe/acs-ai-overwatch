@@ -371,6 +371,10 @@ else
   cluster_admin_info "Skipping 03-rhoai-operator-dependencies (pass --with-rhoai-deps for LWS/JobSet/OTEL/COO)."
 fi
 
+# A second OperatorGroup in redhat-ods-operator fails rhods-operator with
+# TooManyOperatorGroups. The chart keeps the group named redhat-ods-operator.
+cluster_admin_ensure_single_operatorgroup redhat-ods-operator redhat-ods-operator
+
 # --- 04 RHOAI operator only (optional) -------------------------------------
 
 if [[ "${WITH_RHOAI_OPERATOR}" == true ]]; then
