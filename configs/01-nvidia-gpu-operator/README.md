@@ -2,7 +2,7 @@
 
 > **PoC:** Apply with `./scripts/cluster-admin/05-apply-platform-prep.sh`. Do **not** apply `03-nvidia-gpu-instance` unless you pass `--with-gpu-clusterpolicy` — Helm owns `ClusterPolicy/gpu-cluster-policy` (GPU 0 time-slicing). See [configs/README.md](../README.md).
 >
-> OperatorGroup names were aligned with Helm (`openshift-nfd`, `nvidia-gpu-operator`) so OLM is not given two OperatorGroups in one namespace.
+> OperatorGroup names were aligned with Helm (`nfd`, `nvidia-gpu-operator`) so OLM is not given two OperatorGroups in one namespace.
 
 Installs and configures the NVIDIA GPU Operator stack so the cluster discovers GPUs, installs drivers, and advertises `nvidia.com/gpu` for scheduling.
 

@@ -98,14 +98,16 @@ section "OpenShift cluster"
 
 if have_cmd oc && oc whoami >/dev/null 2>&1; then
   ocp_version="$(oc get clusterversion version -o jsonpath='{.status.desired.version}' 2>/dev/null || true)"
+  ocp_minor="$(printf '%s' "${ocp_version}" | awk -F '[^0-9]+' '{print $2+0}')"
+  # 4.20–4.22 are the tested lines. 4.19.9+ can still run OpenShift AI 3.5.
   if [[ -z "${ocp_version}" ]]; then
     fail "Could not read OpenShift version from clusterversion/version"
-  elif [[ "${ocp_version}" == 4.20.* ]]; then
-    pass "OpenShift version is ${ocp_version} (target 4.20)"
+  elif [[ "${ocp_version}" == 4.* && "${ocp_minor}" -ge 20 && "${ocp_minor}" -le 22 ]]; then
+    pass "OpenShift version is ${ocp_version} (supported 4.20–4.22)"
   elif semver_ge "${ocp_version}" "4.19.9"; then
-    warn "OpenShift version is ${ocp_version}; this PoC targets 4.20 (4.19.9+ can run OpenShift AI 3.5)"
+    warn "OpenShift version is ${ocp_version}; this PoC targets 4.20–4.22 (4.19.9+ can run OpenShift AI 3.5)"
   else
-    fail "OpenShift version is ${ocp_version}; need 4.20 (or at least 4.19.9 for OpenShift AI 3.5)"
+    fail "OpenShift version is ${ocp_version}; need 4.20–4.22 (or at least 4.19.9 for OpenShift AI 3.5)"
   fi
 fi
 

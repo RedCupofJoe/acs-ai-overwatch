@@ -75,6 +75,9 @@ tpa:
   keycloak:
     namespace: keycloak
     name: rhtpa
+    # `keycloak-og` is the OperatorGroup the console creates. Do not add another.
+    operatorGroup:
+      name: keycloak-og
     subscription:
       name: rhbk-operator
       package: rhbk-operator

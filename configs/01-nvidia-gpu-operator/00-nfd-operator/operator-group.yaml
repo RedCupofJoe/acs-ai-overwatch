@@ -1,9 +1,9 @@
-# Name matches gitops/helm/acs-ai-overwatch (values.accelerators.nfd.operatorGroup.name)
-# so pre-GitOps apply and Argo do not create two OperatorGroups in openshift-nfd.
+# Name matches gitops/helm/acs-ai-overwatch (values.accelerators.nfd.operatorGroup.name).
+# One OperatorGroup per namespace. `nfd` is the group already present on the cluster.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: openshift-nfd
+  name: nfd
   namespace: openshift-nfd
 spec:
   targetNamespaces:

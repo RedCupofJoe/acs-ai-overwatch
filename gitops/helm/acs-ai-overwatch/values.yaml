@@ -232,8 +232,10 @@ accelerators:
     enabled: true
     namespace: openshift-nfd
     clusterMonitoringLabel: "true"
+    # Must stay `nfd`. A second OperatorGroup in openshift-nfd fails the CSV
+    # with TooManyOperatorGroups. The console and the first apply use this name.
     operatorGroup:
-      name: openshift-nfd
+      name: nfd
     subscription:
       name: nfd
       channel: stable
@@ -300,7 +302,7 @@ accelerators:
           operator: Exists
 
 # Red Hat OpenShift AI (RHOAI) 3.5 — operator, DataScienceCluster v2, OGX, MaaS, HardwareProfiles.
-# Requires OpenShift 4.20 (or 4.19.9+) and a cluster that is not stuck on RHOAI 2.25.
+# Requires OpenShift 4.20–4.22 (or 4.19.9+) and a cluster that is not stuck on RHOAI 2.25.
 # Discovery picks stable-3.5 / fast-3.5 / eus-3.5 from catalog (RHOAI_TARGET_VERSION, default 3.5).
 rhoai:
   enabled: true

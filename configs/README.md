@@ -33,7 +33,7 @@ Default **skips**:
 
 ## What we changed vs upstream
 
-- OperatorGroup names match Helm: `openshift-nfd`, `nvidia-gpu-operator`, `redhat-ods-operator` (empty `spec`), Tempo `tempo-product`.
+- OperatorGroup names match Helm: `nfd`, `nvidia-gpu-operator`, `redhat-ods-operator` (empty `spec`), Tempo `tempo-product`. One group per namespace.
 - AWS MachineSet Job defaults: `INSTANCE_TYPE=g6.12xlarge`, `GPU_REPLICAS=1`, `ENABLE_GPU_AUTOSCALE=false` (workshop autoscaled 0–4 and never provisioned a node).
 
 Three `g6.4xlarge` (1× L4 each) would time-slice **every** GPU 0 and leave no dedicated `nvidia.com/gpu` for Gemma/Granite. This PoC uses **one `g6.12xlarge`**.

@@ -52,12 +52,15 @@ spec:
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: rhbk-operator
+  name: {{ .Values.tpa.keycloak.operatorGroup.name }}
   {{- include "trust.wave" (dict "root" . "wave" "operators") | nindent 2 }}
   namespace: {{ .Values.tpa.keycloak.namespace }}
   labels:
     {{- include "trust.labels" . | nindent 4 }}
-spec: {}
+spec:
+  targetNamespaces:
+    - {{ .Values.tpa.keycloak.namespace }}
+  upgradeStrategy: Default
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

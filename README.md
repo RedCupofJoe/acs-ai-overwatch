@@ -15,7 +15,7 @@ This GitOps repository shows that loop end to end:
 
 The stack underneath that story:
 
-- **Red Hat OpenShift 4.20** and **OpenShift AI 3.5** (`stable-3.5`) with OGX and Models-as-a-Service
+- **Red Hat OpenShift 4.20–4.22** and **OpenShift AI 3.5** (`stable-3.5`) with OGX and Models-as-a-Service
 - **RHACS** for runtime and deploy-time `SecurityPolicy` CRs (GitOps)
 - **UBI + llama.cpp** for the optional misbehavior phase (Hank, Rosey, Sam)
 - **Mattermost** as the Slack-compatible sink for ACS violations
@@ -95,7 +95,7 @@ export OVERWATCH_URL="https://$(oc get route overwatch-console -n test-range -o 
 open "$OVERWATCH_URL"
 ```
 
-**OpenShift AI version:** This PoC targets **OpenShift AI 3.5** (`stable-3.5`) on **OpenShift 4.20**. Discovery picks `stable-3.5` / `fast-3.5` / `eus-3.5` from the catalog (`RHOAI_TARGET_VERSION`, default `3.5`).
+**OpenShift AI version:** This PoC targets **OpenShift AI 3.5** (`stable-3.5`) on **OpenShift 4.20–4.22** (4.19.9+ can run it). Discovery picks `stable-3.5` / `fast-3.5` / `eus-3.5` from the catalog (`RHOAI_TARGET_VERSION`, default `3.5`).
 
 **User Workload Monitoring** is a MaaS prerequisite. `check-prereqs.sh` warns if it is off; the observability chart also enables it. To set it yourself:
 
@@ -342,7 +342,7 @@ Confirm the cluster is ready (`oc login` first):
 
 | Requirement | Notes |
 |-------------|-------|
-| **OpenShift 4.20** | Verify channel compatibility for operators on your cluster version |
+| **OpenShift 4.20–4.22** | 4.19.9+ can run OpenShift AI 3.5. Verify channel compatibility for operators on your cluster version |
 | **Fresh cluster for OpenShift AI 3.5** | No prior RHOAI 2.25 install; see [Fresh cluster deployment](#fresh-cluster-deployment-openshift-ai-35) |
 | **OpenShift GitOps Operator** | Argo CD control plane in `openshift-gitops` |
 | **OpenShift Pipelines** | Installed by the umbrella chart when `components.pipelines.enabled` is true (PoC overlay). See [OpenShift Pipelines](#openshift-pipelines-tekton) |
