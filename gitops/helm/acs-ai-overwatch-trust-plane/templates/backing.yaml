@@ -223,6 +223,8 @@ metadata:
     {{- include "trust.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: rhtpa-minio
@@ -240,7 +242,6 @@ spec:
             - -s3.port=9000
             - -s3.port.iceberg=0
             - -s3.port.lance=0
-            - -ip=rhtpa-minio.{{ $ns }}.svc.cluster.local
             - -bucket={{ .Values.tpa.bucket }}
           ports:
             - name: api

@@ -64,6 +64,8 @@ metadata:
     app.kubernetes.io/component: quay-minio-server
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/component: quay-minio-server
@@ -83,7 +85,6 @@ spec:
             - -s3.port=9000
             - -s3.port.iceberg=0
             - -s3.port.lance=0
-            - -ip={{ $name }}.{{ $ns }}.svc.cluster.local
             - -bucket={{ .Values.quayStorage.quayRegistry.minio.bucketName }}
           env:
             - name: AWS_ACCESS_KEY_ID
