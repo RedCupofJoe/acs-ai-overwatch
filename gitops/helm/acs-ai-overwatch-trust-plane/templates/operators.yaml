@@ -32,7 +32,11 @@ metadata:
   namespace: {{ .Values.tpa.namespace }}
   labels:
     {{- include "trust.labels" . | nindent 4 }}
-spec: {}
+spec:
+  # TPA 3.x supports OwnNamespace only. An empty spec selects all namespaces.
+  targetNamespaces:
+    - {{ .Values.tpa.namespace }}
+  upgradeStrategy: Default
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

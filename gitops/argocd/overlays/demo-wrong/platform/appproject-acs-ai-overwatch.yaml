@@ -51,5 +51,5 @@ spec:
       kind: SandboxTemplate
     - group: k8s.keycloak.org
       kind: Keycloak
-    - group: rhtpa.redhat.com
+    - group: rhtpa.io
       kind: TrustedProfileAnalyzer

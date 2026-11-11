@@ -53,10 +53,11 @@ tpa:
   subscription:
     name: rhtpa-operator
     package: rhtpa-operator
-    channel: stable
+    # The catalog has stable-v1.1 and stable-v3. There is no channel named stable.
+    channel: stable-v3
     source: redhat-operators
     sourceNamespace: openshift-marketplace
-  crd: trustedprofileanalyzers.rhtpa.redhat.com
+  crd: trustedprofileanalyzers.rhtpa.io
   bucket: rhtpa-sbom
   postgres:
     image: docker.io/library/postgres:16-alpine
