@@ -6,11 +6,14 @@ apiVersion: {{ $hp.apiVersion }}
 kind: HardwareProfile
 metadata:
   name: {{ .name }}
-  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" $ "wave" "platformCRs") | nindent 2 }}
   namespace: {{ $hp.namespace }}
   labels:
     {{- include "acs-ai-overwatch.labels" $ | nindent 4 }}
   annotations:
+    {{- if $.Values.argocd.syncWaves.enabled }}
+    argocd.argoproj.io/sync-wave: {{ index $.Values.argocd.syncWaves.platformCRs | quote }}
+    {{- end }}
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
     opendatahub.io/display-name: {{ .displayName | quote }}
 spec:
   identifiers:

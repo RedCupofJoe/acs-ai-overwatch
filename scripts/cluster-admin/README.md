@@ -21,7 +21,7 @@ chmod +x scripts/cluster-admin/*.sh
 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | `03-apply-cluster-configmap.sh` | ConfigMap `acs-ai-overwatch-system/acs-ai-overwatch-cluster-config` (`appsDomain`, Quay host, git URL) |
 | `04-apply-discovery-prerequisites.sh` | ServiceAccount `cluster-discovery`, RBAC, ConfigMap `cluster-discovery-script` |
-| `05-apply-platform-prep.sh` | AWS GPU MachineSet + NFD/GPU operators + NFD instance (not ClusterPolicy/DSC) |
+| `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, NFD instance, `nvidia.com/device-plugin.config=shared`, cert-manager, Service Mesh 3 (not ClusterPolicy/DSC) |
 | `enable-kata.sh` | Optional. Sets the trust-plane Kata flag (`--platform baremetal` or `--platform aws`). Off by default |
 
 ## Options

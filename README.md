@@ -107,6 +107,8 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 
 **Kueue is not required.** The DataScienceCluster keeps `kueue.managementState: Removed`. Do not install the Kueue operator unless you later change that.
 
+**cert-manager and Service Mesh 3 are required.** `05-apply-platform-prep.sh` subscribes both. cert-manager issues the TLS secret `LLMInferenceService` mounts. Service Mesh 3 is the OGX prerequisite. Product MaaS (`aigateway`) stays `Removed`; the demo front door is the API proxy in `acs-maas`.
+
 **Model Catalog:** Investigator Gemma and MaaS Granite are `LLMInferenceService` CRs whose `spec.model.uri` is the catalog ModelCar image (`oci://registry.redhat.io/rhelai1/modelcar-gemma-2-9b-it-fp8:1.5` and `oci://registry.redhat.io/rhelai1/modelcar-granite-3-1-8b-instruct-fp8-dynamic:1.5`). OpenShift pulls them with the **cluster pull secret** (same path as deploying from **AI hub → Models Catalog** in the dashboard). Rogue MiniCPM GGUF still comes from Hugging Face inside the agent pod.
 
 ---
@@ -153,9 +155,9 @@ During the optional phase, ACS **monitor** mode lets those pods keep running. `s
 ### What the platform team provisions
 
 1. **OpenShift AI 3.5** on **one AWS `g6.12xlarge`** (**4× NVIDIA L4** on a single node)
-2. Contrasting agents on a **time-sliced L4** (`nvidia.com/gpu.shared`): Hank, Rosey, Sam, plus the **agentic builder**. **Compliant Chris** is CPU-only OpenShell and talks to MaaS (no GPU, no GGUF).
-3. **Gemma 2 9B Instruct FP8** (Model Catalog ModelCar) on a **dedicated L4** as the ACS investigator (`acs-investigator`)
-4. **Granite 3.1 8B Instruct FP8** (Model Catalog ModelCar) on the remaining **dedicated L4** as **MaaS** (`acs-maas`)
+2. Contrasting agents on **time-sliced L4s** (`nvidia.com/gpu`): Hank, Rosey, Sam, plus the **agentic builder**. **Compliant Chris** is CPU-only OpenShell and talks to MaaS (no GPU, no GGUF).
+3. **Gemma 2 9B Instruct FP8** (Model Catalog ModelCar) as the ACS investigator (`acs-investigator`), also on `nvidia.com/gpu`
+4. **Granite 3.1 8B Instruct FP8** (Model Catalog ModelCar) as the demo MaaS proxy (`acs-maas`), also on `nvidia.com/gpu`
 5. **RHACS** runtime + deploy `SecurityPolicy` CRs scoped to `test-range`
 6. **Mattermost** + webhook bridge (fan-out to the investigator)
 7. **BuildConfigs** that produce Remediated Rosey/Sam (no scanners, approved Red Hat model via MaaS)
@@ -192,16 +194,15 @@ scans the new image, uploads the SBOM to TPA, and applies Sandbox CRs
 
 ### GPU map (1× g6.12xlarge = 4× NVIDIA L4, 24GB each)
 
-Do **not** use **3× `g6.4xlarge`** (1× L4 per node). Helm time-slices `devices: ["0"]`; on three single-GPU nodes that would share every L4 and leave no dedicated `nvidia.com/gpu` for Gemma and Granite.
+Do **not** use **3× `g6.4xlarge`** (1× L4 per node). One `g6.12xlarge` is what gives this demo four L4s.
 
-NVIDIA time-slicing does **not** isolate VRAM. Four MiniCPM 2B GGUFs (~2GB each) share GPU 0; Gemma 9B FP8 and Granite 8B FP8 each need a full L4.
+GPU Operator 26.3 time-slicing is **per node**. The device plugin ignores a per-GPU `devices` list and `rename`. `05-apply-platform-prep.sh` labels the NVIDIA node `nvidia.com/device-plugin.config=shared`. That config keeps `renameByDefault: false` and replicates `nvidia.com/gpu` on **every** L4 (4 GPUs × 4 replicas = 16 slots). Agents, the builder, Gemma, and Granite all request `nvidia.com/gpu: 1`.
 
-| Physical GPU | Resource | Workloads |
+NVIDIA time-slicing does **not** isolate VRAM. vLLM is set to `gpuMemoryUtilization: 0.75` so one MiniCPM sidecar can share a 24GB L4 with Gemma or Granite. Two vLLM pods on the same physical L4 still run out of memory. The device plugin normally spreads the first four GPU pods across the four L4s.
+
+| Slots | Resource | Workloads |
 |---|---|---|
-| GPU 0 | `nvidia.com/gpu.shared: "1"` (4 slices) | Hank, Rosey, Sam, builder |
-| GPU 1 | `nvidia.com/gpu: "1"` | Gemma 2 9B FP8 investigator (Model Catalog ModelCar) |
-| GPU 2 | `nvidia.com/gpu: "1"` | Granite 8B FP8 MaaS (Model Catalog ModelCar) |
-| GPU 3 | `nvidia.com/gpu: "1"` | Spare dedicated L4 |
+| 16 | `nvidia.com/gpu: "1"` | Hank, Rosey, Sam, builder, Gemma, Granite |
 
 ### High-level platform diagram
 
@@ -660,7 +661,7 @@ make platform-prep
 | 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `gitRepoUrl`, `gitRepoUrl`, …) |
 | 4 | `04-apply-discovery-prerequisites.sh` | ServiceAccount **`cluster-discovery`**, discovery RBAC, ConfigMap **`cluster-discovery-script`** |
-| 5 | `05-apply-platform-prep.sh` | AWS GPU MachineSet + NFD/GPU operators + **NFD instance** (not workshop ClusterPolicy or DSC) |
+| 5 | `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, **NFD instance**, GPU node label `nvidia.com/device-plugin.config=shared`, cert-manager, Service Mesh 3 (not workshop ClusterPolicy or DSC) |
 
 Manual prerequisites (OperatorHub, not GitOps): none for the PoC. OpenShift Pipelines is subscribed by the umbrella chart when `components.pipelines.enabled` is true. Kueue is **Removed** on `default-dsc`.
 
@@ -921,7 +922,7 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 |--------|---------|
 | `check-prereqs` | Runs `scripts/check-prereqs.sh` against the current `oc login` |
 | `cluster-admin-pre-gitops` | Runs `scripts/cluster-admin/install-pre-gitops.sh` (before Argo CD) |
-| `platform-prep` | Runs `scripts/cluster-admin/05-apply-platform-prep.sh` (AWS GPU MachineSet + NFD instance) |
+| `platform-prep` | Runs `scripts/cluster-admin/05-apply-platform-prep.sh` (GPU MachineSet, NFD, node label, cert-manager, Service Mesh 3) |
 | `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
 | `cleanup-poc-repo` | Runs `scripts/cleanup-poc-repo.sh` → baseline GitOps (after PoC) |
 | `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
@@ -1256,13 +1257,14 @@ Base `values.yaml` vs PoC overlay `values-poc.yaml` (Argo merges overlay last):
 
 ### 1. GPU Accelerators (`accelerators`)
 
-Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator** with **time-slicing on GPU 0** of the single `g6.12xlarge` (`nvidia.com/gpu.shared`, 4 slices). GPU 1 and GPU 2 stay dedicated `nvidia.com/gpu` for Gemma and Granite; GPU 3 is spare.
+Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator**. On a node labeled `nvidia.com/device-plugin.config=shared`, time-slicing replicates `nvidia.com/gpu` on every L4 of the `g6.12xlarge` (4 × 4 slots). `renameByDefault` stays false so `nvidia.com/gpu` is not zeroed.
 
 | Resource | Namespace | Template |
 |----------|-----------|----------|
 | NFD Subscription | `openshift-nfd` | `accelerators-nfd.yaml` |
 | GPU Operator Subscription | `nvidia-gpu-operator` | `accelerators-gpu-operator.yaml` |
 | Time-slicing ConfigMap | `nvidia-gpu-operator` | `accelerators-gpu-time-slicing-configmap.yaml` |
+| Node label CronJob | `nvidia-gpu-operator` | `accelerators-gpu-node-label-job.yaml` |
 | ClusterPolicy | cluster-scoped | `accelerators-gpu-clusterpolicy.yaml` |
 
 **Key tuning values:**
@@ -1270,11 +1272,13 @@ Installs **Node Feature Discovery (NFD)** and the **NVIDIA GPU Operator** with *
 ```yaml
 accelerators:
   timeSlicing:
-    replicasPerGpu: 4    # GPU 0 only; advertises nvidia.com/gpu.shared
+    replicasPerGpu: 4
     migStrategy: none
+    sharedNodeSelector:
+      nvidia.com/device-plugin.config: shared
 ```
 
-The GPU Operator ClusterPolicy references ConfigMap `time-slicing-config` with key `any`. Helm does **not** create a `NodeFeatureDiscovery` CR; apply that with `make platform-prep` ([`configs/README.md`](configs/README.md)). GPU pods tolerate `nvidia.com/gpu` NoSchedule (AWS MachineSet taint).
+The ClusterPolicy points at ConfigMap `time-slicing-config`, default key `default` (no sharing). The `shared` key is used only on nodes with that label. `make platform-prep` creates the `NodeFeatureDiscovery` CR, installs cert-manager and Service Mesh 3, and sets the label ([`configs/README.md`](configs/README.md)). GPU pods tolerate `nvidia.com/gpu` NoSchedule (AWS MachineSet taint).
 
 Do **not** apply workshop `configs/01-nvidia-gpu-operator/03-nvidia-gpu-instance` — it would replace time-slicing.
 
@@ -1303,8 +1307,9 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 | Component | managementState | Purpose |
 |-----------|-----------------|---------|
 | dashboard | Managed | OpenShift AI dashboard |
-| kserve (+ `modelsAsService`) | Managed | Model serving and MaaS |
-| ogx | Managed | Investigator OGX server |
+| kserve | Managed | Model serving (`LLMInferenceService`) |
+| aigateway | **Removed** | Product MaaS stays off; the demo uses the in-namespace API proxy |
+| ogx | Managed | Investigator OGX server (needs Service Mesh 3) |
 | kueue | **Removed** | Not used on this PoC |
 | workbenches | Managed | Developer workbench provisioning |
 | modelregistry | Managed | Model registry in `rhoai-model-registries` |
@@ -1320,9 +1325,13 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 
 **Model registry namespace:** `rhoai-model-registries` (created when `modelregistry.managementState: Managed` on `default-dsc`).
 
-**HardwareProfile:** `l4-shared-timeslice` (`nvidia.com/gpu.shared`) and `l4-full` (`nvidia.com/gpu`).
+**HardwareProfile** (`infrastructure.opendatahub.io/v1`): `l4-shared-timeslice` and `l4-full` both identify `nvidia.com/gpu`.
 
-Templates: `rhoai-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
+**Inference Gateway:** `openshift-ingress/openshift-ai-inference`, class `openshift-ai-inference`, HTTPS with cert-manager secret `openshift-ai-inference-tls`. `data-science-gateway-class` is the dashboard gateway and is not used here.
+
+**cert-manager** and **servicemeshoperator3** are installed by platform prep and by the Helm chart. cert-manager is required for the workload TLS secret KServe mounts. Do not create a second Istio control plane.
+
+Templates: `rhoai-operator.yaml`, `rhoai-cert-manager-operator.yaml`, `rhoai-servicemesh-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-inference-gateway.yaml`, `rhoai-inference-gateway-tls.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
 
 **Important:** OpenShift AI **3.5 must be installed on a fresh cluster**. If a cluster previously had RHOAI 2.25, provision a new cluster rather than attempting an upgrade path.
 
@@ -1349,7 +1358,7 @@ Remediated Rosey and Sam are new images `FROM` the NVIDIA OpenShell sandbox. The
 | Path | `agents/helpful-hank/` |
 | Personality | Standard technical assistant |
 | Extra packages | None |
-| GPU | `nvidia.com/gpu.shared` (llama.cpp sidecar) |
+| GPU | `nvidia.com/gpu` (llama.cpp sidecar) |
 | Telemetry label | `acs-ai-overwatch.io/telemetry=enabled` |
 
 ### Rosey Regrets
@@ -1738,7 +1747,7 @@ See [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [`scr
 | Script | Purpose |
 |--------|---------|
 | `install-pre-gitops.sh` | Runs steps 00–04 (with optional flags) |
-| `05-apply-platform-prep.sh` | AWS GPU MachineSet + NFD/GPU operators + NFD instance |
+| `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, NFD instance, GPU node label, cert-manager, Service Mesh 3 |
 | `01-grant-openshift-gitops-rbac.sh` | Argo CD controller `cluster-admin` binding |
 | `02-bootstrap-namespaces.sh` | Labeled PoC namespaces |
 | `03-apply-cluster-configmap.sh` | `acs-ai-overwatch-cluster-config` ConfigMap |
@@ -2153,8 +2162,11 @@ When `oc get csv -n redhat-ods-operator` shows `rhods-operator.*` **Succeeded**,
 ```bash
 oc get clusterpolicy -n nvidia-gpu-operator
 oc get configmap time-slicing-config -n nvidia-gpu-operator -o yaml
+oc get nodes -l nvidia.com/device-plugin.config=shared
 oc describe node <gpu-worker> | grep nvidia.com/gpu
 ```
+
+The `shared` config is unused until the node label exists. `05-apply-platform-prep.sh` sets it, and CronJob `gpu-node-label` in `nvidia-gpu-operator` retries every two minutes.
 
 ### Quay PVCs stuck Pending
 

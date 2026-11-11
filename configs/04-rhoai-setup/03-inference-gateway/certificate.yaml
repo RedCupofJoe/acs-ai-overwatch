@@ -1,0 +1,21 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: openshift-ai-inference-tls
+  namespace: openshift-ingress
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: openshift-ai-inference-tls
+  namespace: openshift-ingress
+spec:
+  secretName: openshift-ai-inference-tls
+  issuerRef:
+    name: openshift-ai-inference-tls
+    kind: Issuer
+  commonName: openshift-ai-inference
+  dnsNames:
+    - openshift-ai-inference.openshift-ingress.svc

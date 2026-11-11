@@ -208,6 +208,29 @@ if have_cmd oc && oc whoami >/dev/null 2>&1; then
   fi
 fi
 
+section "OpenShift AI 3.5 serving prerequisites"
+
+if have_cmd oc && oc whoami >/dev/null 2>&1; then
+  cm_phase="$(csv_phase 'openshift-cert-manager-operator')"
+  if [[ "${cm_phase}" == "Succeeded" ]]; then
+    pass "cert-manager Operator CSV Succeeded (required for LLMInferenceService TLS)"
+  else
+    warn "cert-manager Operator is not Succeeded yet. 05-apply-platform-prep.sh installs it."
+  fi
+  mesh_phase="$(csv_phase 'servicemeshoperator3')"
+  if [[ "${mesh_phase}" == "Succeeded" ]]; then
+    pass "Service Mesh 3 operator CSV Succeeded (OGX prerequisite)"
+  else
+    warn "servicemeshoperator3 is not Succeeded yet. 05-apply-platform-prep.sh installs it."
+  fi
+  labeled="$(oc get nodes -l nvidia.com/device-plugin.config=shared --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${labeled}" -gt 0 ]]; then
+    pass "${labeled} node(s) labeled nvidia.com/device-plugin.config=shared"
+  else
+    warn "No node has nvidia.com/device-plugin.config=shared yet. Platform prep sets it so time-slicing applies to nvidia.com/gpu."
+  fi
+fi
+
 section "GPUs"
 
 if have_cmd oc && oc whoami >/dev/null 2>&1; then
@@ -223,14 +246,14 @@ if have_cmd oc && oc whoami >/dev/null 2>&1; then
   done < <(oc get nodes -o jsonpath='{range .items[*]}{.status.allocatable.nvidia\.com/gpu\.shared}{"\n"}{end}' 2>/dev/null || true)
 
   products="$(oc get nodes -o jsonpath='{range .items[*]}{.metadata.labels.nvidia\.com/gpu\.product}{"\n"}{end}' 2>/dev/null | sed '/^$/d' || true)"
-  # Target: 1× g6.12xlarge (4× L4). After time-slicing GPU 0: ~3 nvidia.com/gpu + 4 gpu.shared.
-  # Before ClusterPolicy: 4 nvidia.com/gpu. Need ≥2 dedicated for Gemma + Granite.
+  # Target: 1× g6.12xlarge (4× L4). Before time-slicing that is 4 nvidia.com/gpu.
+  # After the shared config (renameByDefault false) every L4 is sliced, so 16 nvidia.com/gpu.
   if [[ "${gpu_total}" -eq 0 && "${shared_total}" -eq 0 ]]; then
     warn "No nvidia.com/gpu allocatable yet (GPU Operator ClusterPolicy comes from GitOps). Provision 1× g6.12xlarge (4× L4), not 3× g6.4xlarge."
-  elif [[ "${gpu_total}" -ge 2 && "${shared_total}" -ge 4 ]]; then
-    pass "Cluster advertises ${gpu_total} nvidia.com/gpu and ${shared_total} nvidia.com/gpu.shared (1× g6.12xlarge time-sliced GPU 0)"
-  elif [[ "${gpu_total}" -ge 3 ]]; then
-    pass "Cluster advertises ${gpu_total} nvidia.com/gpu (1× g6.12xlarge before or after time-slicing GPU 0)"
+  elif [[ "${gpu_total}" -ge 4 ]]; then
+    pass "Cluster advertises ${gpu_total} nvidia.com/gpu (4 physical L4s, or 16 after 4× time-slicing)"
+  elif [[ "${shared_total}" -ge 4 ]]; then
+    warn "Cluster advertises nvidia.com/gpu.shared=${shared_total} and nvidia.com/gpu=${gpu_total}. Workloads request nvidia.com/gpu. Keep renameByDefault false."
   else
     fail "Cluster advertises ${gpu_total} nvidia.com/gpu / ${shared_total} gpu.shared; need 1× g6.12xlarge (4× L4), not 3× g6.4xlarge (1× L4 each)"
   fi

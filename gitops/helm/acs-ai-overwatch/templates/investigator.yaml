@@ -54,6 +54,7 @@ metadata:
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
     app.kubernetes.io/name: ogx-postgres
+priority: 10
 allowPrivilegedContainer: false
 allowPrivilegeEscalation: false
 allowHostDirVolumePlugin: false

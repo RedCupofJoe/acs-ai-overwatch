@@ -1,0 +1,82 @@
+{{- if and .Values.accelerators.enabled .Values.accelerators.gpuOperator.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-node-label
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: acs-ai-overwatch-gpu-node-label
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: acs-ai-overwatch-gpu-node-label
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "security") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: acs-ai-overwatch-gpu-node-label
+subjects:
+  - kind: ServiceAccount
+    name: gpu-node-label
+    namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gpu-node-label
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "workloads") | nindent 2 }}
+  namespace: {{ .Values.accelerators.gpuOperator.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: gpu-node-label
+          containers:
+            - name: label
+              image: registry.redhat.io/openshift4/ose-cli:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  label_key="{{ keys .Values.accelerators.timeSlicing.sharedNodeSelector | first }}"
+                  label_val="{{ index .Values.accelerators.timeSlicing.sharedNodeSelector (keys .Values.accelerators.timeSlicing.sharedNodeSelector | first) }}"
+                  nodes="$(oc get nodes -l feature.node.kubernetes.io/pci-10de.present=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+                  if [[ -z "${nodes// }" ]]; then
+                    nodes="$(oc get nodes -l nvidia.com/gpu.present=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+                  fi
+                  if [[ -z "${nodes// }" ]]; then
+                    echo "no NVIDIA node yet; next run retries"
+                    exit 0
+                  fi
+                  while IFS= read -r node; do
+                    [[ -z "${node}" ]] && continue
+                    oc label "node/${node}" "${label_key}=${label_val}" --overwrite
+                    echo "labeled ${node} ${label_key}=${label_val}"
+                  done <<<"${nodes}"
+{{- end }}

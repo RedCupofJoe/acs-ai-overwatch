@@ -1,0 +1,29 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.inferenceGateway.enabled .Values.rhoai.certManager.enabled (eq .Values.rhoai.inferenceGateway.protocol "HTTPS") (include "acs-ai-overwatch.crdReady" (dict "root" . "crdName" .Values.platformResources.crds.certificate)) }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Values.rhoai.inferenceGateway.tlsSecretName }}
+  namespace: {{ .Values.rhoai.inferenceGateway.namespace }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.rhoai.inferenceGateway.tlsSecretName }}
+  namespace: {{ .Values.rhoai.inferenceGateway.namespace }}
+  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.rhoai.inferenceGateway.tlsSecretName }}
+  issuerRef:
+    name: {{ .Values.rhoai.inferenceGateway.tlsSecretName }}
+    kind: Issuer
+  commonName: {{ .Values.rhoai.inferenceGateway.name }}
+  dnsNames:
+    - {{ .Values.rhoai.inferenceGateway.name }}.{{ .Values.rhoai.inferenceGateway.namespace }}.svc
+{{- end }}

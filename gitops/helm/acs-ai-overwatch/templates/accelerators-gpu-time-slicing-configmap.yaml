@@ -12,6 +12,8 @@ data:
     version: v1
     flags:
       migStrategy: {{ .Values.accelerators.timeSlicing.migStrategy }}
+  # Applies to every GPU on a node labeled nvidia.com/device-plugin.config=shared.
+  # GPU Operator 26.3 ignores per-resource devices and rename, so do not set them.
   {{ .Values.accelerators.timeSlicing.sharedConfigKey }}: |-
     version: v1
     flags:

@@ -88,7 +88,7 @@ cat <<EOF
 Pre-GitOps bootstrap complete.
 
 Next:
-  1. AWS GPU nodes + NFD instance (skip ClusterPolicy/DSC; Helm owns those):
+  1. AWS GPU nodes, NFD instance, GPU node label, cert-manager, and Service Mesh 3 (skip ClusterPolicy/DSC; Helm owns those):
        ./scripts/cluster-admin/05-apply-platform-prep.sh
        # or: make platform-prep
   2. Confirm StorageClass: oc get storageclass (default gp3-csi in values.yaml)

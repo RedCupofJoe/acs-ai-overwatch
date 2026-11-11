@@ -21,6 +21,7 @@ namespaces:
   - ai-workbenches
   - openshift-nfd
   - nvidia-gpu-operator
+  - cert-manager-operator
   - redhat-ods-operator
   - redhat-ods-applications
   - rhods-notebooks

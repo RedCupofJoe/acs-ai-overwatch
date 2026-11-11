@@ -1,6 +1,6 @@
 # NVIDIA GPU Workload
 
-> **PoC:** Optional CUDA smoke test: `./scripts/cluster-admin/05-apply-platform-prep.sh --smoke-test` after GPUs are advertised. Pods request `nvidia.com/gpu` (dedicated), not `nvidia.com/gpu.shared`.
+> **PoC:** Optional CUDA smoke test: `./scripts/cluster-admin/05-apply-platform-prep.sh --smoke-test` after GPUs are advertised. Pods request `nvidia.com/gpu`.
 
 Deploys sample GPU workloads to verify that NVIDIA GPUs are installed, advertised, and schedulable.
 

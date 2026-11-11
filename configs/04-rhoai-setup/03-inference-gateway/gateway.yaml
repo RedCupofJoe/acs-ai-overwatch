@@ -3,15 +3,25 @@ kind: Gateway
 metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
+  labels:
+    istio.io/rev: openshift-gateway
+  annotations:
+    opendatahub.io/managed: "false"
 spec:
-  gatewayClassName: data-science-gateway-class
+  gatewayClassName: openshift-ai-inference
   listeners:
-    - name: http
-      port: 80
-      protocol: HTTP
+    - name: https
+      port: 443
+      protocol: HTTPS
       allowedRoutes:
         namespaces:
           from: Selector
           selector:
             matchLabels:
-              inference.opendatahub.io/gateway-access: 'true'
+              inference.opendatahub.io/gateway-access: "true"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: openshift-ai-inference-tls

@@ -31,6 +31,7 @@ platformResources:
     ogxServer: ogxservers.ogx.io
     tektonPipeline: pipelines.tekton.dev
     gateway: gateways.gateway.networking.k8s.io
+    certificate: certificates.cert-manager.io
 
 # Argo CD sync waves (lower number syncs first). See README "Argo CD Sync Waves".
 argocd:
@@ -70,18 +71,16 @@ cluster:
   # Describe layout (e.g. 3×3 failure domains / nodes); used for documentation ConfigMap only.
   topology: "3x3"
   gpu:
-    # One AWS g6.12xlarge = 4× L4. Do not use 3× g6.4xlarge (1× L4 each): time-slicing
-    # devices ["0"] would share every node GPU and leave no dedicated nvidia.com/gpu.
+    # One AWS g6.12xlarge = 4× L4. Do not use 3× g6.4xlarge (1× L4 each).
+    # GPU Operator 26.3 time-slicing is per node. The device plugin ignores
+    # per-GPU devices/rename, so a labeled node slices every L4.
     count: 4
     nodes: 1
     instanceType: g6.12xlarge
     model: L4
     vendor: nvidia
-    # Intended: GPU 0 time-sliced as nvidia.com/gpu.shared; GPU 1/2 dedicated.
-    # This GPU Operator device-plugin ignores timeSlicing rename + devices, so
-    # all 4 L4s become nvidia.com/gpu slices. Agents request nvidia.com/gpu.
-    # GPU 3 is spare dedicated nvidia.com/gpu.
-    sharedIndex: "0"
+    # renameByDefault stays false: true would advertise only nvidia.com/gpu.shared
+    # and set nvidia.com/gpu to 0, which leaves Gemma and Granite Pending.
     sharedReplicas: 4
 
 # Optional ConfigMap with cluster facts (for operators / workbenches that read it).
@@ -256,10 +255,10 @@ accelerators:
       sourceNamespace: openshift-marketplace
   timeSlicing:
     # ConfigMap consumed by ClusterPolicy devicePlugin.config.
-    # defaultConfig is applied to every GPU node unless the node is labeled
-    # nvidia.com/device-plugin.config=<sharedConfigKey>. That lets mixed clusters
-    # keep existing llm workloads on unsliced L4s while Overwatch agents share
-    # one labeled node.
+    # defaultConfig has no sharing. Nodes labeled
+    # nvidia.com/device-plugin.config=<sharedConfigKey> use sharedConfigKey,
+    # which replicates nvidia.com/gpu on every GPU on that node.
+    # 05-apply-platform-prep.sh and the label Job set that label.
     configMapName: time-slicing-config
     defaultConfig: default
     sharedConfigKey: shared
@@ -326,8 +325,13 @@ rhoai:
         managementState: Managed
       kserve:
         managementState: Managed
-        modelsAsService:
-          managementState: Managed
+      # 3.5 moved MaaS to aigateway.modelsAsAService. Leave it Removed: the
+      # demo front door is the in-namespace API proxy, and Managed starts the
+      # product operator without the Kuadrant gateway and database it requires.
+      # kserve.modelsAsService stays unset (default Removed). Setting it back
+      # to Managed is blocked once a cluster has moved it to Removed.
+      aigateway:
+        managementState: Removed
       ogx:
         managementState: Managed
       kueue:
@@ -355,26 +359,54 @@ rhoai:
         managementState: Removed
         argoWorkflowsControllers:
           managementState: Removed
-  # KServe LLMInferenceService router.gateway{} defaults to this Gateway.
-  # Workshop overlay: configs/04-rhoai-setup/03-inference-gateway.
+  # OpenShift AI 3.5 inference Gateway. data-science-gateway-class is the
+  # dashboard gateway and must not be used here. router.gateway {} selects
+  # openshift-ingress/openshift-ai-inference.
   inferenceGateway:
     enabled: true
     name: openshift-ai-inference
     namespace: openshift-ingress
-    gatewayClassName: data-science-gateway-class
-    listenerName: http
-    port: 80
-    protocol: HTTP
+    gatewayClassName: openshift-ai-inference
+    listenerName: https
+    port: 443
+    protocol: HTTPS
     routeLabel: inference.opendatahub.io/gateway-access
+    istioRev: openshift-gateway
+    tlsSecretName: openshift-ai-inference-tls
+  # cert-manager issues the workload TLS secret LLMInferenceService mounts.
+  # Service Mesh 3 is the OGX prerequisite. Both are installed before the DSC.
+  certManager:
+    enabled: true
+    namespace: cert-manager-operator
+    # Must stay `cert-manager-operator-og` with targetNamespaces set to this
+    # namespace. That is the group the console creates. A second group, or an
+    # empty spec (AllNamespaces), fails the CSV with TooManyOperatorGroups.
+    operatorGroup:
+      name: cert-manager-operator-og
+    subscription:
+      name: openshift-cert-manager-operator
+      channel: stable-v1
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+  serviceMesh:
+    enabled: true
+    namespace: openshift-operators
+    subscription:
+      name: servicemeshoperator3
+      channel: stable
+      installPlanApproval: Automatic
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
   dashboardConfig:
     enabled: true
     name: odh-dashboard-config
     namespace: redhat-ods-applications
-    modelAsService: true
+    modelAsService: false
     genAiStudio: true
   hardwareProfile:
     enabled: true
-    apiVersion: infrastructure.opendatahub.io/v1alpha1
+    apiVersion: infrastructure.opendatahub.io/v1
     namespace: redhat-ods-applications
     kueueLocalQueueName: default
     profiles:
@@ -629,7 +661,9 @@ investigator:
     gpuResource: nvidia.com/gpu
     gpuCount: "1"
     maxModelLen: 4096
-    gpuMemoryUtilization: 0.90
+    # 0.75 leaves headroom on a 24Gi L4 when a MiniCPM sidecar shares the card.
+    # 0.90 fills the GPU and the sidecar cannot allocate.
+    gpuMemoryUtilization: "0.75"
     vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
     vllmModelPath: /mnt/models
     servicePort: 8080
@@ -662,7 +696,7 @@ maas:
     gpuResource: nvidia.com/gpu
     gpuCount: "1"
     maxModelLen: 4096
-    gpuMemoryUtilization: 0.90
+    gpuMemoryUtilization: "0.75"
     vllmImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:latest
     vllmModelPath: /mnt/models
     servicePort: 8080

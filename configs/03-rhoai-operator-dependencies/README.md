@@ -1,6 +1,6 @@
 # RHOAI Operator Dependencies
 
-> **PoC:** Not applied by default. Use `05-apply-platform-prep.sh --with-rhoai-deps` for LWS, JobSet, OpenTelemetry, and Cluster Observability. Skip Kueue (DSC `Removed`) and Tempo (observability chart) unless you pass `--with-kueue` / `--with-tempo`. See [configs/README.md](../README.md).
+> **PoC:** `05-apply-platform-prep.sh` installs **11 cert-manager** and **12 Service Mesh 3** by default. LWS, JobSet, OpenTelemetry, and Cluster Observability still need `--with-rhoai-deps`. Skip Kueue (DSC `Removed`) and Tempo (observability chart) unless you pass `--with-kueue` / `--with-tempo`. See [configs/README.md](../README.md).
 
 Installs operators and supporting configuration that Red Hat OpenShift AI depends on. These must be installed **before** the RHOAI operator.
 
@@ -138,12 +138,28 @@ Configures TLS for Authorino using the OpenShift service serving certificate. Re
 ./configs/03-rhoai-operator-dependencies/10-connectivity-link-tls-setup/connectivity-link-tls-setup.sh
 ```
 
+### 11 - cert-manager Operator
+
+Installs the cert-manager Operator for Red Hat OpenShift. `LLMInferenceService` mounts a cert-manager certificate, and the inference Gateway terminates TLS with secret `openshift-ai-inference-tls`.
+
+```bash
+oc apply -k configs/03-rhoai-operator-dependencies/11-cert-manager-operator
+```
+
+### 12 - Service Mesh 3
+
+Subscribes `servicemeshoperator3` in `openshift-operators` (the existing AllNamespaces OperatorGroup). This is the OGX prerequisite. Do not create an Istio, IstioCNI, or ZTunnel resource; OpenShift's gateway istiod already owns that role.
+
+```bash
+oc apply -k configs/03-rhoai-operator-dependencies/12-servicemesh-operator
+```
+
 ## Validation
 
 Confirm dependency operators are installed:
 
 ```bash
-oc get subscriptions -A | grep -E 'kueue|rhcl|opentelemetry|tempo|cluster-observability|leader-worker|job-set'
+oc get subscriptions -A | grep -E 'kueue|rhcl|opentelemetry|tempo|cluster-observability|leader-worker|job-set|cert-manager|servicemeshoperator3'
 oc get kuadrant kuadrant -n kuadrant-system
 ```
 

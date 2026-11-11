@@ -1,0 +1,16 @@
+{{- if and .Values.rhoai.enabled .Values.rhoai.serviceMesh.enabled }}
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .Values.rhoai.serviceMesh.subscription.name }}
+  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "operators") | nindent 2 }}
+  namespace: {{ .Values.rhoai.serviceMesh.namespace }}
+  labels:
+    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+spec:
+  channel: {{ include "acs-ai-overwatch.operatorChannel" (dict "root" . "key" "serviceMeshOperatorChannel" "default" .Values.rhoai.serviceMesh.subscription.channel) }}
+  installPlanApproval: {{ .Values.rhoai.serviceMesh.subscription.installPlanApproval }}
+  name: {{ .Values.rhoai.serviceMesh.subscription.name }}
+  source: {{ .Values.rhoai.serviceMesh.subscription.source }}
+  sourceNamespace: {{ .Values.rhoai.serviceMesh.subscription.sourceNamespace }}
+{{- end }}

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Pre-GitOps GPU / NFD prep from vendored workshop configs/.
 #
-# Default is safe for this PoC: AWS GPU MachineSet + NFD/GPU operators + NFD instance.
+# Default is safe for this PoC: AWS GPU MachineSet + NFD/GPU operators + NFD instance,
+# the GPU node label, cert-manager, and Service Mesh 3.
 # Does NOT apply workshop ClusterPolicy or DataScienceCluster (Helm/GitOps owns those).
 set -euo pipefail
 
@@ -54,12 +55,15 @@ Vendored workshop overlays under configs/. Default (safe for this PoC):
   01-nvidia-gpu-operator/00 NFD operator
   01-nvidia-gpu-operator/01 GPU operator
   01-nvidia-gpu-operator/02 NFD instance
+  Label NVIDIA nodes nvidia.com/device-plugin.config=shared
+  03/.../11 cert-manager Operator          (LLMInferenceService TLS)
+  03/.../12 servicemeshoperator3           (OGX prerequisite)
 
 Skipped by default (GitOps/Helm owns these):
 
   01/.../03 ClusterPolicy gpu-cluster-policy  (no time-slicing)
   04/.../01 DataScienceCluster default-dsc    (kueue Unmanaged)
-  03 Kueue, Tempo, Connectivity Link
+  03 Kueue, Tempo, Connectivity Link, LWS, JobSet, OTEL, COO
 
 Options:
   --skip-machineset           Do not apply the AWS GPU MachineSet Job
@@ -159,6 +163,78 @@ warn_danger() {
   echo "WARNING: $*" >&2
 }
 
+wait_for_csv_named() {
+  local ns="$1"
+  local name="$2"
+  if [[ "${SKIP_WAIT}" == true || "${DRY_RUN}" == true ]]; then
+    return 0
+  fi
+  cluster_admin_info "Waiting up to ${CSV_TIMEOUT}s for CSV ${name} in ${ns} ..."
+  local start now line
+  start="$(date +%s)"
+  while true; do
+    line="$("${KUBE_CMD[@]}" get csv -n "${ns}" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.phase}{"\n"}{end}' 2>/dev/null || true)"
+    if grep -F "${name}" <<<"${line}" | grep -q 'Succeeded'; then
+      cluster_admin_info "CSV ${name} Succeeded in ${ns}"
+      return 0
+    fi
+    now="$(date +%s)"
+    if (( now - start >= CSV_TIMEOUT )); then
+      echo "Timed out waiting for CSV ${name} in ${ns}" >&2
+      "${KUBE_CMD[@]}" get csv -n "${ns}" || true
+      return 1
+    fi
+    sleep 10
+  done
+}
+
+# GPU Operator 26.3 time-slicing is per node. The shared config applies only
+# when this label is set, and it replicates nvidia.com/gpu on every GPU.
+label_gpu_nodes() {
+  if [[ "${DRY_RUN}" == true ]]; then
+    cluster_admin_info "Would label NVIDIA nodes nvidia.com/device-plugin.config=shared"
+    return 0
+  fi
+  local names=""
+  names="$("${KUBE_CMD[@]}" get nodes -l feature.node.kubernetes.io/pci-10de.present=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  if ! grep -q '[^[:space:]]' <<<"${names}"; then
+    names="$("${KUBE_CMD[@]}" get nodes -l nvidia.com/gpu.present=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+  fi
+  if ! grep -q '[^[:space:]]' <<<"${names}"; then
+    cluster_admin_info "No NVIDIA GPU nodes yet. Re-run after the MachineSet joins so nvidia.com/device-plugin.config=shared is set. The GitOps label CronJob also retries."
+    return 0
+  fi
+  local count=0 node
+  while IFS= read -r node; do
+    [[ -z "${node}" ]] && continue
+    "${KUBE_CMD[@]}" label "node/${node}" nvidia.com/device-plugin.config=shared --overwrite
+    count=$((count + 1))
+  done <<<"${names}"
+  cluster_admin_info "Labeled ${count} GPU node(s) nvidia.com/device-plugin.config=shared (time-slices every GPU on those nodes as nvidia.com/gpu)."
+}
+
+label_gpu_machinesets() {
+  if [[ "${DRY_RUN}" == true ]]; then
+    return 0
+  fi
+  local sets=""
+  sets="$("${KUBE_CMD[@]}" get machinesets.machine.openshift.io -n openshift-machine-api -o name 2>/dev/null || true)"
+  if ! grep -q '[^[:space:]]' <<<"${sets}"; then
+    return 0
+  fi
+  local ms itype
+  while IFS= read -r ms; do
+    [[ -z "${ms}" ]] && continue
+    itype="$("${KUBE_CMD[@]}" get -n openshift-machine-api "${ms}" -o jsonpath='{.spec.template.spec.providerSpec.value.instanceType}' 2>/dev/null || true)"
+    case "${itype}" in
+      g4dn.*|g4ad.*|g5.*|g5g.*|g6.*|g6e.*|g6f.*|p4d.*|p4de.*|p5.*|p5e.*|p5en.*|p6*)
+        "${KUBE_CMD[@]}" patch -n openshift-machine-api "${ms}" --type merge --patch '{"spec":{"template":{"spec":{"metadata":{"labels":{"nvidia.com/device-plugin.config":"shared"}}}}}}'
+        cluster_admin_info "MachineSet ${ms} (${itype}) will label new nodes nvidia.com/device-plugin.config=shared"
+        ;;
+    esac
+  done <<<"${sets}"
+}
+
 wait_machineset_job() {
   local ns=nvidia-gpu-operator
   local job=job-aws-gpu-machineset
@@ -204,6 +280,7 @@ if [[ "${SKIP_MACHINESET}" != true ]]; then
   if [[ "${DRY_RUN}" != true && "${SKIP_WAIT}" != true ]]; then
     wait_machineset_job
   fi
+  label_gpu_machinesets
 else
   cluster_admin_info "Skipping AWS GPU MachineSet (--skip-machineset)"
 fi
@@ -232,6 +309,8 @@ if [[ "${SKIP_GPU_OPERATORS}" != true ]]; then
     apply_overlay "${CONFIGS}/01-nvidia-gpu-operator/05-optional-nvidia-console-plugin"
     apply_overlay "${CONFIGS}/01-nvidia-gpu-operator/04-optional-nvidia-monitoring-dashboard"
   fi
+
+  label_gpu_nodes
 else
   cluster_admin_info "Skipping NFD/GPU operators (--skip-gpu-operators)"
 fi
@@ -246,6 +325,17 @@ if [[ "${SMOKE_TEST}" == true ]]; then
 else
   cluster_admin_info "Skipping 02-nvidia-gpu-workload (pass --smoke-test after GPUs are advertised)."
 fi
+
+# --- cert-manager + Service Mesh 3 (default) -------------------------------
+# cert-manager issues the TLS secret LLMInferenceService mounts.
+# Service Mesh 3 is the OGX prerequisite. Do not create a second Istio mesh.
+
+apply_overlay "${CONFIGS}/03-rhoai-operator-dependencies/11-cert-manager-operator"
+wait_for_csv_named cert-manager-operator openshift-cert-manager-operator
+wait_for_crd certificates.cert-manager.io
+
+apply_overlay "${CONFIGS}/03-rhoai-operator-dependencies/12-servicemesh-operator"
+wait_for_csv_named openshift-operators servicemeshoperator3
 
 # --- 03 RHOAI operator dependencies (optional) -----------------------------
 
@@ -298,15 +388,20 @@ if [[ "${WITH_RHOAI_OPERATOR}" == true || "${WITH_CONNECTIVITY_LINK}" == true ]]
   apply_overlay "${CONFIGS}/04-rhoai-setup/03-inference-gateway"
 fi
 
+label_gpu_nodes
+
 cat <<EOF
 
 Platform prep finished (dry-run=${DRY_RUN}).
 
 GitOps still owns ClusterPolicy (time-slicing) and DataScienceCluster.
+NVIDIA nodes are labeled nvidia.com/device-plugin.config=shared when they exist.
+cert-manager and servicemeshoperator3 are subscribed.
 Next:
   1. oc apply -k gitops/argocd/
   2. Wait for GPU operator pods (driver 2/2) after ClusterPolicy syncs:
        oc get pods -n nvidia-gpu-operator
+       oc get nodes -l nvidia.com/device-plugin.config=shared
        oc describe node | grep -E 'nvidia.com/gpu|pci-10de' | head
   3. Hard-refresh acs-ai-overwatch after the cluster ConfigMap exists
 

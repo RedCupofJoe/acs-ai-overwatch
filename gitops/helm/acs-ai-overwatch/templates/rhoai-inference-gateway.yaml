@@ -4,9 +4,15 @@ kind: Gateway
 metadata:
   name: {{ .Values.rhoai.inferenceGateway.name }}
   namespace: {{ .Values.rhoai.inferenceGateway.namespace }}
-  {{- include "acs-ai-overwatch.argocdPlatformCrAnnotations" (dict "root" . "wave" "platformCRs") | nindent 2 }}
   labels:
     {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
+    istio.io/rev: {{ .Values.rhoai.inferenceGateway.istioRev | quote }}
+  annotations:
+    {{- if .Values.argocd.syncWaves.enabled }}
+    argocd.argoproj.io/sync-wave: {{ index .Values.argocd.syncWaves.platformCRs | quote }}
+    {{- end }}
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+    opendatahub.io/managed: "false"
 spec:
   gatewayClassName: {{ .Values.rhoai.inferenceGateway.gatewayClassName }}
   listeners:
@@ -19,4 +25,12 @@ spec:
           selector:
             matchLabels:
               {{ .Values.rhoai.inferenceGateway.routeLabel }}: "true"
+      {{- if eq .Values.rhoai.inferenceGateway.protocol "HTTPS" }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - group: ""
+            kind: Secret
+            name: {{ .Values.rhoai.inferenceGateway.tlsSecretName }}
+      {{- end }}
 {{- end }}
