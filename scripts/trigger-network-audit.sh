@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
+# Compatibility wrapper. The Rosey demo script is scripts/demo/agents/rosey-regrets.sh.
 set -euo pipefail
 
-# Triggers a "Network Audit" command for the Rosey Regrets agent HTTP API.
-#
-# Required:
-#   export ROSEY_URL="http://rosey-regrets.test-range.svc.cluster.local"
-#
-# Optional:
-#   export NETWORK_AUDIT_COMMAND="Network Audit"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ROSEY_URL="${ROSEY_URL:-http://rosey-regrets.test-range.svc.cluster.local}"
-NETWORK_AUDIT_COMMAND="${NETWORK_AUDIT_COMMAND:-Network Audit}"
+if [[ -n "${ROSEY_URL:-}" ]]; then
+  export AGENT_URL="${ROSEY_URL}"
+fi
+if [[ -n "${NETWORK_AUDIT_COMMAND:-}" ]]; then
+  export AGENT_MESSAGE="${NETWORK_AUDIT_COMMAND}"
+fi
 
-echo "Triggering '${NETWORK_AUDIT_COMMAND}' for rosey-regrets at ${ROSEY_URL}..."
-curl -sS -X POST "${ROSEY_URL%/}/chat" \
-  -H "Content-Type: application/json" \
-  -d "{\"message\":\"${NETWORK_AUDIT_COMMAND}\"}"
-echo
+exec "${ROOT}/demo/agents/rosey-regrets.sh"
