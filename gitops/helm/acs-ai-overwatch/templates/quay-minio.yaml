@@ -76,20 +76,22 @@ spec:
         app.kubernetes.io/component: quay-minio-server
     spec:
       containers:
-        - name: minio
+        - name: s3
           image: {{ .Values.quayStorage.quayRegistry.minio.image | quote }}
           args:
-            - server
-            - /data
-            - --console-address
-            - :9001
+            - mini
+            - -s3.port=9000
+            - -s3.port.iceberg=0
+            - -s3.port.lance=0
+            - -ip={{ $name }}.{{ $ns }}.svc.cluster.local
+            - -bucket={{ .Values.quayStorage.quayRegistry.minio.bucketName }}
           env:
-            - name: MINIO_ROOT_USER
+            - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ $credSecret }}
                   key: accessKey
-            - name: MINIO_ROOT_PASSWORD
+            - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ $credSecret }}
@@ -97,6 +99,11 @@ spec:
           ports:
             - containerPort: 9000
               name: api
+          readinessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /data
@@ -106,58 +113,4 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ $name }}-data
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ $name }}-init-bucket
-  {{- include "acs-ai-overwatch.argocdSyncWaveAnnotations" (dict "root" . "wave" "storage") | nindent 2 }}
-  namespace: {{ $ns }}
-  labels:
-    {{- include "acs-ai-overwatch.labels" . | nindent 4 }}
-    app.kubernetes.io/component: quay-minio-init
-spec:
-  backoffLimit: {{ .Values.quayStorage.quayRegistry.minio.bucketJob.backoffLimit }}
-  template:
-    metadata:
-      labels:
-        {{- include "acs-ai-overwatch.labels" . | nindent 8 }}
-        app.kubernetes.io/component: quay-minio-init
-    spec:
-      restartPolicy: OnFailure
-      initContainers:
-        - name: wait-minio
-          image: {{ .Values.quayStorage.quayRegistry.minio.bucketJob.waitImage | quote }}
-          command:
-            - sh
-            - -c
-            - |
-              until wget -q -O- "http://{{ $name }}:9000/minio/health/live"; do
-                echo "waiting for MinIO..."
-                sleep 5
-              done
-      containers:
-        - name: mc
-          image: {{ .Values.quayStorage.quayRegistry.minio.mcImage | quote }}
-          env:
-            - name: MC_CONFIG_DIR
-              value: /tmp/.mc
-            - name: MINIO_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $credSecret }}
-                  key: accessKey
-            - name: MINIO_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $credSecret }}
-                  key: secretKey
-            - name: MINIO_BUCKET
-              value: {{ .Values.quayStorage.quayRegistry.minio.bucketName | quote }}
-          command:
-            - sh
-            - -c
-            - |
-              mc alias set local "http://{{ $name }}:9000" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
-              mc mb --ignore-existing "local/${MINIO_BUCKET}"
 {{- end }}

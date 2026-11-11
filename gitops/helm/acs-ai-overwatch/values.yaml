@@ -171,14 +171,17 @@ quayStorage:
       username: quayadmin
       password: CHANGE_ME_QUAY_ADMIN_PASSWORD
       email: quay-admin@cluster.local
-    # Quay config bundle for unmanaged object storage (MinIO on gp3-csi).
+    # Quay config bundle for unmanaged object storage (SeaweedFS on gp3-csi).
+    # The values key stays `minio` so the Service name quay-minio, which Quay
+    # already uses as its S3 hostname, does not change.
     configBundleSecret:
       name: quay-config-bundle
     minio:
       enabled: true
       name: quay-minio
-      image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-      mcImage: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+      # quay.io/minio/minio no longer allows anonymous pulls.
+      # SeaweedFS is Apache-2.0 and speaks the S3 API on port 9000.
+      image: docker.io/chrislusf/seaweedfs:4.53
       bucketName: quay
       volumeSize: 500Gi
       storageClassName: gp3-csi
@@ -193,9 +196,6 @@ quayStorage:
         limits:
           cpu: "2"
           memory: 2Gi
-      bucketJob:
-        backoffLimit: 6
-        waitImage: docker.io/library/busybox:1.36
     components:
       postgres:
         storageClassName: gp3-csi
@@ -204,7 +204,7 @@ quayStorage:
         storageClassName: gp3-csi
         volumeSize: 50Gi
       objectstorage:
-        # managed: false — EBS-only clusters lack objectbucket.io (ODF/NooBaa). Use MinIO below.
+        # managed: false — EBS-only clusters lack objectbucket.io (ODF/NooBaa). Use SeaweedFS below.
         managed: false
       horizontalpodautoscaler:
         managed: false

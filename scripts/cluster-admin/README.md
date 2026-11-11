@@ -87,7 +87,7 @@ These scripts automate the **pre-GitOps bootstrap**. GPU MachineSet and NFD inst
 | When | Action |
 |------|--------|
 | Before `default-dsc` syncs | **Nothing extra** — DSC keeps `kueue.managementState: Removed`. Do not install Kueue. |
-| Enabling Quay | Set `quayStorage.registryCredentials.password` and MinIO credentials in values — see [Phase 0 manual steps](../../README.md#phase-0--gitops-bootstrap-default) |
+| Enabling Quay | Set `quayStorage.registryCredentials.password` and the S3 credentials in values — see [Phase 0 manual steps](../../README.md#phase-0--gitops-bootstrap-default) |
 | Mattermost bootstrap | Set `mattermost.bootstrap.*` passwords in `values.yaml` |
 | Quay operator stuck | Orphan CSV cleanup — see [Phase 0 manual steps](../../README.md#phase-0--gitops-bootstrap-default) |
 | Helm `lookup` empty | Optional CMP — [README — Cluster-Aware Configuration](../../README.md#cluster-aware-configuration) |

@@ -36,9 +36,10 @@ Runs cluster-admin bootstrap before oc apply -k gitops/argocd/:
 
   0. Create AppProject acs-ai-overwatch (cluster-scoped CR permissions)
   1. Grant OpenShift GitOps application-controller RBAC (unless --skip-rbac)
-  2. Create labeled PoC namespaces
-  3. Create cluster ConfigMap acs-ai-overwatch-cluster-config
-  4. Create discovery ServiceAccount + script ConfigMap (unless --skip-discovery-prereqs)
+  2. Raise the application-controller memory limit (the 2Gi default OOMs on this chart)
+  3. Create labeled PoC namespaces
+  4. Create cluster ConfigMap acs-ai-overwatch-cluster-config
+  5. Create discovery ServiceAccount + script ConfigMap (unless --skip-discovery-prereqs)
 
 Options:
   --skip-rbac                 Skip ClusterRoleBinding (if managed-by namespaces are enough)
@@ -69,6 +70,27 @@ if [[ "${SKIP_RBAC}" != true ]]; then
 else
   echo "Skipping 01-grant-openshift-gitops-rbac.sh (--skip-rbac)"
 fi
+
+# The default 2Gi limit OOM-kills the controller while it compares this chart.
+# A dead controller leaves Application operations stuck in Running.
+echo ""
+echo "==> Raise openshift-gitops application-controller memory to 8Gi"
+oc patch argocd openshift-gitops -n openshift-gitops --type merge -p '{"spec":{"controller":{"resources":{"requests":{"cpu":"500m","memory":"2Gi"},"limits":{"cpu":"2","memory":"8Gi"}}}}}'
+
+# gp3-csi is WaitForFirstConsumer. A Pending PVC is healthy enough to let the
+# next sync wave create the pod that binds it. Without this, the wave waits
+# forever and never reaches Central.
+# The sandbox SSO user is "admin" and is not a member of cluster-admins.
+# Argo CD only looks at groups by default, so that login reaches the UI and then
+# gets permission denied. Match the username claim as well.
+echo "==> Grant the admin SSO user access to the Argo CD UI"
+oc patch argocd openshift-gitops -n openshift-gitops --type merge -p '{"spec":{"rbac":{"policy":"g, system:cluster-admins, role:admin\ng, cluster-admins, role:admin\ng, admin, role:admin\n","scopes":"[groups, preferred_username, email]"}}}'
+
+echo "==> Treat unbound PersistentVolumeClaims as healthy"
+oc patch argocd openshift-gitops -n openshift-gitops --type merge -p "$(cat <<'EOF'
+{"spec":{"resourceHealthChecks":[{"group":"","kind":"PersistentVolumeClaim","check":"hs = {}\nif obj.status ~= nil and obj.status.phase ~= nil then\n  if obj.status.phase == \"Bound\" or obj.status.phase == \"Pending\" then\n    hs.status = \"Healthy\"\n  else\n    hs.status = \"Degraded\"\n  end\n  hs.message = obj.status.phase\nelse\n  hs.status = \"Healthy\"\n  hs.message = \"PVC status is not set\"\nend\nreturn hs\n"}]}}
+EOF
+)"
 
 run "${SCRIPT_DIR}/02-bootstrap-namespaces.sh"
 run "${SCRIPT_DIR}/03-apply-cluster-configmap.sh"

@@ -67,8 +67,8 @@ tpa:
     username: rhtpa
     password: rhtpa-poc-password
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
-    mcImage: quay.io/minio/mc:RELEASE.2024-11-21T17-21-54Z
+    # quay.io/minio/minio no longer allows anonymous pulls.
+    image: docker.io/chrislusf/seaweedfs:4.53
     storage: 20Gi
     accessKey: rhtpa-minio-access
     secretKey: rhtpa-poc-minio

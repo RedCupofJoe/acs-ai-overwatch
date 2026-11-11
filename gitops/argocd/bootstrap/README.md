@@ -24,6 +24,16 @@ The OpenShift GitOps Operator then grants the application controller permission 
 
 After the bootstrap Application is **Synced**, wait a few seconds for the operator to reconcile RoleBindings, then sync discovery.
 
+## Argo CD UI login
+
+OpenShift GitOps grants the UI admin role to the `cluster-admins` and `system:cluster-admins` groups. The sandbox SSO user `admin` has `cluster-admin` through a binding and is not in either group, so the login succeeds and the UI then shows permission denied. `install-pre-gitops.sh` also matches the `preferred_username` and `email` claims and grants `admin` the admin role.
+
+## Application controller memory
+
+The OpenShift GitOps default limit is 2Gi. Comparing `acs-ai-overwatch` exceeds that and the controller is OOMKilled, which leaves syncs stuck in `Running`. `install-pre-gitops.sh` raises the `ArgoCD/openshift-gitops` controller limit to 8Gi.
+
+The same script treats a `Pending` PersistentVolumeClaim as healthy. `gp3-csi` waits for a pod before it binds, and the pod is a later sync wave. If Argo waits for the claim to become `Bound`, that wave never finishes.
+
 ## Fallback: cluster-admin binding
 
 If `managed-by` is not enabled on your cluster or sync still fails with `serviceaccounts is forbidden`:

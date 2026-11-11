@@ -233,26 +233,31 @@ spec:
         app.kubernetes.io/part-of: acs-ai-overwatch
     spec:
       containers:
-        - name: minio
+        - name: s3
           image: {{ .Values.tpa.minio.image }}
-          args: ["server", "/data", "--console-address", ":9001"]
+          args:
+            - mini
+            - -s3.port=9000
+            - -s3.port.iceberg=0
+            - -s3.port.lance=0
+            - -ip=rhtpa-minio.{{ $ns }}.svc.cluster.local
+            - -bucket={{ .Values.tpa.bucket }}
           ports:
             - name: api
               containerPort: 9000
           env:
-            - name: MINIO_ROOT_USER
+            - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
                   name: storage-credentials
                   key: user
-            - name: MINIO_ROOT_PASSWORD
+            - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: storage-credentials
                   key: password
           readinessProbe:
-            httpGet:
-              path: /minio/health/ready
+            tcpSocket:
               port: api
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -263,38 +268,3 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: rhtpa-minio-data
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: rhtpa-minio-bucket
-  {{- include "trust.wave" (dict "root" . "wave" "identity") | nindent 2 }}
-  namespace: {{ $ns }}
-  labels:
-    {{- include "trust.labels" . | nindent 4 }}
-spec:
-  backoffLimit: 8
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-        - name: mc
-          image: {{ .Values.tpa.minio.mcImage }}
-          env:
-            - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: storage-credentials
-                  key: user
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: storage-credentials
-                  key: password
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              mc alias set rhtpa http://rhtpa-minio.{{ $ns }}.svc.cluster.local:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-              mc mb --ignore-existing rhtpa/{{ .Values.tpa.bucket }}

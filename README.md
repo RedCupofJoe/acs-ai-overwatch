@@ -176,7 +176,7 @@ ACS monitor mode records both and leaves the pods running
 oc apply -k gitops/argocd/overlays/demo-trust
         │
         ▼
-App of Apps installs TPA (Keycloak + Postgres + MinIO), ZTWIM (SPIRE),
+App of Apps installs TPA (Keycloak + Postgres + SeaweedFS), ZTWIM (SPIRE),
 and the Agent Sandbox operator. Kata stays off unless enable-kata.sh ran.
         │
         ▼
@@ -275,7 +275,7 @@ Apply one kustomization at a time. `gitops/argocd` is Path A (platform, trust pl
 | `monitoring` | Mattermost + ACS webhook bridge |
 | `quay` | Optional on-cluster registry |
 | `stackrox` | ACS Central |
-| `trusted-profile-analyzer` | TPA, its Postgres, and the SBOM MinIO |
+| `trusted-profile-analyzer` | TPA, its Postgres, and the SBOM S3 store |
 | `keycloak` | Red Hat build of Keycloak for the TPA realm |
 | `zero-trust-workload-identity-manager` | ZTWIM and SPIRE |
 | `agent-sandbox-system` | Agent Sandbox operator |
@@ -436,7 +436,7 @@ Kata is off by default (`trustPlane.kata.enabled: false`). `scripts/cluster-admi
 | Before first Argo sync | Run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops-setup) then `make platform-prep` (GPU MachineSet + NFD instance) — [`scripts/cluster-admin/README.md`](scripts/cluster-admin/README.md), [`configs/README.md`](configs/README.md) |
 | Using a fork | Set `spec.source.repoURL` in each `gitops/argocd/application*.yaml` |
 | Storage class differs from `gp3-csi` | Set `storage.defaultStorageClass` in `values.yaml` (see [Storage](#storage)) |
-| Enabling Quay | Set `quayStorage.registryCredentials.password` and review MinIO credentials before production |
+| Enabling Quay | Set `quayStorage.registryCredentials.password` and review the S3 credentials before production |
 | Mattermost bootstrap | Set `mattermost.bootstrap.*` passwords in `values.yaml` (not auto-generated) |
 | Quay operator `ResolutionFailed` | Delete orphaned CSV in `quay` namespace, approve InstallPlan, re-sync |
 | Helm `lookup` empty on repo-server | Optional CMP in `gitops/argocd/cmp/` (see [Cluster-Aware Configuration](#cluster-aware-configuration)) |
@@ -955,17 +955,17 @@ Helm templates fall back to `storage.defaultStorageClass` for Mattermost, Quay, 
 |----------|------------|---------|
 | Mattermost data + Postgres | `mattermost.pvc.storageClassName`, `mattermost.postgres.pvc.storageClassName` | `gp3-csi` |
 | Quay Postgres / Clair | `quayStorage.quayRegistry.components.postgres/clairpostgres.storageClassName` | `gp3-csi` |
-| Quay blob storage (MinIO) | `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` |
+| Quay blob storage (SeaweedFS) | `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` |
 | RHACS Central database | `acs.central.persistence.storageClassName` | `gp3-csi` |
 | Rosey Regrets output PVC | `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` |
 | Tempo trace storage (Phase 5) | `tempo.monolithic.storageClassName` (observability chart) | `gp3-csi` |
 | Tekton build workspace | `pipelines/tekton/agents-build-pipelinerun.example.yaml` | `gp3-csi` |
 
-### Quay on EBS (MinIO)
+### Quay on EBS (SeaweedFS)
 
 Quay blob storage cannot use a block PVC directly. With `objectstorage.managed: true`, the operator requires the **`objectbucket.io`** API (OpenShift Data Foundation / NooBaa), which EBS-only clusters do not have.
 
-This chart deploys **MinIO on `gp3-csi`** and sets `objectstorage.managed: false` with a `configBundleSecret` pointing Quay at in-cluster S3. Default MinIO PVC is **500Gi** (`quayStorage.quayRegistry.minio.volumeSize`).
+This chart deploys **SeaweedFS on `gp3-csi`** and sets `objectstorage.managed: false` with a `configBundleSecret` pointing Quay at in-cluster S3. Default PVC is **500Gi** (`quayStorage.quayRegistry.minio.volumeSize`). The values key is still `minio` so the Service name `quay-minio` stays the S3 hostname.
 
 Set `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` before production use (default placeholder in repo).
 
@@ -985,7 +985,7 @@ Set `quayStorage.enabled: false` in `values-poc.yaml` until you are ready to bui
 > | Mattermost Postgres | `mattermost.postgres.password` | `mattermost-db-password` |
 > | Quay UI admin (reference Secret `admin-account`) | `quayStorage.quayRegistry.adminAccount.password` | `CHANGE_ME_QUAY_ADMIN_PASSWORD` |
 > | Quay registry pull robot | `quayStorage.registryCredentials.password` | `CHANGE_ME_PASSWORD` |
-> | Quay MinIO blob storage | `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` | `CHANGE_ME_MINIO_SECRET` |
+> | Quay S3 blob storage | `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` | `CHANGE_ME_MINIO_SECRET` |
 >
 > After sync, retrieve stored secrets with `oc get secret <name> -n <namespace>` (e.g. `admin-account` in `quay`, `mattermost-bootstrap` in `monitoring`). See [Security and Legal Notes — Secrets Management](#secrets-management).
 
@@ -1000,9 +1000,9 @@ Before syncing, run [cluster-admin pre-GitOps scripts](#cluster-admin-pre-gitops
 | Argo CD repo URL | `gitops/argocd/application*.yaml` → `spec.source.repoURL` | Set to your Git remote (not auto-updated) |
 | Quay credentials | `quayStorage.registryCredentials.password` | Manual or `QUAY_REGISTRY_PASSWORD` (local script only) |
 | Quay UI admin (reference) | `quayStorage.quayRegistry.adminAccount.password` | Secret `admin-account` in `quay` — **change default before sync** |
-| Quay MinIO secret key | `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` | **Change default before sync** |
+| Quay S3 secret key | `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` | **Change default before sync** |
 | Mattermost admin/HITL passwords | `mattermost.bootstrap.*` | Bootstrap job credentials — **change defaults before sync** |
-| Quay object storage size | `quayStorage.quayRegistry.minio.volumeSize` | Default 500Gi MinIO PVC on gp3-csi |
+| Quay object storage size | `quayStorage.quayRegistry.minio.volumeSize` | Default 500Gi SeaweedFS PVC on gp3-csi |
 | OpenShift Pipelines | Umbrella chart Subscription when `components.pipelines.enabled` | Wait for CSV **Succeeded**, then create a PipelineRun |
 | GPU MachineSet + NFD instance | `make platform-prep` / `configs/` | Helm does not create `NodeFeatureDiscovery`; skip workshop ClusterPolicy/DSC |
 | Kueue | **Not installed** | DSC keeps `kueue.managementState: Removed` |
@@ -1191,7 +1191,7 @@ components:
 | `mattermost.postgres.pvc.storageClassName` | `gp3-csi` | Mattermost Postgres |
 | `quayStorage.quayRegistry.components.postgres.storageClassName` | `gp3-csi` | Quay Postgres |
 | `quayStorage.quayRegistry.components.clairpostgres.storageClassName` | `gp3-csi` | Quay Clair Postgres |
-| `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` | MinIO blob storage PVC |
+| `quayStorage.quayRegistry.minio.storageClassName` | `gp3-csi` | Quay S3 blob storage PVC |
 | `acs.central.persistence.storageClassName` | `gp3-csi` | RHACS Central PVC |
 | `agentsRoseyRegrets.pvc.storageClassName` | `gp3-csi` | Rosey output PVC |
 
@@ -1289,7 +1289,7 @@ Deploys on-cluster Quay on **`gp3-csi`** (same StorageClass as other workloads).
 **Stack:**
 
 1. Quay Operator subscription
-2. `QuayRegistry` CR — Postgres and Clair on `gp3-csi`; blob storage via MinIO (S3-compatible) on `gp3-csi`
+2. `QuayRegistry` CR — Postgres and Clair on `gp3-csi`; blob storage via SeaweedFS (S3) on `gp3-csi`
 3. Pull credentials Secret in `ai-workbenches`
 
 `values-poc.yaml` enables in-cluster Quay (`quayStorage.enabled: true`) so agent images can be built. Alternatively use an **external registry** and disable in-cluster Quay (see [Storage](#storage)).
@@ -2258,7 +2258,7 @@ Unauthorized scanning of production or third-party networks may violate policy a
 - **Mattermost:** `mattermost.bootstrap.adminPassword`, `hitlPassword`, and `mattermost.postgres.password` in [`values.yaml`](gitops/helm/acs-ai-overwatch/values.yaml).
 - **Quay UI admin (reference Secret only):** `quayStorage.quayRegistry.adminAccount.*` → Secret `admin-account` in namespace `quay`. Use these credentials when completing the Quay setup wizard; Quay does not read this Secret automatically.
 - **Quay docker pull robot:** `quayStorage.registryCredentials.password`, or set `QUAY_REGISTRY_PASSWORD` when running `discover-cluster-values.sh` (local override file only).
-- **Quay MinIO:** `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` (must match MinIO and `quay-config-bundle`).
+- **Quay S3:** `quayStorage.quayRegistry.minio.credentialsSecret.secretKey` (must match SeaweedFS and `quay-config-bundle`).
 - Prefer External Secrets Operator, Sealed Secrets, or OpenShift GitOps vault integration for production.
 - Optionally gitignore `values-cluster.yaml` if it contains secrets (see `.gitignore` comment).
 
