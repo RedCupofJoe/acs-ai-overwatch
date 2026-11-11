@@ -2,7 +2,7 @@
 
 Run these **on your workstation** as a **cluster admin** after `oc login` and **before** `oc apply -k gitops/argocd/`.
 
-These scripts satisfy **Phase 0** prerequisites documented in the main [README — PoC deployment phases](../../README.md#poc-deployment-phases). For later phases (agents, RHACS, observability), see the **Manual steps (if necessary)** subsection under each phase in that README.
+These scripts satisfy the pre-GitOps steps in [Argo CD GitOps setup and troubleshooting](../../docs/argocd-gitops.md). OpenShift AI on a clean cluster is [Red Hat OpenShift AI setup for a clean build](../../docs/redhat-openshift-ai.md). The install order for the demo is [Demo setup](../../docs/demo-setup.md).
 
 ## One command (recommended)
 
@@ -67,11 +67,11 @@ oc auth can-i create serviceaccounts -n acs-ai-overwatch-system \
 oc apply -k gitops/argocd/
 ```
 
-Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch` → `acs-ai-overwatch-observability`. Full phase map: [README — Recommended order summary](../../README.md#recommended-order-summary).
+Sync order: `acs-ai-overwatch-gitops-bootstrap` → `acs-ai-overwatch-cluster-discovery` → `acs-ai-overwatch` → `acs-ai-overwatch-observability`. The full Application matrix is in [Argo CD GitOps setup and troubleshooting](../../docs/argocd-gitops.md).
 
 ## Manual steps (if necessary)
 
-These scripts automate the **pre-GitOps bootstrap**. GPU MachineSet and NFD instance are **`05-apply-platform-prep.sh`** ([`configs/README.md`](../../configs/README.md)). Other manual work is grouped by PoC phase in the main README.
+These scripts automate the pre-GitOps bootstrap. GPU MachineSet and NFD instance are **`05-apply-platform-prep.sh`** ([`configs/README.md`](../../configs/README.md)). The rest of the install is [Demo setup](../../docs/demo-setup.md).
 
 ### Before Phase 0 (this directory)
 
@@ -79,26 +79,24 @@ These scripts automate the **pre-GitOps bootstrap**. GPU MachineSet and NFD inst
 |------|--------|
 | First deploy on a cluster | Run `./scripts/cluster-admin/install-pre-gitops.sh` then `./scripts/cluster-admin/05-apply-platform-prep.sh` |
 | Using a fork | Set `spec.source.repoURL` in each `gitops/argocd/application*.yaml` — scripts do not update Argo Application sources |
-| Storage class ≠ `gp3-csi` | Set `storage.defaultStorageClass` in chart `values.yaml` before sync — see [README — Storage](../../README.md#storage) |
-| Local Helm only | `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` writes `values-cluster.yaml` (optional; do not commit sandbox hostnames) |
+| Storage class differs from `gp3-csi` | Set `storage.defaultStorageClass` in chart `values.yaml` before sync — see [Red Hat OpenShift](../../docs/redhat-openshift.md) |
+| Local Helm only | `./scripts/cluster-admin/install-pre-gitops.sh --with-values-file` writes `values-cluster.yaml`. Commit it when Argo CD should use those hostnames — see [Argo CD GitOps](../../docs/argocd-gitops.md) |
 
 ### Phase 0 — not covered by these scripts
 
 | When | Action |
 |------|--------|
 | Before `default-dsc` syncs | **Nothing extra** — DSC keeps `kueue.managementState: Removed`. Do not install Kueue. |
-| Enabling Quay | Set `quayStorage.registryCredentials.password` and the S3 credentials in values — see [Phase 0 manual steps](../../README.md#phase-0--gitops-bootstrap-default) |
+| Enabling Quay | Set `quayStorage.registryCredentials.password` and the S3 credentials in values — see [Demo setup](../../docs/demo-setup.md) |
 | Mattermost bootstrap | Set `mattermost.bootstrap.*` passwords in `values.yaml` |
-| Quay operator stuck | Orphan CSV cleanup — see [Phase 0 manual steps](../../README.md#phase-0--gitops-bootstrap-default) |
-| Helm `lookup` empty | Optional CMP — [README — Cluster-Aware Configuration](../../README.md#cluster-aware-configuration) |
+| Quay operator stuck | Delete the unreferenced CSV — see [Argo CD GitOps](../../docs/argocd-gitops.md) |
+| Helm `lookup` empty | Optional CMP — [Argo CD GitOps](../../docs/argocd-gitops.md) |
 
-### Later phases — see main README
+### Later work
 
-| Phase | Manual steps doc |
-|-------|------------------|
-| Phase 1 — Mattermost URL | [README — Phase 1](../../README.md#phase-1--mattermost-deploy-automatic-with-baseline) |
-| Phase 2 — Agents | [README — Phase 2](../../README.md#phase-2--agents-poc-overlay) (+ [OpenShift Pipelines](../../README.md#openshift-pipelines-tekton)) |
-| Phase 3 — Full RHACS | [README — Phase 3](../../README.md#phase-3--full-rhacs-central--securedcluster-on-in-values-pocyaml) |
-| Phase 4 — Investigator / MaaS / builder | [README — Architecture](../../README.md#architecture) |
-| Phase 5 — Observability | [README — Phase 5](../../README.md#phase-5--shared-observability-option-c-otel--tempo--mlflow--grafana-on-by-default) |
+| Topic | Guide |
+|-------|--------|
+| OpenShift AI 3.5, GPUs, DataScienceCluster | [Red Hat OpenShift AI setup for a clean build](../../docs/redhat-openshift-ai.md) |
+| Agents, images, Mattermost, ACS, TPA | [Demo setup](../../docs/demo-setup.md) |
+| Presenting the story | [PoC demo walkthrough](../../docs/poc-demo-walkthrough.md) |
 | After PoC (repo reset) | [cleanup-poc-repo.sh](../cleanup-poc-repo.sh) — baseline GitOps, no cluster changes |
