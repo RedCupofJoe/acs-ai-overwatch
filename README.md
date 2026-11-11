@@ -107,7 +107,7 @@ oc get configmap cluster-monitoring-config -n openshift-monitoring || \
 
 **Kueue is not required.** The DataScienceCluster keeps `kueue.managementState: Removed`. Do not install the Kueue operator unless you later change that.
 
-**cert-manager and Service Mesh 3 are required.** `05-apply-platform-prep.sh` subscribes both. cert-manager issues the TLS secret `LLMInferenceService` mounts. Service Mesh 3 is the OGX prerequisite. Product MaaS (`aigateway`) stays `Removed`; the demo front door is the API proxy in `acs-maas`.
+**cert-manager Operator is already installed.** Do not subscribe to it again. Certificate CRs still use that operator. Service Mesh 3 is the OGX prerequisite and `05-apply-platform-prep.sh` subscribes to it. Product MaaS (`aigateway`) stays `Removed`; the demo front door is the API proxy in `acs-maas`.
 
 **Model Catalog:** Investigator Gemma and MaaS Granite are `LLMInferenceService` CRs whose `spec.model.uri` is the catalog ModelCar image (`oci://registry.redhat.io/rhelai1/modelcar-gemma-2-9b-it-fp8:1.5` and `oci://registry.redhat.io/rhelai1/modelcar-granite-3-1-8b-instruct-fp8-dynamic:1.5`). OpenShift pulls them with the **cluster pull secret** (same path as deploying from **AI hub → Models Catalog** in the dashboard). Rogue MiniCPM GGUF still comes from Hugging Face inside the agent pod.
 
@@ -661,7 +661,7 @@ make platform-prep
 | 2 | `02-bootstrap-namespaces.sh` | PoC namespaces with `argocd.argoproj.io/managed-by=openshift-gitops` |
 | 3 | `03-apply-cluster-configmap.sh` | ConfigMap **`acs-ai-overwatch-system/acs-ai-overwatch-cluster-config`** (`appsDomain`, `quayRegistryServer`, `gitRepoUrl`, `gitRepoUrl`, …) |
 | 4 | `04-apply-discovery-prerequisites.sh` | ServiceAccount **`cluster-discovery`**, discovery RBAC, ConfigMap **`cluster-discovery-script`** |
-| 5 | `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, **NFD instance**, GPU node label `nvidia.com/device-plugin.config=shared`, cert-manager, Service Mesh 3 (not workshop ClusterPolicy or DSC) |
+| 5 | `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, **NFD instance**, GPU node label `nvidia.com/device-plugin.config=shared`, Service Mesh 3 (not cert-manager, workshop ClusterPolicy, or DSC) |
 
 Manual prerequisites (OperatorHub, not GitOps): none for the PoC. OpenShift Pipelines is subscribed by the umbrella chart when `components.pipelines.enabled` is true. Kueue is **Removed** on `default-dsc`.
 
@@ -922,7 +922,7 @@ Commit this file only if you want Argo CD to use Git-stored overrides instead of
 |--------|---------|
 | `check-prereqs` | Runs `scripts/check-prereqs.sh` against the current `oc login` |
 | `cluster-admin-pre-gitops` | Runs `scripts/cluster-admin/install-pre-gitops.sh` (before Argo CD) |
-| `platform-prep` | Runs `scripts/cluster-admin/05-apply-platform-prep.sh` (GPU MachineSet, NFD, node label, cert-manager, Service Mesh 3) |
+| `platform-prep` | Runs `scripts/cluster-admin/05-apply-platform-prep.sh` (GPU MachineSet, NFD, node label, Service Mesh 3). Does not install cert-manager. |
 | `cluster-values` | Runs `scripts/discover-cluster-values.sh` → optional `values-cluster.yaml` |
 | `cleanup-poc-repo` | Runs `scripts/cleanup-poc-repo.sh` → baseline GitOps (after PoC) |
 | `helm-template` | Renders main chart (`values.yaml` + `values-poc.yaml` + optional `values-cluster.yaml`) |
@@ -1278,7 +1278,7 @@ accelerators:
       nvidia.com/device-plugin.config: shared
 ```
 
-The ClusterPolicy points at ConfigMap `time-slicing-config`, default key `default` (no sharing). The `shared` key is used only on nodes with that label. `make platform-prep` creates the `NodeFeatureDiscovery` CR, installs cert-manager and Service Mesh 3, and sets the label ([`configs/README.md`](configs/README.md)). GPU pods tolerate `nvidia.com/gpu` NoSchedule (AWS MachineSet taint).
+The ClusterPolicy points at ConfigMap `time-slicing-config`, default key `default` (no sharing). The `shared` key is used only on nodes with that label. `make platform-prep` creates the `NodeFeatureDiscovery` CR, subscribes Service Mesh 3, and sets the label ([`configs/README.md`](configs/README.md)). It does not install cert-manager. GPU pods tolerate `nvidia.com/gpu` NoSchedule (AWS MachineSet taint).
 
 Do **not** apply workshop `configs/01-nvidia-gpu-operator/03-nvidia-gpu-instance` — it would replace time-slicing.
 
@@ -1329,9 +1329,9 @@ Installs the **Red Hat OpenShift AI Operator** (`rhods-operator`) on channel **`
 
 **Inference Gateway:** `openshift-ingress/openshift-ai-inference`, class `openshift-ai-inference`, HTTPS with cert-manager secret `openshift-ai-inference-tls`. `data-science-gateway-class` is the dashboard gateway and is not used here.
 
-**cert-manager** and **servicemeshoperator3** are installed by platform prep and by the Helm chart. cert-manager is required for the workload TLS secret KServe mounts. Do not create a second Istio control plane.
+**servicemeshoperator3** is installed by platform prep and by the Helm chart. Do not create a second Istio control plane. The cert-manager Operator is already on the cluster; the chart only creates Certificate CRs.
 
-Templates: `rhoai-operator.yaml`, `rhoai-cert-manager-operator.yaml`, `rhoai-servicemesh-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-inference-gateway.yaml`, `rhoai-inference-gateway-tls.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
+Templates: `rhoai-operator.yaml`, `rhoai-servicemesh-operator.yaml`, `rhoai-datasciencecluster.yaml`, `rhoai-inference-gateway.yaml`, `rhoai-inference-gateway-tls.yaml`, `rhoai-hardwareprofile.yaml`, `rhoai-namespace-applications.yaml`, `rhoai-team-workbenches.yaml`
 
 **Important:** OpenShift AI **3.5 must be installed on a fresh cluster**. If a cluster previously had RHOAI 2.25, provision a new cluster rather than attempting an upgrade path.
 
@@ -1747,7 +1747,7 @@ See [Cluster admin: pre-GitOps setup](#cluster-admin-pre-gitops-setup) and [`scr
 | Script | Purpose |
 |--------|---------|
 | `install-pre-gitops.sh` | Runs steps 00–04 (with optional flags) |
-| `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, NFD instance, GPU node label, cert-manager, Service Mesh 3 |
+| `05-apply-platform-prep.sh` | AWS GPU MachineSet, NFD/GPU operators, NFD instance, GPU node label, Service Mesh 3. Does not install cert-manager. |
 | `01-grant-openshift-gitops-rbac.sh` | Argo CD controller `cluster-admin` binding |
 | `02-bootstrap-namespaces.sh` | Labeled PoC namespaces |
 | `03-apply-cluster-configmap.sh` | `acs-ai-overwatch-cluster-config` ConfigMap |

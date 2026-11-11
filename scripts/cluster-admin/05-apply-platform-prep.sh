@@ -2,7 +2,8 @@
 # Pre-GitOps GPU / NFD prep from vendored workshop configs/.
 #
 # Default is safe for this PoC: AWS GPU MachineSet + NFD/GPU operators + NFD instance,
-# the GPU node label, cert-manager, and Service Mesh 3.
+# the GPU node label, and Service Mesh 3.
+# cert-manager Operator is already installed. Do not subscribe to it again.
 # Does NOT apply workshop ClusterPolicy or DataScienceCluster (Helm/GitOps owns those).
 set -euo pipefail
 
@@ -56,8 +57,9 @@ Vendored workshop overlays under configs/. Default (safe for this PoC):
   01-nvidia-gpu-operator/01 GPU operator
   01-nvidia-gpu-operator/02 NFD instance
   Label NVIDIA nodes nvidia.com/device-plugin.config=shared
-  03/.../11 cert-manager Operator          (LLMInferenceService TLS)
   03/.../12 servicemeshoperator3           (OGX prerequisite)
+
+cert-manager Operator is a cluster prerequisite. This script does not install it.
 
 Skipped by default (GitOps/Helm owns these):
 
@@ -326,11 +328,11 @@ else
   cluster_admin_info "Skipping 02-nvidia-gpu-workload (pass --smoke-test after GPUs are advertised)."
 fi
 
-# --- cert-manager + Service Mesh 3 (default) -------------------------------
-# cert-manager issues the TLS secret LLMInferenceService mounts.
-# Service Mesh 3 is the OGX prerequisite. Do not create a second Istio mesh.
+# --- Service Mesh 3 (default) -----------------------------------------------
+# cert-manager Operator is already installed. Do not apply another Subscription
+# or OperatorGroup. Service Mesh 3 is the OGX prerequisite. Do not create a
+# second Istio mesh.
 
-apply_overlay "${CONFIGS}/03-rhoai-operator-dependencies/11-cert-manager-operator"
 wait_for_csv_named cert-manager-operator openshift-cert-manager-operator
 wait_for_crd certificates.cert-manager.io
 
@@ -396,7 +398,7 @@ Platform prep finished (dry-run=${DRY_RUN}).
 
 GitOps still owns ClusterPolicy (time-slicing) and DataScienceCluster.
 NVIDIA nodes are labeled nvidia.com/device-plugin.config=shared when they exist.
-cert-manager and servicemeshoperator3 are subscribed.
+cert-manager Operator was already installed. servicemeshoperator3 is subscribed.
 Next:
   1. oc apply -k gitops/argocd/
   2. Wait for GPU operator pods (driver 2/2) after ClusterPolicy syncs:

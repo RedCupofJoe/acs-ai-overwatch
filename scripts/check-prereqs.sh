@@ -215,7 +215,7 @@ if have_cmd oc && oc whoami >/dev/null 2>&1; then
   if [[ "${cm_phase}" == "Succeeded" ]]; then
     pass "cert-manager Operator CSV Succeeded (required for LLMInferenceService TLS)"
   else
-    warn "cert-manager Operator is not Succeeded yet. 05-apply-platform-prep.sh installs it."
+    warn "cert-manager Operator is not Succeeded. It is a cluster prerequisite. Do not install a second copy."
   fi
   mesh_phase="$(csv_phase 'servicemeshoperator3')"
   if [[ "${mesh_phase}" == "Succeeded" ]]; then

@@ -373,22 +373,11 @@ rhoai:
     routeLabel: inference.opendatahub.io/gateway-access
     istioRev: openshift-gateway
     tlsSecretName: openshift-ai-inference-tls
-  # cert-manager issues the workload TLS secret LLMInferenceService mounts.
-  # Service Mesh 3 is the OGX prerequisite. Both are installed before the DSC.
+  # The cert-manager Operator for Red Hat OpenShift is already installed.
+  # Do not add a Subscription or OperatorGroup. A second group fails the CSV
+  # with TooManyOperatorGroups. enabled only allows Certificate CRs.
   certManager:
     enabled: true
-    namespace: cert-manager-operator
-    # Must stay `cert-manager-operator-og` with targetNamespaces set to this
-    # namespace. That is the group the console creates. A second group, or an
-    # empty spec (AllNamespaces), fails the CSV with TooManyOperatorGroups.
-    operatorGroup:
-      name: cert-manager-operator-og
-    subscription:
-      name: openshift-cert-manager-operator
-      channel: stable-v1
-      installPlanApproval: Automatic
-      source: redhat-operators
-      sourceNamespace: openshift-marketplace
   serviceMesh:
     enabled: true
     namespace: openshift-operators

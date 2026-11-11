@@ -1,6 +1,6 @@
 # RHOAI Operator Dependencies
 
-> **PoC:** `05-apply-platform-prep.sh` installs **11 cert-manager** and **12 Service Mesh 3** by default. LWS, JobSet, OpenTelemetry, and Cluster Observability still need `--with-rhoai-deps`. Skip Kueue (DSC `Removed`) and Tempo (observability chart) unless you pass `--with-kueue` / `--with-tempo`. See [configs/README.md](../README.md).
+> **PoC:** `05-apply-platform-prep.sh` installs **12 Service Mesh 3** by default. It does not install cert-manager. LWS, JobSet, OpenTelemetry, and Cluster Observability still need `--with-rhoai-deps`. Skip Kueue (DSC `Removed`) and Tempo (observability chart) unless you pass `--with-kueue` / `--with-tempo`. See [configs/README.md](../README.md).
 
 Installs operators and supporting configuration that Red Hat OpenShift AI depends on. These must be installed **before** the RHOAI operator.
 
@@ -14,7 +14,7 @@ RHOAI manages operands for many dependencies but does not install the underlying
 
 ## Takeaways
 
-- Install **cert-manager Operator** before Leader Worker Set if not already present on the cluster
+- Do not install a second **cert-manager Operator**. The cluster already has one. A second OperatorGroup fails the CSV with `TooManyOperatorGroups`.
 - Connectivity Link (Kuadrant) provides API gateway and Authorino-based auth for MaaS
 - Kueue manages job queueing and quota for distributed AI workloads
 - OpenTelemetry and Tempo support RHOAI observability; Cluster Observability Operator unifies monitoring
@@ -140,10 +140,13 @@ Configures TLS for Authorino using the OpenShift service serving certificate. Re
 
 ### 11 - cert-manager Operator
 
-Installs the cert-manager Operator for Red Hat OpenShift. `LLMInferenceService` mounts a cert-manager certificate, and the inference Gateway terminates TLS with secret `openshift-ai-inference-tls`.
+Do not install this operator from this repo. The cert-manager Operator for Red Hat OpenShift is already on the cluster (`openshift-cert-manager-operator` in `cert-manager-operator`). Applying another Subscription or OperatorGroup fails the CSV with `TooManyOperatorGroups`.
+
+Confirm the existing install:
 
 ```bash
-oc apply -k configs/03-rhoai-operator-dependencies/11-cert-manager-operator
+oc get csv -n cert-manager-operator openshift-cert-manager-operator
+oc get operatorgroup -n cert-manager-operator
 ```
 
 ### 12 - Service Mesh 3

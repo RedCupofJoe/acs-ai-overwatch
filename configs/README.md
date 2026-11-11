@@ -24,7 +24,7 @@ Default applies:
 1. `00-cluster-setup/05-aws-gpu-machineset` — one `g6.12xlarge` (4× L4), including label `nvidia.com/device-plugin.config=shared` on the node template. No-op on non-AWS (Job exits 0).
 2. `01-nvidia-gpu-operator/00` NFD operator, `01` GPU operator, `02` NFD instance (Helm does not create `NodeFeatureDiscovery`).
 3. Label any NVIDIA node that is already joined, and patch existing GPU MachineSets with the same label.
-4. `03/.../11-cert-manager-operator` and `12-servicemesh-operator` (LLMInferenceService TLS and the OGX prerequisite).
+4. `03/.../12-servicemesh-operator` (OGX prerequisite). cert-manager Operator is already installed and is not applied again.
 
 Default **skips**:
 
@@ -35,7 +35,7 @@ Default **skips**:
 
 ## What we changed vs upstream
 
-- OperatorGroup names match Helm: `nfd`, `nvidia-gpu-operator`, `redhat-ods-operator` (empty `spec`), cert-manager `cert-manager-operator-og`, Tempo `tempo-product`. One group per namespace.
+- OperatorGroup names match Helm: `nfd`, `nvidia-gpu-operator`, `redhat-ods-operator` (empty `spec`), Tempo `tempo-product`. One group per namespace. cert-manager keeps the OperatorGroup the cluster already has.
 - AWS MachineSet Job defaults: `INSTANCE_TYPE=g6.12xlarge`, `GPU_REPLICAS=1`, `ENABLE_GPU_AUTOSCALE=false` (workshop autoscaled 0–4 and never provisioned a node).
 
 This PoC uses **one `g6.12xlarge`** so four L4s exist. Time-slicing applies to every GPU on the labeled node and keeps the resource name `nvidia.com/gpu`.
