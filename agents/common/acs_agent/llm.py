@@ -22,27 +22,15 @@ def _llm_request_kwargs() -> dict[str, Any]:
 
 
 def _spiffe_jwt() -> str:
-    """Prefer a workload SVID when the SPIFFE socket is mounted. Fall back to the API key."""
+    """Read the JWT-SVID written by the OpenShift SPIFFE Helper. Fall back to the API key."""
     use_spiffe = os.getenv("LLM_USE_SPIFFE", "").strip().lower() in {"1", "true", "yes"}
     if not use_spiffe:
         return ""
     token_path = os.getenv("SPIFFE_JWT_PATH", "").strip()
-    if token_path and os.path.isfile(token_path):
-        token = open(token_path, encoding="utf-8").read().strip()
-        if token:
-            return token
-    if not os.getenv("SPIFFE_ENDPOINT_SOCKET", "").strip():
+    if not token_path or not os.path.isfile(token_path):
         return ""
-    try:
-        from pyspiffe.workloadapi.jwt_source import JwtSource
-
-        audience = {os.getenv("SPIFFE_AUDIENCE", "maas")}
-        with JwtSource() as source:
-            svid = source.fetch_svid(audience)
-            token = getattr(svid, "token", "") or getattr(svid, "token_str", "")
-            return str(token or "")
-    except Exception:
-        return ""
+    with open(token_path, encoding="utf-8") as handle:
+        return handle.read().strip()
 
 
 def _llm_http_client(**kwargs: Any) -> httpx.AsyncClient:

@@ -53,10 +53,8 @@ annotations:
       key: api-key
 - name: LLM_USE_SPIFFE
   value: "true"
-- name: SPIFFE_ENDPOINT_SOCKET
-  value: unix:///spiffe-workload-api/spire-agent.sock
-- name: SPIFFE_AUDIENCE
-  value: maas
+- name: SPIFFE_JWT_PATH
+  value: {{ printf "%s/%s" .Values.spiffe.certDir .Values.spiffe.jwtFile | quote }}
 - name: LLM_TRUST_PROXY
   value: "false"
 - name: NO_PROXY

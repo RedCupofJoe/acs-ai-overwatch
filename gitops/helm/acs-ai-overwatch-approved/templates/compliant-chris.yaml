@@ -49,14 +49,50 @@ spec:
               cpu: "1"
               memory: 512Mi
           volumeMounts:
+            - name: spiffe-svid
+              mountPath: {{ .Values.spiffe.certDir }}
+              readOnly: true
+        - name: spiffe-helper
+          image: {{ .Values.spiffe.helperImage }}
+          args:
+            - -config
+            - /etc/spiffe-helper/helper.conf
+          volumeMounts:
             - name: spiffe-workload-api
               mountPath: /spiffe-workload-api
+              readOnly: true
+            - name: spiffe-svid
+              mountPath: {{ .Values.spiffe.certDir }}
+            - name: spiffe-helper
+              mountPath: /etc/spiffe-helper
+              readOnly: true
+      initContainers:
+        - name: spiffe-helper-init
+          image: {{ .Values.spiffe.helperImage }}
+          args:
+            - -config
+            - /etc/spiffe-helper/helper.conf
+            - -daemon-mode=false
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
+            - name: spiffe-svid
+              mountPath: {{ .Values.spiffe.certDir }}
+            - name: spiffe-helper
+              mountPath: /etc/spiffe-helper
               readOnly: true
       volumes:
         - name: spiffe-workload-api
           csi:
             driver: csi.spiffe.io
             readOnly: true
+        - name: spiffe-svid
+          emptyDir:
+            medium: Memory
+        - name: spiffe-helper
+          configMap:
+            name: {{ .Values.spiffe.configMap }}
 ---
 apiVersion: v1
 kind: Service

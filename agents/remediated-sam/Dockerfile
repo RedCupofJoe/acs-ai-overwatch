@@ -28,7 +28,6 @@ RUN chmod 0755 /usr/local/bin/install-agent-runtime /usr/local/bin/install-openc
   && PY=/sandbox/.venv/bin/python \
   && if [ ! -x "$PY" ]; then PY=python3; fi \
   && install-agent-runtime "$PY" \
-  && "$PY" -m pip install --no-cache-dir pyspiffe \
   && chown -R sandbox:sandbox /opt/acs-agent /etc/openshell/agent /etc/openshell/policy /sandbox/.venv
 
 USER sandbox

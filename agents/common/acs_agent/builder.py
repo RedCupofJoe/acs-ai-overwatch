@@ -123,6 +123,23 @@ def _sandbox_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
     image = _runtime_image(dest)
     labels = _approved_labels(dest)
     runtime = os.getenv("SANDBOX_RUNTIME_CLASS", "").strip()
+    helper_image = os.getenv(
+        "SPIFFE_HELPER_IMAGE",
+        "registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1.2",
+    )
+    helper_mounts = [
+        {
+            "name": "spiffe-workload-api",
+            "mountPath": "/spiffe-workload-api",
+            "readOnly": True,
+        },
+        {"name": "spiffe-svid", "mountPath": "/run/spiffe-svid"},
+        {
+            "name": "spiffe-helper",
+            "mountPath": "/etc/spiffe-helper",
+            "readOnly": True,
+        },
+    ]
     pod_spec: dict[str, Any] = {
         "serviceAccountName": sa,
         "containers": [
@@ -155,10 +172,9 @@ def _sandbox_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
                     },
                     {"name": "LLM_USE_SPIFFE", "value": "true"},
                     {
-                        "name": "SPIFFE_ENDPOINT_SOCKET",
-                        "value": "unix:///spiffe-workload-api/spire-agent.sock",
+                        "name": "SPIFFE_JWT_PATH",
+                        "value": "/run/spiffe-svid/jwt_svid.token",
                     },
-                    {"name": "SPIFFE_AUDIENCE", "value": "maas"},
                     {
                         "name": "LLM_API_KEY",
                         "valueFrom": {
@@ -173,18 +189,41 @@ def _sandbox_manifests(dest: str) -> list[tuple[str, str, dict[str, Any]]]:
                 "readinessProbe": {"httpGet": {"path": "/healthz", "port": "http"}},
                 "volumeMounts": [
                     {
-                        "name": "spiffe-workload-api",
-                        "mountPath": "/spiffe-workload-api",
+                        "name": "spiffe-svid",
+                        "mountPath": "/run/spiffe-svid",
                         "readOnly": True,
                     }
                 ],
+            },
+            {
+                "name": "spiffe-helper",
+                "image": helper_image,
+                "args": ["-config", "/etc/spiffe-helper/helper.conf"],
+                "volumeMounts": helper_mounts,
+            },
+        ],
+        "initContainers": [
+            {
+                "name": "spiffe-helper-init",
+                "image": helper_image,
+                "args": [
+                    "-config",
+                    "/etc/spiffe-helper/helper.conf",
+                    "-daemon-mode=false",
+                ],
+                "volumeMounts": helper_mounts,
             }
         ],
         "volumes": [
             {
                 "name": "spiffe-workload-api",
                 "csi": {"driver": "csi.spiffe.io", "readOnly": True},
-            }
+            },
+            {"name": "spiffe-svid", "emptyDir": {"medium": "Memory"}},
+            {
+                "name": "spiffe-helper",
+                "configMap": {"name": os.getenv("SPIFFE_HELPER_CONFIGMAP", "spiffe-helper")},
+            },
         ],
     }
     if runtime:

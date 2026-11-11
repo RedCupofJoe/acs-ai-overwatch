@@ -48,6 +48,9 @@ spec:
     to:
       kind: ImageStreamTag
       name: {{ printf "%s:latest" $item.name | quote }}
-  triggers: []
+  # OpenShift starts a build when the BuildConfig is created. An empty
+  # trigger list disables that, so the deploy leaves :latest missing.
+  triggers:
+    - type: ConfigChange
 {{- end }}
 {{- end }}

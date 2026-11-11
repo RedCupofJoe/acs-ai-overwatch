@@ -27,6 +27,15 @@ agents:
 sandbox:
   runtimeClass: ""
 
+# OpenShift SPIFFE Helper from Zero Trust Workload Identity Manager.
+# Operator 1.1.3 does not publish a helper tag; 1.1.2 is the image in the registry.
+spiffe:
+  helperImage: registry.redhat.io/zero-trust-workload-identity-manager/spiffe-helper-rhel9:1.1.2
+  configMap: spiffe-helper
+  audience: maas
+  certDir: /run/spiffe-svid
+  jwtFile: jwt_svid.token
+
 maas:
   namespace: acs-maas
   gatewayService: maas-api
